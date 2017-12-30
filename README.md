@@ -21,7 +21,7 @@
 # Simple C library for simple programs.
 #
 
-## vmacstats
+## vlib
 --------------
 
 * [Overview](#overview)
