@@ -1,0 +1,55 @@
+#!/bin/sh
+#
+# Copyright (C) 2017 Vincent Sallaberry
+# vlib <https://github.com/vsallaberry/vlib>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+#
+############################################################################################
+#
+# Fallback make script in case 'VAR != cmd" or VAR ?= $(shell cmd) cause syntax error.
+# - On recent gnu make, "!=' is understood.
+# - On gnu make 3.81 '!=' is not understood but it does NOT cause syntax error.
+# - On {open,free,net}bsd $(shell cmd) is not understood but does NOT cause syntax error.
+# - On gnu make 3.82, '!=' causes syntax error, then on the moment only case where this
+#   script is needed.
+#
+# Use it as you would use 'make',
+# eg: ./make-fallback clean, make-fallback CFLAGS=-std=gnu99, ...
+#
+############################################################################################
+mydir=$(dirname $0); opwd="`pwd`"; cd "${mydir}"; mydir="`pwd`"; cd "${opwd}"
+mypath="${mydir}/$(basename $0)"
+test -z "${mymake}" && mymake="make"
+mytest=uname
+
+if tmp=`mktemp /tmp/Makefile.XXXXXXXX` && mv "${mydir}/Makefile" "${tmp}"; then
+    if ! printf "TMP\t!=${mytest}\nall:\n\t@echo \$(TMP)" | "${mymake}" -f - 2> /dev/null | grep -Eq "^$(${mytest})\$"; then
+        cat "${tmp}" | sed -e 's/^[a-zA-Z0-9_]*[[:space:]]*!=.*//' > "${mydir}/Makefile"
+    elif ! printf "TMP\t= \$(shell uname)\nall:\n\t@echo \$(TMP)" | "${mymake}" -f - 2> /dev/null | grep -Eq "^$(${mytest})\$"; then
+        cat "${tmp}" | sed -e 's/^[a-zA-Z0-9_]*[[:space:]]*\?=[[:space:]]*\$(shell.*//' > "${mydir}/Makefile"
+    else
+        cat "${tmp}" > "${mydir}/Makefile"
+    fi
+    touch -r "${tmp}" "${mydir}/Makefile"
+    #grep -A4 '^cmd_CC' "${mydir}/Makefile"
+
+    "${mymake}" MAKE="${mypath}" $@
+
+    mv "${tmp}" "${mydir}/Makefile"
+else
+    echo "error: cannot write in /tmp or on ${mydir}/Makefile."
+fi
+
