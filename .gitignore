@@ -5,3 +5,4 @@
 *.a
 *.dSYM/
 build/
+_src_.c
