@@ -28,18 +28,31 @@
 #
 # Use it as you would use 'make',
 # eg: ./make-fallback clean, make-fallback CFLAGS=-std=gnu99, ...
+# 'make-fallback -C <folder>' is supported but 'make-fallback -f <makefile>' is not.
 #
 ############################################################################################
-mydir=$(dirname $0); opwd="`pwd`"; cd "${mydir}"; mydir="`pwd`"; cd "${opwd}"
+mydir=$(dirname $0); curpwd="`pwd`"; cd "${mydir}"; mydir="`pwd`"; cd "${curpwd}"
 mypath="${mydir}/$(basename $0)"
 test -z "${mymake}" && mymake="make"
-mymakefile="${opwd}/Makefile"
 mytest=uname
 
+# By default the makefile is in current folder, but take care of make -C <folder>
+# -C options are concatenated, eg: make -C / -C etc is equivalent to make -C /etc.
+mymakefile=
+changedir=
+for arg in $@; do
+    [ -n "${changedir}" ] && mymakefile="${mymakefile}${arg}" && changedir=
+    [ "${arg}" = "-C" ] && changedir=yes
+done
+[ -z "${mymakefile}" ] && mymakefile="${curpwd}/Makefile" || mymakefile="${mymakefile}/Makefile"
+
+# Backup makefile, and try to patch it, preserviing timestamps, make, then restore it.
 if tmp=`mktemp /tmp/Makefile.XXXXXXXX` && mv "${mymakefile}" "${tmp}"; then
     if ! printf "TMP\t!=${mytest}\nall:\n\t@echo \$(TMP)" | "${mymake}" -f - 2> /dev/null | grep -Eq "^$(${mytest})\$"; then
+        # make does not understand bsd variable command substitution 'var!=cmd'. remove them.
         cat "${tmp}" | sed -e 's/^[a-zA-Z0-9_]*[[:space:]]*!=.*//' > "${mymakefile}"
     elif ! printf "TMP\t= \$(shell uname)\nall:\n\t@echo \$(TMP)" | "${mymake}" -f - 2> /dev/null | grep -Eq "^$(${mytest})\$"; then
+        # make does not understand gnu variable command substitution 'var=$(shell cmd)'. remove them.
         cat "${tmp}" | sed -e 's/^[a-zA-Z0-9_]*[[:space:]]*\?=[[:space:]]*\$(shell.*//' > "${mymakefile}"
     else
         cat "${tmp}" > "${mymakefile}"
