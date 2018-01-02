@@ -41,10 +41,10 @@ INCDIRS 	= include
 # Where targets are created (OBJs, BINs, ...). Eg: '.' or 'build'. ONLY 'SRCDIR' is supported!
 BUILDDIR	= $(SRCDIR)
 
-# Name of the Package (DISTNAME, BIN, LIB depends on it)
+# Name of the Package (DISTNAME, BIN and LIB depends on it)
 NAME		= vlib
 
-# Binary name and package name (prefix with '$(BUILDDIR)/' to put it in build folder).
+# Binary name and library name (prefix with '$(BUILDDIR)/' to put it in build folder).
 # Fill LIB and set BIN empty to create a library, or clear LIB and set BIN to create a binary.
 BIN		=
 LIB		= lib$(NAME).a
@@ -67,7 +67,7 @@ FLAGS_OBJC	=
 # $(sys) is lowcase(`uname`), eg: LIBS_darwin	= -framework IOKit -framework Foundation
 
 ############################################################################################
-# GENERIC PART
+# GENERIC PART - in most cases no need to change anything below until end of file
 ############################################################################################
 
 AR		= ar
@@ -232,6 +232,7 @@ ARFLAGS		= r
 ALLMAKEFILES	= Makefile
 LICENSE		= LICENSE
 README		= README.md
+CLANGCOMPLETE	= .clang_complete
 DISTNAME	= $(NAME)_$(VERSION)_$(TIMESTAMP)
 SRCINC_CONTENT	= $(LICENSE) $(README) $(tmp_SRC) $(INCLUDES) $(ALLMAKEFILES)
 
@@ -247,7 +248,7 @@ DEBUGDIRS	= $(SUBDIRS:=-debug)
 ############################################################################################
 
 # --- all : build all
-all: $(BUILDDIRS) $(BIN) $(LIB)
+all: $(BUILDDIRS) $(BIN) $(LIB) gentags
 
 $(SUBDIRS): $(BUILDDIRS)
 $(BUILDDIRS):
@@ -272,7 +273,7 @@ $(DISTCLEANDIRS):
 
 # --- debug : set DEBUG flag in build.h and rebuild
 debug: $(DEBUGDIRS)
-	@{ $(GREP) -Ev '^[[:space:]]*\#[[:space:]]*define[[:space:]]+(_DEBUG|_TEST)([[:space:]]|$$)' $(BUILDINC) $(NO_STDERR); \
+	@{ $(GREP) -Ev '^[[:space:]]*\#[[:space:]]*define[[:space:]]+(APP_DEBUG|APP_TEST)([[:space:]]|$$)' $(BUILDINC) $(NO_STDERR); \
 		$(PRINTF) "#define APP_DEBUG\n#define APP_TEST\n"; } > $(BUILDINC).tmp && $(MV) $(BUILDINC).tmp $(BUILDINC)
 	@$(PRINTF) "$(NAME): debug enabled ('make distclean' to disable it).\n"
 	@$(MAKE)
@@ -292,7 +293,7 @@ test: $(TESTDIRS) all
 $(SUBLIBS): $(BUILDDIRS)
 $(BIN): $(OBJ) $(SUBLIBS)
 	$(CC) $(OBJ) $(LDFLAGS) -o $(BIN)
-	@$(PRINTF) "$(NAME): increment build number\n"
+	@$(PRINTF) "$(NAME): build done, increment build number\n"
 	@$(AWK) '{if(/^[ \t]*#define[ \t][ \t]*APP_BUILD_NUMBER/) \
 		    {print $$1 " " $$2 " " ($$3 + 1);}else print $$0;}' \
 		$(BUILDINC) > $(BUILDINC).tmp \
@@ -301,7 +302,7 @@ $(BIN): $(OBJ) $(SUBLIBS)
 $(LIB): $(OBJ) $(SUBLIBS)
 	$(AR) $(ARFLAGS) $(LIB) $(OBJ)
 	$(RANLIB) $(LIB)
-	@$(PRINTF) "$(NAME): increment build number\n"
+	@$(PRINTF) "$(NAME): build done, increment build number\n"
 	@$(AWK) '{if(/^[ \t]*#define[ \t][ \t]*APP_BUILD_NUMBER/) \
 		    {print $$1 " " $$2 " " ($$3 + 1);}else print $$0;}' \
 		$(BUILDINC) > $(BUILDINC).tmp \
@@ -329,13 +330,13 @@ dist:
 	@$(MKDIR) -p "$(DISTDIR)/$(DISTNAME)"
 	@cp -Rf . "$(DISTDIR)/$(DISTNAME)"
 	@$(RM) -R `$(FIND) "$(DISTDIR)/$(DISTNAME)" -type d -and \( -name '.git' -or 'CVS' -or -name '.hg' -or -name '.svn' \) $(NO_STDERR)`
-	@$(PRINTF) "building dist...\n"
+	@$(PRINTF) "$(NAME): building dist...\n"
 	@cd "$(DISTDIR)/$(DISTNAME)" && $(MAKE) distclean && $(MAKE) && $(MAKE) distclean
 	@cd "$(DISTDIR)" && { $(TAR) cJf "$(DISTNAME).tar.xz" "$(DISTNAME)" && targz=true || targz=false; \
      			      $(TAR) czf "$(DISTNAME).tar.gz" "$(DISTNAME)" || $${targz}; }
 	@#cd "$(DISTDIR)" && ($(ZIP) -q -r "$(DISTNAME).zip" "$(DISTNAME)" || true)
 	@$(RM) -R "$(DISTDIR)/$(DISTNAME)"
-	@$(PRINTF) "archives created: $$(ls $(DISTDIR)/$(DISTNAME).*)\n"
+	@$(PRINTF) "$(NAME): archives created: $$(ls $(DISTDIR)/$(DISTNAME).*)\n"
 
 $(SRCINC): $(SRCINC_CONTENT)
 	@# Generate $(SRCINC) containing all sources.
@@ -366,13 +367,25 @@ $(SRCINC): $(SRCINC_CONTENT)
 	     $(RM) -f $(SRCINC).*
 
 $(BUILDINC):
-	@$(TEST) -e $(BUILDINC) || $(PRINTF) "#define APP_BUILD_NUMBER 0\n#define APP_VERSION 0.1\n#define INCLUDE_SOURCE\n" > $(BUILDINC)
+	@echo "$(NAME): create $(BUILDINC)"
+	@$(PRINTF) "#define APP_BUILD_NUMBER 0\n#define APP_VERSION 0.1\n#define INCLUDE_SOURCE\n" > $(BUILDINC)
 
 $(LICENSE):
-	@$(TEST) -e $(LICENSE) || $(PRINTF) "GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007 - http://www.gnu.org/licenses/\n" > $(LICENSE)
+	@echo "$(NAME): create $(LICENSE)"
+	@$(PRINTF) "GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007 - http://www.gnu.org/licenses/\n" > $(LICENSE)
 
 $(README):
-	@$(TEST) -e $(README) || $(PRINTF) "## $(NAME)\n---------------\n\n* [Overview](#overview)\n* [License](#license)\n\n## Overview\nTODO !\n\n## License\nGPLv3 or later. See LICENSE file.\n" > $(README)
+	@echo "$(NAME): create $(README)"
+	@$(PRINTF) "## $(NAME)\n---------------\n\n* [Overview](#overview)\n* [License](#license)\n\n## Overview\nTODO !\n\n## License\nGPLv3 or later. See LICENSE file.\n" > $(README)
+
+gentags: $(CLANGCOMPLETE)
+$(CLANGCOMPLETE): $(ALLMAKEFILES)
+	@echo "$(NAME): update $(CLANGCOMPLETE)"
+	@src=`echo $(SRCDIR) | $(SED) -e 's|\.|\\\.|g'`; $(TEST) -e $(CLANGCOMPLETE) \
+		&& $(SED) -e "s%^[^#]*-I$$src[[:space:]].*%$(CPPFLAGS) %" -e "s%^[^#]*-I$$src$$%$(CPPFLAGS)%" \
+	             "$(CLANGCOMPLETE)" $(NO_STDERR)  > "$(CLANGCOMPLETE).tmp" \
+	        && mv "$(CLANGCOMPLETE).tmp" "$(CLANGCOMPLETE)" \
+	    || echo "$(CPPFLAGS)" > $(CLANGCOMPLETE)
 
 info:
 	@echo "UNAME_SYS        : $(UNAME_SYS)"
@@ -393,7 +406,7 @@ info:
 	@echo "CFLAGS           : $(CFLAGS)"
 	@echo "CXXFLAGS         : $(CXXFLAGS)"
 	@echo "OBJCFLAGS        : $(OBJCFLAGS)"
-	@echo "CPPCFLAGS        : $(CPPFLAGS)"
+	@echo "CPPFLAGS         : $(CPPFLAGS)"
 	@echo "LDFLAGS          : $(LDFLAGS)"
 	@echo "SRCDIR           : $(SRCDIR)"
 	@echo "DISTDIR          : $(DISTDIR)"
@@ -427,5 +440,5 @@ info:
 .PHONY: subdirs $(CLEANDIRS)
 .PHONY: subdirs $(DISTCLEANDIRS)
 .PHONY: subdirs $(DEBUGDIRS)
-.PHONY: all clean distclean dist test info debug install
+.PHONY: all clean distclean dist test info debug install gentags
 

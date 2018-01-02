@@ -6,3 +6,4 @@
 *.dSYM/
 build/
 _src_.c
+.clang_complete
