@@ -26,9 +26,11 @@
 #include "vlib/options.h"
 #include "vlib/util.h"
 
+#include "version.h"
+
 /* ** OPTIONS *********************************************************************************/
 
-#define LOG_USAGE_OPT_PAD 30
+#define OPT_USAGE_OPT_PAD 30
 
 static int is_valid_short_opt(int c) {
     return c && isascii(c) && isgraph(c);
@@ -69,7 +71,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config) {
     if (exit_status != 0) {
         fprintf(out, "\n");
     }
-    fprintf(out, "%s %s\n\n", start_name, opt_config->version_string);
+    fprintf(out, "%s  - %s\n\n", start_name, opt_config->version_string);
     fprintf(out, "Usage: %s [<options>] [<arguments>]\n", start_name);
     for (int i_opt = 0; opt_desc[i_opt].short_opt; i_opt++) {
     	int n_printed = 0;
@@ -90,7 +92,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config) {
 	        n_printed += fprintf(out, " %s", opt_desc[i_opt].arg);
 	    }
 
-        if (n_printed > LOG_USAGE_OPT_PAD) {
+        if (n_printed > OPT_USAGE_OPT_PAD) {
             fputc('\n', out);
             n_printed = 0;
         }
@@ -100,7 +102,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config) {
             continue ;
         }
         while ((len = strtok_ro_r(&token, "\n", &next, NULL, 0)) > 0) {
-            while (n_printed++ < LOG_USAGE_OPT_PAD) {
+            while (n_printed++ < OPT_USAGE_OPT_PAD) {
 	            fputc(' ', out);
 	        }
             if (!eol_shift)
@@ -198,5 +200,15 @@ int opt_parse_options(const opt_config_t * opt_config) {
     return 1;
 }
 
+const char * vlib_get_version() {
+    return BUILD_APPNAME " v" APP_VERSION " built on " __DATE__ ", " __TIME__ " \
+           from git-rev " BUILD_GITREV;
+}
 
+#ifndef APP_INCLUDE_SOURCE
+const char *const* vlib_get_source() {
+    static const char * const source = { "vlib source not included in this build.\n", NULL };
+    return source;
+}
+#endif
 

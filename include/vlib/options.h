@@ -87,21 +87,18 @@ int             opt_usage(int exit_status, const opt_config_t * opt_config);
  *  0 on SUCCESS, with exit required
  *  < 0 on ERROR
  */
-int opt_parse_options(const opt_config_t * opt_config);
+int             opt_parse_options(const opt_config_t * opt_config);
 
-#ifndef SRC_PATH
-# define SRC_PATH "."
-#endif
-#ifndef BUILD
-# define BUILD "0"
-#endif
-#ifndef VERSION
-# define VERSION "0.0_beta-115"
-#endif
+/**
+ * Get vlib version
+ */
+const char * vlib_get_version();
 
-#define OPT_VERSION_STR VERSION " build #" BUILD \
-                            " on " __DATE__ ", " __TIME__ \
-                            " from " SRC_PATH "/" __FILE__
+/**
+ * Get vlib source code
+ * @return array of const char *, terminated by NULL.
+ */
+const char *const* vlib_get_source();
 
 #ifdef __cplusplus
 }
