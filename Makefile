@@ -227,7 +227,7 @@ GENCLASSES	:= $(YACCCLASSES)
 cmd_FIND_NOGEN	= echo $(GENSRC) $(GENINC) $(GENJAVA) \
 		       "$$($(FIND) $(SRCDIR) -mindepth 2 -name 'Makefile' \
 		           | $(SED) -e 's|\([^[:space:]]*\)/[^[:space:]]*|\1/*|g')" \
-		  | $(SED) -e 's|\([^[:space:]]*\)|-and -not -path "\1"|g' || true
+		  | $(SED) -e 's|\([^[:space:]]*\)|-and \! -path "\1"|g' || true
 tmp_FIND_NOGEN	!= $(cmd_FIND_NOGEN)
 tmp_FIND_NOGEN	?= $(shell $(cmd_FIND_NOGEN))
 find_AND_NOGEN	:= $(tmp_FIND_NOGEN)
@@ -244,8 +244,8 @@ GENINC		:= $(GENINC) $(JCNIINC)
 CLASSES		:= $(JAVASRC:.java=.class)
 
 # Other non-generated sources and headers. Extension must be in low-case.
-# find_AND_NOGEN2	:= $(find_AND_NOGEN) `echo $(JCNIINC) | $(SED) -e 's|\([^[:space:]]*\)|-and -not -path "\1"|g'`
-cmd_FIND_NOGEN2	= echo $(JCNIINC) | $(SED) -e 's|\([^[:space:]]*\)|-and -not -path "\1"|g'
+# find_AND_NOGEN2	:= $(find_AND_NOGEN) `echo $(JCNIINC) | $(SED) -e 's|\([^[:space:]]*\)|-and \! -path "\1"|g'`
+cmd_FIND_NOGEN2	= echo $(JCNIINC) | $(SED) -e 's|\([^[:space:]]*\)|-and \! -path "\1"|g'
 tmp_FIND_NOGEN2	!= $(cmd_FIND_NOGEN2)
 tmp_FIND_NOGEN2	?= $(shell $(cmd_FIND_NOGEN2))
 find_AND_NOGEN2	:= $(tmp_FIND_NOGEN2)
@@ -331,16 +331,16 @@ UNAME_ARCH	:= $(tmp_UNAME_ARCH)
 # Basic yacc/bison binary search
 #cmd_YACC	= which yacc bison $(NO_STDERR) | $(HEADN1)
 # Search bison 3 or later, fallback on yacc, bison.
-cmd_YACC	= { for bin in $$(which -a bison); do \
+cmd_YACC	= { for bin in $$($(WHICH) -a bison $(NO_STDERR)); do \
 		      ver="$$($$bin -V 2>&1 | grep -E '[0-9]+(\.[0-9]+)+' \
 		                            | sed -Ee 's/.*[[:space:]]+([0-9]*\.[0-9.]*).*/\1/' \
 		                            | awk -F '.' '{ print $$1*1000000 + $$2*10000 + $$3*100 + $$4*1 }')"; \
-		  $(TEST) $$ver -ge 03000000 && echo $$bin && break; done; which yacc bison; } | $(HEADN1)
+		  $(TEST) $$ver -ge 03000000 && echo $$bin && break; done; $(WHICH) yacc bison $(NO_STDERR); } | $(HEADN1)
 tmp_YACC	!= $(cmd_YACC)
 tmp_YACC	?= $(shell $(cmd_YACC))
 YACC		:= $(tmp_YACC)
 
-cmd_LEX		= which lex flex $(NO_STDERR) | $(HEADN1)
+cmd_LEX		= $(WHICH) lex flex $(NO_STDERR) | $(HEADN1)
 tmp_LEX		!= $(cmd_LEX)
 tmp_LEX		?= $(shell $(cmd_LEX))
 LEX		:= $(tmp_LEX)
@@ -525,7 +525,7 @@ $(YACCGENJAVA): $(ALLMAKEFILES)
 dist:
 	@$(MKDIR) -p "$(DISTDIR)/$(DISTNAME)"
 	@cp -Rf . "$(DISTDIR)/$(DISTNAME)"
-	@$(RM) -R `$(FIND) "$(DISTDIR)/$(DISTNAME)" -type d -and \( -name '.git' -or 'CVS' -or -name '.hg' -or -name '.svn' \) $(NO_STDERR)`
+	@$(RM) -R `$(FIND) "$(DISTDIR)/$(DISTNAME)" -type d -and \( -name '.git' -or -name 'CVS' -or -name '.hg' -or -name '.svn' \) $(NO_STDERR)`
 	@$(PRINTF) "$(NAME): building dist...\n"
 	@cd "$(DISTDIR)/$(DISTNAME)" && $(MAKE) distclean && $(MAKE) && $(MAKE) distclean
 	@cd "$(DISTDIR)" && { $(TAR) cJf "$(DISTNAME).tar.xz" "$(DISTNAME)" && targz=true || targz=false; \
