@@ -207,7 +207,7 @@ const char * vlib_get_version() {
 
 #ifndef APP_INCLUDE_SOURCE
 const char *const* vlib_get_source() {
-    static const char * const source = { "vlib source not included in this build.\n", NULL };
+    static const char * const source[] = { "vlib source not included in this build.\n", NULL };
     return source;
 }
 #endif
