@@ -429,7 +429,7 @@ $(DISTCLEANDIRS):
 	cd $(@:-distclean=) && $(MAKE) distclean
 
 # --- debug : set DEBUG flag in build.h and rebuild
-debug: $(DEBUGDIRS)
+debug: update-$(BUILDINC) $(DEBUGDIRS)
 	@{ $(GREP) -Ev '^[[:space:]]*\#[[:space:]]*define[[:space:]]+(BUILD_DEBUG|BUILD_TEST)([[:space:]]|$$)' $(BUILDINC) $(NO_STDERR); \
 		$(PRINTF) "#define BUILD_DEBUG\n#define BUILD_TEST\n"; } > $(BUILDINC).tmp && $(MV) $(BUILDINC).tmp $(BUILDINC)
 	@$(PRINTF) "$(NAME): debug enabled ('make distclean' to disable it).\n"
