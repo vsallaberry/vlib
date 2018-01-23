@@ -519,11 +519,11 @@ $(YACCGENJAVA): $(ALLMAKEFILES) $(BUILDINC)
 .class.hh:
 	$(GCJH) $(JHFLAGS) $(FLAGS_GCJH_$<) $(FLAGS_GCJH_$(SRCDIR)/$<) $< -o $@
 .l.c:
-	$(LEX) $(LFLAGS) $(FLAGS_LEX_$<) $(FLAGS_LEX_$(SRCDIR)/$<) -o $@ $<
+	$(LEX) $(LFLAGS) $(FLAGS_LEX_$<) $(FLAGS_LEX_$(SRCDIR)/$<) -o$@ $<
 .ll.cc:
-	$(LEX) $(LCXXFLAGS) $(FLAGS_LEX_$<) $(FLAGS_LEX_$(SRCDIR)/$<) -o $@ $<
+	$(LEX) $(LCXXFLAGS) $(FLAGS_LEX_$<) $(FLAGS_LEX_$(SRCDIR)/$<) -o$@ $<
 .llj.java:
-	$(LEX) $(LJFLAGS) $(FLAGS_LEX_$<) $(FLAGS_LEX_$(SRCDIR)/$<) -o $@ $<
+	$(LEX) $(LJFLAGS) $(FLAGS_LEX_$<) $(FLAGS_LEX_$(SRCDIR)/$<) -o$@ $<
 .y.c:
 	$(YACC) $(YFLAGS) $(FLAGS_YACC_$<) $(FLAGS_YACC_$(SRCDIR)/$<) -o $@ $<
 .yy.cc:
