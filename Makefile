@@ -207,10 +207,13 @@ find_AND_SYSDEP	= -and \( \! -path '$(SRCDIR)/$(SYSDEPDIR)/*' -or -path '$(SRCDI
 #   - .l,.ll included if LEX is found, .y,.yy included if YACC is found, .yyj included
 #     if BISON3 AND ((GCJ and BIN are defined) OR (JAR defined)).
 #   - yacc generates by default headers for lexer, therefore lexer files depends on parser files.
-cmd_YACCSRC	= [ -n "$(YACC)" ] && $(FIND) $(SRCDIR) \( -name '*.y' -or -name '*.yy' \) $(find_AND_SYSDEP) | $(SED) -e 's|^\./||' || true
-cmd_LEXSRC	= [ -n "$(LEX)" ] && $(FIND) $(SRCDIR) \( -name '*.l' -or -name '*.ll' \) $(find_AND_SYSDEP) | $(SED) -e 's|^\./||' || true
+cmd_YACCSRC	= [ -n "$(YACC)" ] && $(FIND) $(SRCDIR) \( -name '*.y' -or -name '*.yy' \) \
+		  $(find_AND_SYSDEP) $(NO_STDERR) | $(SED) -e 's|^\./||' || true
+cmd_LEXSRC	= [ -n "$(LEX)" ] && $(FIND) $(SRCDIR) \( -name '*.l' -or -name '*.ll' \) \
+		  $(find_AND_SYSDEP) $(NO_STDERR) | $(SED) -e 's|^\./||' || true
 cmd_YACCJAVA	= [ -n "$(BIN)" ] && [ -n "$(GCJ)" ] || [ -n "$(JAR)" ] \
-		  && [ -n "$(BISON3)" ] && $(FIND) $(SRCDIR) -name '*.yyj' $(find_AND_SYSDEP) | $(SED) -e 's|^\./||' || true
+		  && [ -n "$(BISON3)" ] && $(FIND) $(SRCDIR) -name '*.yyj' \
+		                           $(find_AND_SYSDEP) $(NO_STDERR) | $(SED) -e 's|^\./||' || true
 # METASRC variable, filled from the 'find' command (cmd_{YACC,LEX,..}SRC) defined above.
 tmp_YACCSRC	!= $(cmd_YACCSRC)
 tmp_YACCSRC	?= $(shell $(cmd_YACCSRC))
@@ -254,7 +257,8 @@ find_AND_NOGEN	:= $(tmp_FIND_NOGEN)
 # Search non-generated sources and headers. Extensions must be in low-case.
 # Include java only if a JAR is defined as output or if BIN and GCJ are defined.
 cmd_JAVASRC	= [ -n "$(BIN)" ] && [ -n "$(GCJ)" ] || [ -n "$(JAR)" ] \
-		  && $(FIND) $(SRCDIR) \( -name '*.java' \) $(find_AND_SYSDEP) $(find_AND_NOGEN) | $(SED) -e 's|^\./||' || true
+		  && $(FIND) $(SRCDIR) \( -name '*.java' \) $(find_AND_SYSDEP) \
+		             $(find_AND_NOGEN) $(NO_STDERR) | $(SED) -e 's|^\./||' || true
 # JAVASRC variable, filled from the 'find' command (cmd_JAVA) defined above.
 tmp_JAVASRC	!= $(cmd_JAVASRC)
 tmp_JAVASRC	?= $(shell $(cmd_JAVASRC))
@@ -272,11 +276,12 @@ tmp_FIND_NOGEN2	?= $(shell $(cmd_FIND_NOGEN2))
 find_AND_NOGEN2	:= $(tmp_FIND_NOGEN2)
 # Other non-generated sources and headers. Extension must be in low-case.
 cmd_SRC		= $(FIND) $(SRCDIR) \( -name '*.c' -or -name '*.cc' -or -name '*.cpp' -or -name '*.m' -or -name '*.mm' \) \
-		  $(find_AND_SYSDEP) $(find_AND_NOGEN) -and \! -path '$(SRCINC)' -and \! -path './$(SRCINC)' | $(SED) -e 's|^\./||'
+		  $(find_AND_SYSDEP) $(find_AND_NOGEN) -and \! -path '$(SRCINC)' -and \! -path './$(SRCINC)' \
+		  $(NO_STDERR) | $(SED) -e 's|^\./||'
 cmd_INCLUDES	= $(FIND) $(INCDIRS) $(SRCDIR) \( -name '*.h' -or -name '*.hh' -or -name '*.hpp' \) \
 		  $(find_AND_SYSDEP) $(find_AND_NOGEN) $(find_AND_NOGEN2) \
 		  -and \! -path $(VERSIONINC) -and \! -path ./$(VERSIONINC) \
-		  -and \! -path $(BUILDINC) -and \! -path ./$(BUILDINC) | $(SED) -e 's|^\./||'
+		  -and \! -path $(BUILDINC) -and \! -path ./$(BUILDINC) $(NO_STDERR) | $(SED) -e 's|^\./||'
 
 # SRC variable, filled from the 'find' command (cmd_SRC) defined above.
 tmp_SRC		!= $(cmd_SRC)
@@ -574,14 +579,14 @@ $(CLASSES): $(ALLMAKEFILES) $(BUILDINC)
 .y.c:
 	$(YACC) $(YFLAGS) $(FLAGS_YACC_$<) -o $@ $<
 	@case " $(YFLAGS) $(FLAGS_YACC_$<) " in *" -d "*) \
-	     if [ ! -e "$(<:.c=.h)" ]; then [ -e "$(@D)/y.tab.c" ] && $(MV) "$(@D)/y.tab.c" "$(@:.c=.h)"; fi ;; \
+	     if [ -e "$(@D)/y.tab.h" ]; then $(MV) "$(@D)/y.tab.h" "$(@:.c=.h)"; fi ;; \
 	 esac
 .yy.cc:
 	$(YACC) $(YCXXFLAGS) $(FLAGS_YACC_$<) -o $@ $<
 	@case " $(YFLAGS) $(FLAGS_YACC_$<) " in *" -d "*) \
-	     if [ ! -e "$(@:.cc=.hh)" ]; then [ -e "$(@D)/y.tab.c" ] && $(MV) "$(@D)/y.tab.c" "$(@:.cc=.hh)" \
-	                                      || [ -e "$(@:.cc=.h)" ] && $(MV) "$(@:.cc=.h)" "$(@:.cc=.hh)"; \
-	     fi ;; esac
+	     if [ -e "$(@:.cc=.h)" ]; then $(MV) "$(@:.cc=.h)" "$(@:.cc=.hh)"; \
+	     elif [ -e "$(@D)/y.tab.h" ]; then $(MV) "$(@D)/y.tab.h" "$(@:.cc=.hh)"; fi; \
+	 esac
 .yyj.java:
 	$(YACC) $(YJFLAGS) $(FLAGS_YACC_$<) -o $@ $<
 .y.h:
