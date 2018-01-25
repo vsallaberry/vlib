@@ -83,7 +83,7 @@ FLAGS_CXX	= -D_GNU_SOURCE
 FLAGS_OBJC	= -std=c99
 FLAGS_OBJCXX	=
 FLAGS_GCJ	=
-# FLAGS_<lang>_<file> is specific to one file (eg:'FLAGS_CXX_./Big.cc=-O0','FLAGS_C_src/a.c=-O1')
+# FLAGS_<lang>_<file> is specific to one file (eg:'FLAGS_CXX_Big.cc=-O0','FLAGS_C_src/a.c=-O1')
 
 # System specific flags (WARN_$(sys),OPTI_$(sys),DEBUG_$(sys),LIBS_$(sys),INCS_$(sys))
 # $(sys) is lowcase(`uname`), eg: 'LIBS_darwin=-framework IOKit -framework Foundation'
@@ -127,8 +127,8 @@ NO_STDOUT	= > /dev/null
 
 ############################################################################################
 # About shell commands execution in this Makefile:
-# - On recent gnu make, "!=' is understood.
-# - On gnu make 3.81 '!=' is not understood but it does NOT cause syntax error.
+# - On recent gnu make (>=4.0 i guess), "!=' is understood.
+# - On gnu make 3.81, '!=' is not understood but it does NOT cause syntax error.
 # - On {open,free,net}bsd $(shell cmd) is not understood but does NOT cause syntax error.
 # - On gnu make 3.82, '!=' causes syntax error, then it is at the moment only case where
 #   make-fallback is needed (make-fallback removes lines which cannot be parsed).
@@ -139,8 +139,8 @@ NO_STDOUT	= > /dev/null
 ############################################################################################
 
 # Important to prefix with ., to make VERSIONINC and BUILDINC excluded from include search.
-BUILDINC	= ./build.h
-VERSIONINC	= ./version.h
+BUILDINC	= build.h
+VERSIONINC	= version.h
 SYSDEPDIR	= sysdeps
 
 # SRCINC containing source code is included if APP_INCLUDE_SOURCE is defined in VERSIONINC.
@@ -149,7 +149,7 @@ SRCINCDIR	= $(BUILDDIR)
 
 cmd_SRCINC	= ! $(TEST) -e $(VERSIONINC) \
 		  || $(GREP) -Eq '^[[:space:]]*\#[[:space:]]*define APP_INCLUDE_SOURCE([[:space:]]|$$)' \
-	                                $(VERSIONINC) $(NO_STDERR) && echo $(SRCINCDIR)/$(SRCINCNAME) || true
+	                                $(VERSIONINC) $(NO_STDERR) && echo $(SRCINCDIR)/$(SRCINCNAME) | $(SED) -e 's|^\./||' || true
 tmp_SRCINC	!= $(cmd_SRCINC)
 tmp_SRCINC	?= $(shell $(cmd_SRCINC))
 SRCINC		:= $(tmp_SRCINC)
@@ -172,14 +172,14 @@ MACROS		= $(MACROS_$(RELEASE_MODE))
 cmd_YACC	= { for bin in $$($(WHICH) -a bison $(YACC) $(NO_STDERR)); do \
 		      ver="$$($$bin -V 2>&1 | $(AWK) -F '.' '/[0-9]+(\.[0-9]+)+/{$$0=substr($$0,match($$0,/[0-9]+(\.[0-9]+)+/));\
 		                                                                 print $$1*1000000 + $$2*10000 + $$3*100 + $$4*1 }')"; \
-		      $(TEST) $$ver -ge 03000000 && echo "$${bin}._have_bison3_" && break; done; $(WHICH) $(YACC) bison yacc $(NO_STDERR); } | $(HEADN1)
+		      $(TEST) $$ver -ge 03000000 $(NO_STDERR) && echo "$${bin}._have_bison3_" && break; done; $(WHICH) $(YACC) bison yacc $(NO_STDERR); } | $(HEADN1)
 tmp_YACC	!= $(cmd_YACC)
 tmp_YACC	?= $(shell $(cmd_YACC))
 YACC		:= $(tmp_YACC)
 BISON3		:= $(YACC)
 YACC		:= $(YACC:._have_bison3_=)
-BISON3		:= $(BISON3:$(YACC)=)
-BISON3		:= $(BISON3:._have_bison3_=)
+BISON3$(YACC)._have_bison3_ := $(YACC)
+BISON3		:= $(BISON3$(BISON3))
 
 # Search flex, lex.
 cmd_LEX		= $(WHICH) flex lex $(NO_STDERR) | $(HEADN1)
@@ -207,10 +207,10 @@ find_AND_SYSDEP	= -and \( \! -path '$(SRCDIR)/$(SYSDEPDIR)/*' -or -path '$(SRCDI
 #   - .l,.ll included if LEX is found, .y,.yy included if YACC is found, .yyj included
 #     if BISON3 AND ((GCJ and BIN are defined) OR (JAR defined)).
 #   - yacc generates by default headers for lexer, therefore lexer files depends on parser files.
-cmd_YACCSRC	= [ -n "$(YACC)" ] && $(FIND) $(SRCDIR) \( -name '*.y' -or -name '*.yy' \) $(find_AND_SYSDEP) || true
-cmd_LEXSRC	= [ -n "$(LEX)" ] && $(FIND) $(SRCDIR) \( -name '*.l' -or -name '*.ll' \) $(find_AND_SYSDEP) || true
+cmd_YACCSRC	= [ -n "$(YACC)" ] && $(FIND) $(SRCDIR) \( -name '*.y' -or -name '*.yy' \) $(find_AND_SYSDEP) | $(SED) -e 's|^\./||' || true
+cmd_LEXSRC	= [ -n "$(LEX)" ] && $(FIND) $(SRCDIR) \( -name '*.l' -or -name '*.ll' \) $(find_AND_SYSDEP) | $(SED) -e 's|^\./||' || true
 cmd_YACCJAVA	= [ -n "$(BIN)" ] && [ -n "$(GCJ)" ] || [ -n "$(JAR)" ] \
-		  && [ -n "$(BISON3)" ] && $(FIND) $(SRCDIR) -name '*.yyj' $(find_AND_SYSDEP) || true
+		  && [ -n "$(BISON3)" ] && $(FIND) $(SRCDIR) -name '*.yyj' $(find_AND_SYSDEP) | $(SED) -e 's|^\./||' || true
 # METASRC variable, filled from the 'find' command (cmd_{YACC,LEX,..}SRC) defined above.
 tmp_YACCSRC	!= $(cmd_YACCSRC)
 tmp_YACCSRC	?= $(shell $(cmd_YACCSRC))
@@ -246,7 +246,7 @@ GENCLASSES	:= $(YACCCLASSES)
 cmd_FIND_NOGEN	= echo $(GENSRC) $(GENINC) $(GENJAVA) \
 		       "$$($(FIND) $(SRCDIR) -mindepth 2 -name 'Makefile' \
 		           | $(SED) -e 's|\([^[:space:]]*\)/[^[:space:]]*|\1/*|g')" \
-		  | $(SED) -e 's|\([^[:space:]]*\)|-and \! -path "\1"|g' || true
+		  | $(SED) -e 's|\([^[:space:]]*\)|-and \! -path "\1" -and \! -path "./\1"|g' || true
 tmp_FIND_NOGEN	!= $(cmd_FIND_NOGEN)
 tmp_FIND_NOGEN	?= $(shell $(cmd_FIND_NOGEN))
 find_AND_NOGEN	:= $(tmp_FIND_NOGEN)
@@ -254,7 +254,7 @@ find_AND_NOGEN	:= $(tmp_FIND_NOGEN)
 # Search non-generated sources and headers. Extensions must be in low-case.
 # Include java only if a JAR is defined as output or if BIN and GCJ are defined.
 cmd_JAVASRC	= [ -n "$(BIN)" ] && [ -n "$(GCJ)" ] || [ -n "$(JAR)" ] \
-		  && $(FIND) $(SRCDIR) \( -name '*.java' \) $(find_AND_SYSDEP) $(find_AND_NOGEN) || true
+		  && $(FIND) $(SRCDIR) \( -name '*.java' \) $(find_AND_SYSDEP) $(find_AND_NOGEN) | $(SED) -e 's|^\./||' || true
 # JAVASRC variable, filled from the 'find' command (cmd_JAVA) defined above.
 tmp_JAVASRC	!= $(cmd_JAVASRC)
 tmp_JAVASRC	?= $(shell $(cmd_JAVASRC))
@@ -266,26 +266,32 @@ GENINC		:= $(GENINC) $(JCNIINC)
 CLASSES		:= $(JAVASRC:.java=.class)
 
 # Add Java CNI headers to include search exclusion.
-cmd_FIND_NOGEN2	= echo $(JCNIINC) | $(SED) -e 's|\([^[:space:]]*\)|-and \! -path "\1"|g'
+cmd_FIND_NOGEN2	= echo $(JCNIINC) | $(SED) -e 's|\([^[:space:]]*\)|-and \! -path "\1" -and \! -path "./\1"|g'
 tmp_FIND_NOGEN2	!= $(cmd_FIND_NOGEN2)
 tmp_FIND_NOGEN2	?= $(shell $(cmd_FIND_NOGEN2))
 find_AND_NOGEN2	:= $(tmp_FIND_NOGEN2)
 # Other non-generated sources and headers. Extension must be in low-case.
 cmd_SRC		= $(FIND) $(SRCDIR) \( -name '*.c' -or -name '*.cc' -or -name '*.cpp' -or -name '*.m' -or -name '*.mm' \) \
-		  $(find_AND_SYSDEP) $(find_AND_NOGEN) -and \! -path '$(SRCINC)'
+		  $(find_AND_SYSDEP) $(find_AND_NOGEN) -and \! -path '$(SRCINC)' -and \! -path './$(SRCINC)' | $(SED) -e 's|^\./||'
 cmd_INCLUDES	= $(FIND) $(INCDIRS) $(SRCDIR) \( -name '*.h' -or -name '*.hh' -or -name '*.hpp' \) \
-		  $(find_AND_SYSDEP) $(find_AND_NOGEN) $(find_AND_NOGEN2) -and \! -path $(VERSIONINC) -and \! -path $(BUILDINC)
+		  $(find_AND_SYSDEP) $(find_AND_NOGEN) $(find_AND_NOGEN2) \
+		  -and \! -path $(VERSIONINC) -and \! -path ./$(VERSIONINC) \
+		  -and \! -path $(BUILDINC) -and \! -path ./$(BUILDINC) | $(SED) -e 's|^\./||'
 
 # SRC variable, filled from the 'find' command (cmd_SRC) defined above.
 tmp_SRC		!= $(cmd_SRC)
 tmp_SRC		?= $(shell $(cmd_SRC))
 tmp_SRC		:= $(tmp_SRC)
-SRC		:= $(SRCINC) $(tmp_SRC) $(YACCGENSRC) $(LEXGENSRC)
+SRC		:= $(SRCINC) $(tmp_SRC) $(GENSRC)
 
 # OBJ variable computed from SRC, replacing SRCDIR by BUILDDIR and extension by .o
 # Add Java.o if BIN, GCJ and JAVASRC are defined.
-JAVAOBJ		= $(BUILDDIR)/Java.o
-cmd_SRC_BUILD	= echo " $(SRC)" | $(SED) -e 's| $(SRCDIR)/| $(BUILDDIR)/|g'; \
+JAVAOBJNAME	:= Java.o
+JAVAOBJ$(BUILDDIR) := $(BUILDDIR)/$(JAVAOBJNAME)
+JAVAOBJ.	:= $(JAVAOBJNAME)
+JAVAOBJ		:= $(JAVAOBJ$(BUILDDIR))
+TMPCLASSESDIR	= $(BUILDDIR)/.tmp_classes
+cmd_SRC_BUILD	:= echo " $(SRC)" | $(SED) -e 's| $(SRCDIR)/| $(BUILDDIR)/|g'; \
 		  case " $(JAVASRC) " in *" "*".java "*) [ -n "$(GCJ)" ] && [ -n "$(BIN)" ] && echo "$(JAVAOBJ)";; esac
 tmp_SRC_BUILD	!= $(cmd_SRC_BUILD)
 tmp_SRC_BUILD	?= $(shell $(cmd_SRC_BUILD))
@@ -302,14 +308,14 @@ tmp_INCLUDES	:= $(tmp_INCLUDES)
 INCLUDES	:= $(VERSIONINC) $(BUILDINC) $(tmp_INCLUDES)
 
 # Search compilers: choice might depend on what we have to build (eg: use gcc if using gcj)
-cmd_CC		= case " $(OBJ) " in *" $(JAVAOBJ) "*) $(WHICH) $$(echo $(GCJ) | sed -e 's|gcj\([^/]*\)|gcc\1|');; \
-		                                    *) $(WHICH) $${CC} clang gcc cc $(CC) $(NO_STDERR) | $(HEADN1);; esac
+cmd_CC		= case " $(OBJ) " in *" $(JAVAOBJ) "*) gccgcj=$$(echo "$(GCJ) gcc" | sed -e 's|gcj\([^/ ]*\)|gcc\1|');; esac; \
+		  $(WHICH) $${gccgcj} $${CC} clang gcc cc $(CC) $(NO_STDERR) | $(HEADN1)
 tmp_CC		!= $(cmd_CC)
 tmp_CC		?= $(shell $(cmd_CC))
 CC		:= $(tmp_CC)
 
-cmd_CXX		= case " $(OBJ) " in *" $(JAVAOBJ) "*) $(WHICH) $$(echo $(GCJ) | sed -e 's|gcj\([^/]*\)|g++\1|');; \
-		                                    *) $(WHICH) $${CXX} clang++ g++ c++ $(CXX) $(NO_STDERR) | $(HEADN1);; esac
+cmd_CXX		= case " $(OBJ) " in *" $(JAVAOBJ) "*) gccgcj=$$(echo "$(GCJ) g++" | sed -e 's|gcj\([^/ ]*\)|g++\1|');; esac; \
+		  $(WHICH) $${gccgcj} $${CXX} clang++ g++ c++ $(CXX) $(NO_STDERR) | $(HEADN1)
 tmp_CXX		!= $(cmd_CXX)
 tmp_CXX		?= $(shell $(cmd_CXX))
 CXX		:= $(tmp_CXX)
@@ -370,16 +376,14 @@ tmp_CPPFLAGS	:= $(tmp_CPPFLAGS)
 
 FLAGS_COMMON	= $(OPTI) $(WARN) $(ARCH)
 CPPFLAGS	:= $(tmp_CPPFLAGS) $(sys_INCS) $(INCS) $(MACROS)
-CFLAGS		= $(FLAGS_C) $(FLAGS_COMMON)
-CXXFLAGS	= $(FLAGS_CXX) $(FLAGS_COMMON)
-OBJCFLAGS	= $(FLAGS_OBJC) $(FLAGS_COMMON)
-OBJCXXFLAGS	= $(FLAGS_OBJCXX) $(FLAGS_COMMON)
+CFLAGS		= -MMD $(FLAGS_C) $(FLAGS_COMMON)
+CXXFLAGS	= -MMD $(FLAGS_CXX) $(FLAGS_COMMON)
+OBJCFLAGS	= -MMD $(FLAGS_OBJC) $(FLAGS_COMMON)
+OBJCXXFLAGS	= -MMD $(FLAGS_OBJCXX) $(FLAGS_COMMON)
 JFLAGS		= $(FLAGS_GCJ) $(FLAGS_COMMON) -I$(BUILDDIR)
 JHFLAGS		= -I$(BUILDDIR)
-LIBCPP		= $(CCLD:$(GCJ)=-lstdc++)
-LIBCPP		:= $(LIBCPP:$(CCLD)=)
-LIBCPP		:= $(LIBCPP:$(CCLD)-lstdc++=)
-LDFLAGS		= $(ARCH) $(OPTI) $(LIBS) $(sys_LIBS) $(LIBCPP)
+LIBFORGCJ$(GCJ)	= -lstdc++
+LDFLAGS		= $(ARCH) $(OPTI) $(LIBS) $(sys_LIBS) $(LIBFORGCJ$(CCLD))
 ARFLAGS		= r
 LFLAGS		=
 LCXXFLAGS	= $(LFLAGS)
@@ -387,6 +391,31 @@ LJFLAGS		=
 YFLAGS		= -d
 YCXXFLAGS	= $(YFLAGS)
 YJFLAGS		=
+############################################################################################
+# GCC -MD management (dependencies generation)
+# make on some BSD systems 1) does not support '-include' or 'sinclude', 2) does not support
+# including several files in one include statement, and 3) does not see a file created before
+# inclusion by a shell command.
+# Here, if .alldeps does not exit, we include version.h (contains only lines starting with
+# dash(#)), and we create .alldeps.d containing inclusion of all .d files, created with
+# default headers dependency. This method works thanks to MAKE recursion. Without recursion,
+# some stuff would be needed to guaranty the good order of the first build.
+#
+DEPS		:= $(OBJ:.o=.d)
+SINCLUDEDEPS	= .alldeps.d
+cmd_SINCLUDEDEPS= inc=1; if [ -e $(SINCLUDEDEPS) ]; then echo "$(SINCLUDEDEPS)"; \
+		  else inc=; echo version.h; fi; \
+		  for f in $(DEPS:.d=); do \
+		      if [ -z "$$inc" ] || ! [ -e "$$f.d" ]; then \
+		           [ "$$f.o" = "$(JAVAOBJ)" ] && echo "" > $$f.d || echo "$$f.o: $(INCLUDES) $(GENINC)" > $$f.d; \
+		           echo "include $$f.d" >> $(SINCLUDEDEPS); \
+	      	      fi; \
+		  done
+tmp_SINCLUDEDEPS != $(cmd_SINCLUDEDEPS)
+tmp_SINCLUDEDEPS ?= $(shell $(cmd_SINCLUDEDEPS))
+SINCLUDEDEPS := $(tmp_SINCLUDEDEPS)
+include $(SINCLUDEDEPS)
+
 ############################################################################################
 
 ALLMAKEFILES	= Makefile
@@ -421,7 +450,7 @@ $(BUILDDIRS):
 
 # --- clean : remove objects and generated files
 clean: $(CLEANDIRS)
-	$(RM) $(OBJ:.class=*.class) $(SRCINC) $(GENSRC) $(GENINC) $(GENJAVA) $(CLASSES:.class=*.class)
+	$(RM) $(OBJ:.class=*.class) $(SRCINC) $(GENSRC) $(GENINC) $(GENJAVA) $(CLASSES:.class=*.class) $(DEPS) $(SINCLUDEDEPS)
 $(CLEANDIRS):
 	cd $(@:-clean=) && $(MAKE) clean
 
@@ -474,11 +503,22 @@ $(LIB): $(OBJ) $(SUBLIBS) $(JCNIINC)
 # Build Java.o : $(JAVAOBJ)
 $(CLASSES): $(JAVAOBJ)
 	@true # Used to override implicit rule .java.class:
-$(JAVAOBJ): $(JAVASRC) $(ALLMAKEFILES)
-	$(GCJ) $(JFLAGS) -d $(BUILDDIR) -C $(JAVASRC)
+$(JAVAOBJ): $(JAVASRC)
+	@# All classes generated/overriten at once. Generate them in tmp dir then check changed ones.
+	@$(MKDIR) -p $(TMPCLASSESDIR)
+	@$(GCJ) $(JFLAGS) -d $(TMPCLASSESDIR) -C $(JAVASRC)
+	@#$(GCJ) $(JFLAGS) -d $(BUILDDIR) -C $(JAVASRC)
+	@for f in `$(FIND) "$(TMPCLASSESDIR)" -type f`; do \
+	     dir=`dirname $$f | $(SED) -e 's|$(TMPCLASSESDIR)||'`; \
+	     file=`basename $$f`; \
+	     $(DIFF) -q "$(BUILDDIR)/$$dir/$$file" "$$f" $(NO_STDERR) $(NO_STDOUT) \
+	       || { $(MKDIR) -p "$(BUILDDIR)/$$dir"; mv "$$f" "$(BUILDDIR)/$$dir"; }; \
+	 done; $(RM) -Rf "$(TMPCLASSESDIR)"
 	$(GCJ) $(JFLAGS) -d $(BUILDDIR) -c -o $@ $(CLASSES:.class=*.class)
-$(JCNISRC:.cc=.o) : $(JCNIINC)
-$(JCNIINC): $(JAVAOBJ)
+$(JCNIINC): $(ALLMAKEFILES) $(BUILDINC)
+
+#$(JCNISRC:.cc=.o) : $(JCNIINC) # usefull without -MD
+#$(JCNIOBJ): $(JCNIINC) # Useful without -MD
 
 # This is a TODO and a TOSTUDY
 $(MANIFEST):
@@ -490,46 +530,64 @@ $(JAR): $(JAVASRC) $(SUBLIBS) $(MANIFEST) $(ALLMAKEFILES)
 
 ##########################################################################################
 .SUFFIXES: .o .c .h .cpp .hpp .cc .hh .m .mm .java .class .y .l .yy .ll .yyj .llj
+
+#### WITHOUT -MD
 # OBJS are rebuilt on Makefile or headers update. Alternative: could use gcc -MD and sinclude.
-$(OBJ): $(INCLUDES) $(ALLMAKEFILES)
+#$(OBJ): $(INCLUDES) $(ALLMAKEFILES)
 # LEX can depend on yacc generated header: not perfect as all lex are rebuilt on yacc file update
-$(LEXGENSRC): $(YACCOBJ)
+#$(LEXGENSRC): $(YACCOBJ)
 # Empty rule for YACCGENSRC so that make keeps intermediate yacc generated sources
-$(YACCGENSRC): $(ALLMAKEFILES) $(BUILDINC)
-$(YACCOBJ): $(ALLMAKEFILES) $(BUILDINC)
-$(YACCCLASSES): $(ALLMAKEFILES) $(BUILDINC)
-$(YACCGENJAVA): $(ALLMAKEFILES) $(BUILDINC)
+#$(YACCGENSRC): $(ALLMAKEFILES) $(BUILDINC)
+#$(YACCOBJ): $(ALLMAKEFILES) $(BUILDINC)
+#$(YACCCLASSES): $(ALLMAKEFILES) $(BUILDINC)
+#$(YACCGENJAVA): $(ALLMAKEFILES) $(BUILDINC)
+
+### WITH -MD
+$(OBJ): $(ALLMAKEFILES) $(BUILDINC)
+$(GENSRC): $(ALLMAKEFILES) $(BUILDINC)
+$(GENJAVA): $(ALLMAKEFILES) $(BUILDINC)
+$(CLASSES): $(ALLMAKEFILES) $(BUILDINC)
+
 # Implicit rules: old-fashionned double suffix rules to be compatible with most make.
-# Temporary dirty workaround: specific-file flags with and without $(SRCDIR) prefix,
-# because gmake removes from $< './' prefix while bsdmake keeps it.
 .m.o:
-	$(OBJC) $(OBJCFLAGS) $(FLAGS_OBJC_$<) $(FLAGS_OBJC_$(SRCDIR)/$<) $(CPPFLAGS) -c $< -o $@
+	$(OBJC) $(OBJCFLAGS) $(FLAGS_OBJC_$<) $(CPPFLAGS) -c $< -o $@
 .mm.o:
-	$(OBJCXX) $(OBJCXXFLAGS) $(FLAGS_OBJCXX_$<) $(FLAGS_OBJCXX_$(SRCDIR)/$<) $(CPPFLAGS) -c $< -o $@
+	$(OBJCXX) $(OBJCXXFLAGS) $(FLAGS_OBJCXX_$<) $(CPPFLAGS) -c $< -o $@
 .c.o:
-	$(CC) $(CFLAGS) $(FLAGS_C_$<) $(FLAGS_C_$(SRCDIR)/$<) $(CPPFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(FLAGS_C_$<) $(CPPFLAGS) -c $< -o $@
 .cpp.o:
-	$(CXX) $(CXXFLAGS) $(FLAGS_CXX_$<) $(FLAGS_CXX_$(SRCDIR)/$<) $(CPPFLAGS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(FLAGS_CXX_$<) $(CPPFLAGS) -c $< -o $@
 .cc.o:
-	$(CXX) $(CXXFLAGS) $(FLAGS_CXX_$<) $(FLAGS_CXX_$(SRCDIR)/$<) $(CPPFLAGS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(FLAGS_CXX_$<) $(CPPFLAGS) -c $< -o $@
 .java.o:
-	$(GCJ) $(JFLAGS) $(FLAGS_GCJ_$<) $(FLAGS_GCJ_$(SRCDIR)/$<) -c $< -o $@
+	$(GCJ) $(JFLAGS) $(FLAGS_GCJ_$<) -c $< -o $@
 .java.class:
-	$(GCJ) $(JFLAGS) $(FLAGS_GCJ_$<) $(FLAGS_GCJ_$(SRCDIR)/$<) -C $<
+	$(GCJ) $(JFLAGS) $(FLAGS_GCJ_$<) -d $(BUILDDIR) -C $<
 .class.hh:
-	$(GCJH) $(JHFLAGS) $(FLAGS_GCJH_$<) $(FLAGS_GCJH_$(SRCDIR)/$<) $< -o $@
+	$(GCJH) $(JHFLAGS) $(FLAGS_GCJH_$<) $< -o $@
 .l.c:
-	$(LEX) $(LFLAGS) $(FLAGS_LEX_$<) $(FLAGS_LEX_$(SRCDIR)/$<) -o$@ $<
+	$(LEX) $(LFLAGS) $(FLAGS_LEX_$<) -o$@ $<
 .ll.cc:
-	$(LEX) $(LCXXFLAGS) $(FLAGS_LEX_$<) $(FLAGS_LEX_$(SRCDIR)/$<) -o$@ $<
+	$(LEX) $(LCXXFLAGS) $(FLAGS_LEX_$<) -o$@ $<
 .llj.java:
-	$(LEX) $(LJFLAGS) $(FLAGS_LEX_$<) $(FLAGS_LEX_$(SRCDIR)/$<) -o$@ $<
+	$(LEX) $(LJFLAGS) $(FLAGS_LEX_$<) -o$@ $<
 .y.c:
-	$(YACC) $(YFLAGS) $(FLAGS_YACC_$<) $(FLAGS_YACC_$(SRCDIR)/$<) -o $@ $<
+	$(YACC) $(YFLAGS) $(FLAGS_YACC_$<) -o $@ $<
+	@case " $(YFLAGS) $(FLAGS_YACC_$<) " in *" -d "*) \
+	     if [ ! -e "$(<:.c=.h)" ]; then [ -e "$(@D)/y.tab.c" ] && $(MV) "$(@D)/y.tab.c" "$(@:.c=.h)"; fi ;; \
+	 esac
 .yy.cc:
-	$(YACC) $(YCXXFLAGS) $(FLAGS_YACC_$<) $(FLAGS_YACC_$(SRCDIR)/$<) -o $@ $<
+	$(YACC) $(YCXXFLAGS) $(FLAGS_YACC_$<) -o $@ $<
+	@case " $(YFLAGS) $(FLAGS_YACC_$<) " in *" -d "*) \
+	     if [ ! -e "$(@:.cc=.hh)" ]; then [ -e "$(@D)/y.tab.c" ] && $(MV) "$(@D)/y.tab.c" "$(@:.cc=.hh)" \
+	                                      || [ -e "$(@:.cc=.h)" ] && $(MV) "$(@:.cc=.h)" "$(@:.cc=.hh)"; \
+	     fi ;; esac
 .yyj.java:
-	$(YACC) $(YJFLAGS) $(FLAGS_YACC_$<) $(FLAGS_YACC_$(SRCDIR)/$<) -o $@ $<
+	$(YACC) $(YJFLAGS) $(FLAGS_YACC_$<) -o $@ $<
+.y.h:
+	@true
+.yy.hh:
+	@true
 ############################################################################################
 
 #@#cd "$(DISTDIR)" && ($(ZIP) -q -r "$${distname}.zip" "$${distname}" || true)
@@ -540,12 +598,14 @@ dist:
 	 && $(MKDIR) -p "$(DISTDIR)/$${distname}" \
 	 && cp -Rf . "$(DISTDIR)/$${distname}" \
 	 && $(RM) -R `$(FIND) "$(DISTDIR)/$${distname}" -type d -and \( -name '.git' -or -name 'CVS' -or -name '.hg' -or -name '.svn' \) $(NO_STDERR)` \
+	 && true || { ver="$(DISTDIR)/$${distname}/$(VERSIONINC)"; rev=`$(SED) -n -e 's/GITREV\(.*\)/DIST_GITREV\1/p' $(BUILDINC) | tr '\n' '@'`;\
+	      $(SED) -e "s,^\([[:space:]]*#[[:space:]]*include\),$${rev}@\1," "$$ver" | tr '@' '\n' > "$${ver}.tmp" && $(MV) "$${ver}.tmp" "$$ver"; false; } \
 	 && $(PRINTF) "$(NAME): building dist...\n" \
 	 && cd "$(DISTDIR)/$${distname}" && $(MAKE) distclean && $(MAKE) && $(MAKE) distclean && cd "$$topdir" \
 	 && cd "$(DISTDIR)" && { $(TAR) czf "$${distname}.tar.gz" "$${distname}" && targz=true || targz=false; \
      			         $(TAR) cJf "$${distname}.tar.xz" "$${distname}" || $${targz}; } && cd "$$topdir" \
 	 && $(RM) -R "$(DISTDIR)/$${distname}" \
-	 && $(PRINTF) "$(NAME): archives created: $$(ls $(DISTDIR)/$${distname}.*)\n"
+	 && $(PRINTF) "$(NAME): archives created: $$(ls $(DISTDIR)/$${distname}.* | $(TR) '\n' ' ')\n"
 
 $(SRCINC): $(SRCINC_CONTENT)
 	@# Generate $(SRCINC) containing all sources.
@@ -592,7 +652,7 @@ $(VERSIONINC):
 $(BUILDINC): $(VERSIONINC)
 	@if ! $(TEST) -e $(BUILDINC); then \
 	     echo "$(NAME): create $(BUILDINC)"; \
-	     build=`$(AWK) '/^[[:space:]]*#define[[:space:]]APP_BUILD_NUMBER/ { print ($$3+0); }' $(VERSIONINC)`; \
+	     build=`$(SED) -n -e 's/^[[:space:]]*#define[[:space:]]APP_BUILD_NUMBER[[:space:]][[:space:]]*\([0-9][0-9]*\).*/\1/p' $(VERSIONINC)`; \
 	     $(PRINTF) "#define BUILD_APPNAME \"\"\n#define BUILD_NUMBER $$build\n#define BUILD_GITREV \"\"\n" > $(BUILDINC); \
 	     $(PRINTF) "#define BUILD_FULLGITREV \"\"\n#define BUILD_PREFIX \"\"\n#define BUILD_SRCPATH \"\"\n" >> $(BUILDINC); \
 	     $(PRINTF) "#define BUILD_CC_CMD \"\"\n#define BUILD_CXX_CMD \"\"\n#define BUILD_OBJC_CMD \"\"\n" >> $(BUILDINC); \
@@ -609,7 +669,7 @@ update-$(BUILDINC): $(BUILDINC)
 	         case $$i in 0) gitrev="$$rev";; 1) fullgitrev="$$rev" ;; esac; \
        	         i=$$((i+1)); \
 	     done; if [ -n "$$gitstatus" ]; then gitrev="$${gitrev}-dirty"; fullgitrev="$${fullgitrev}-dirty"; fi; \
-	 else gitrev="unknown"; fullgitrev="$${fullgitrev}"; fi; \
+	 else gitrev="unknown"; fullgitrev="$${gitrev}"; fi; \
  	 case " $(OBJ) " in *" $(JAVAOBJ) "*) javaobj=1;; *) javaobj=0;; esac; \
 	 [ -n "$(JAR)" ] && jar=1 || jar=0; \
 	 [ -n "$(BIN)" ] && bin=1 || bin=0; \
@@ -620,7 +680,7 @@ update-$(BUILDINC): $(BUILDINC)
 	 if $(SED) -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREV[[:space:]]\).*|\1\"$${gitrev}\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_FULLGITREV[[:space:]]\).*|\1\"$${fullgitrev}\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_PREFIX[[:space:]]\).*|\1\"$(PREFIX)\"|" \
-	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_SRCPATH[[:space:]]\).*|\1\"`pwd`\"|" \
+	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_SRCPATH[[:space:]]\).*|\1\"$$PWD\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_APPNAME[[:space:]]\).*|\1\"$(NAME)\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_CC_CMD[[:space:]]\).*|\1\"$(CC) $(CFLAGS) $(CPPFLAGS) -c\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_CXX_CMD[[:space:]]\).*|\1\"$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c\"|" \
@@ -643,7 +703,7 @@ update-$(BUILDINC): $(BUILDINC)
 #.gitignore: $(ALLMAKEFILES)
 .gitignore:
 	@{ cat .gitignore $(NO_STDERR); for f in $(BIN) $(BIN).dSYM $(LIB) $(JAR) $(GENSRC) $(GENJAVA) $(GENINC) $(SRCINC) $(BUILDINC) $(CLANGCOMPLETE) \
-	                                         '*.o' '*.class' '*.a' '*~' '.*.swo' '.*.swp'; do \
+	                                         '*.o' '*.d' '*.class' '*.a' '*~' '.*.swo' '.*.swp'; do \
 	    $(PRINTF) "$$f\n" | $(SED) -e 's|^./||'; done; } \
 	 | $(SORT) | $(UNIQ) > .gitignore
 
