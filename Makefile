@@ -138,7 +138,13 @@ NO_STDOUT	= > /dev/null
 # Generally, we finish the command by true as some bsd make raise warnings if not.
 ############################################################################################
 
-# Important to prefix with ., to make VERSIONINC and BUILDINC excluded from include search.
+# SHELL
+cmd_SHELL	= $(WHICH) bash sh $(SHELL) $(NO_STDERR) | $(HEADN1)
+tmp_SHELL	!= $(cmd_SHELL)
+tmp_SHELL	?= $(shell $(cmd_SHELL))
+SHELL		:= $(tmp_SHELL)
+
+# Do not prefix with ., to not disturb dependencies and exclusion from include search.
 BUILDINC	= build.h
 VERSIONINC	= version.h
 SYSDEPDIR	= sysdeps
@@ -340,11 +346,6 @@ CCLD		:= $(tmp_CCLD)
 CPP		= $(CC) -E
 OBJC		= $(CC)
 OBJCXX		= $(CXX)
-
-cmd_SHELL	= $(WHICH) bash sh $(SHELL) $(NO_STDERR) | $(HEADN1)
-tmp_SHELL	!= $(cmd_SHELL)
-tmp_SHELL	?= $(shell $(cmd_SHELL))
-SHELL		:= $(tmp_SHELL)
 
 cmd_UNAME_SYS	= uname | $(TR) '[A-Z]' '[a-z]'
 tmp_UNAME_SYS	!= $(cmd_UNAME_SYS)
@@ -570,6 +571,7 @@ $(CLASSES): $(ALLMAKEFILES) $(BUILDINC)
 	$(GCJ) $(JFLAGS) $(FLAGS_GCJ_$<) -d $(BUILDDIR) -C $<
 .class.hh:
 	$(GCJH) $(JHFLAGS) $(FLAGS_GCJH_$<) $< -o $@
+	@$(TOUCH) $@ || true
 .l.c:
 	$(LEX) $(LFLAGS) $(FLAGS_LEX_$<) -o$@ $<
 .ll.cc:
@@ -579,13 +581,13 @@ $(CLASSES): $(ALLMAKEFILES) $(BUILDINC)
 .y.c:
 	$(YACC) $(YFLAGS) $(FLAGS_YACC_$<) -o $@ $<
 	@case " $(YFLAGS) $(FLAGS_YACC_$<) " in *" -d "*) \
-	     if [ -e "$(@D)/y.tab.h" ]; then $(MV) "$(@D)/y.tab.h" "$(@:.c=.h)"; fi ;; \
+	     if [ -e "$(@D)/y.tab.h" ]; then cmd='$(MV) $(@D)/y.tab.h $(@:.c=.h)'; echo "$$cmd"; $$cmd; fi ;; \
 	 esac
 .yy.cc:
 	$(YACC) $(YCXXFLAGS) $(FLAGS_YACC_$<) -o $@ $<
 	@case " $(YFLAGS) $(FLAGS_YACC_$<) " in *" -d "*) \
-	     if [ -e "$(@:.cc=.h)" ]; then $(MV) "$(@:.cc=.h)" "$(@:.cc=.hh)"; \
-	     elif [ -e "$(@D)/y.tab.h" ]; then $(MV) "$(@D)/y.tab.h" "$(@:.cc=.hh)"; fi; \
+	     if [ -e "$(@:.cc=.h)" ]; then cmd='$(MV) $(@:.cc=.h) $(@:.cc=.hh)'; echo "$$cmd"; $$cmd; \
+	     elif [ -e "$(@D)/y.tab.h" ]; then cmd='$(MV) $(@D)/y.tab.h $(@:.cc=.hh)'; echo "$$cmd"; $$cmd; fi; \
 	 esac
 .yyj.java:
 	$(YACC) $(YJFLAGS) $(FLAGS_YACC_$<) -o $@ $<
