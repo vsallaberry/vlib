@@ -407,13 +407,13 @@ YJFLAGS		=
 # some stuff would be needed to guaranty the good order of the first build.
 #
 DEPS		:= $(OBJ:.o=.d)
-SINCLUDEDEPS	= .alldeps.d
-cmd_SINCLUDEDEPS= inc=1; if [ -e $(SINCLUDEDEPS) ]; then echo "$(SINCLUDEDEPS)"; \
+INCLUDEDEPS	:= .alldeps.d
+cmd_SINCLUDEDEPS= inc=1; if [ -e $(INCLUDEDEPS) ]; then echo "$(INCLUDEDEPS)"; \
 		  else inc=; echo version.h; fi; \
 		  for f in $(DEPS:.d=); do \
 		      if [ -z "$$inc" ] || ! [ -e "$$f.d" ]; then \
 		           [ "$$f.o" = "$(JAVAOBJ)" ] && echo "" > $$f.d || echo "$$f.o: $(INCLUDES) $(GENINC)" > $$f.d; \
-		           echo "include $$f.d" >> $(SINCLUDEDEPS); \
+		           echo "include $$f.d" >> $(INCLUDEDEPS); \
 	      	      fi; \
 		  done
 tmp_SINCLUDEDEPS != $(cmd_SINCLUDEDEPS)
@@ -455,7 +455,7 @@ $(BUILDDIRS):
 
 # --- clean : remove objects and generated files
 clean: $(CLEANDIRS)
-	$(RM) $(OBJ:.class=*.class) $(SRCINC) $(GENSRC) $(GENINC) $(GENJAVA) $(CLASSES:.class=*.class) $(DEPS) $(SINCLUDEDEPS)
+	$(RM) $(OBJ:.class=*.class) $(SRCINC) $(GENSRC) $(GENINC) $(GENJAVA) $(CLASSES:.class=*.class) $(DEPS) $(INCLUDEDEPS)
 $(CLEANDIRS):
 	cd $(@:-clean=) && $(MAKE) clean
 
@@ -511,7 +511,7 @@ $(CLASSES): $(JAVAOBJ)
 $(JAVAOBJ): $(JAVASRC)
 	@# All classes generated/overriten at once. Generate them in tmp dir then check changed ones.
 	@$(MKDIR) -p $(TMPCLASSESDIR)
-	@$(GCJ) $(JFLAGS) -d $(TMPCLASSESDIR) -C $(JAVASRC)
+	$(GCJ) $(JFLAGS) -d $(TMPCLASSESDIR) -C $(JAVASRC)
 	@#$(GCJ) $(JFLAGS) -d $(BUILDDIR) -C $(JAVASRC)
 	@for f in `$(FIND) "$(TMPCLASSESDIR)" -type f`; do \
 	     dir=`dirname $$f | $(SED) -e 's|$(TMPCLASSESDIR)||'`; \
@@ -726,7 +726,12 @@ merge-makefile:
 	@for makefile in `$(FIND) $(SUBDIRS) -name Makefile | $(SORT) | $(UNIQ)`; do \
 	     $(GREP) -E -i -B 10000 '^[[:space:]]*#[[:space:]]*generic[[:space:]]part' "$${makefile}" > "$${makefile}.tmp" \
 	     && $(GREP) -E -i -A 10000 '^[[:space:]]*#[[:space:]]*generic[[:space:]]part' Makefile | tail -n +2 >> "$${makefile}.tmp" \
-	     && mv "$${makefile}.tmp" "$${makefile}" && echo "merged $${makefile}"; \
+	     && mv "$${makefile}.tmp" "$${makefile}" && echo "merged $${makefile}" || echo "! cannot merge $${makefile}" && $(RM) -f "$${makefile}.tmp"; \
+	     file=make-fallback; target="`dirname $${makefile}`/$${file}"; if [ -e "$$file" ] && [ -e "$$target" ]; then \
+	         $(GREP) -E -i -B 10000 '^[[:space:]]*#[[:space:]]*This program is free software;' "$$target" > "$${target}.tmp" \
+	         && $(GREP) -E -i -A 10000 '^[[:space:]]*#[[:space:]]*This program is free software;' "$$file" | tail -n +2 >> "$${target}.tmp" \
+	         && mv "$${target}.tmp" "$${target}" && echo "merged $${target}" && chmod +x "$$target" || echo "! cannot merge $${target}" && $(RM) -f "$${target}.tmp"; \
+	     fi; \
 	 done
 
 #to generate makefile displaying shell command beeing run

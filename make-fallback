@@ -1,7 +1,7 @@
 #!/bin/sh
 #
 # Copyright (C) 2017-2018 Vincent Sallaberry
-# vsensorsdemo <https://github.com/vsallaberry/vsensorsdemo>
+# vlib <https://github.com/vsallaberry/vlib>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -29,6 +29,7 @@
 # Use it as you would use 'make',
 # eg: ./make-fallback clean, make-fallback CFLAGS=-std=gnu99, ...
 # 'make-fallback -C <folder>' is supported but 'make-fallback -f <makefile>' is not.
+# By default this wraps 'make', use '$ mymake=gmake ./make-fallback' to use an alternate one.
 #
 ############################################################################################
 mydir=$(dirname $0); curpwd="`pwd`"; cd "${mydir}"; mydir="`pwd`"; cd "${curpwd}"
@@ -58,12 +59,16 @@ if tmp=`mktemp /tmp/Makefile.XXXXXXXX` && mv "${mymakefile}" "${tmp}"; then
         cat "${tmp}" > "${mymakefile}"
     fi
     touch -r "${tmp}" "${mymakefile}"
-    #grep -A4 '^cmd_CC' "${mydir}/Makefile"
 
-    "${mymake}" MAKE="${mypath}" $@
+    # create empty .alldeps.d as some old bsd make do not see it when created by a makefile shell command.
+    deps="`dirname ${mymakefile}`/.alldeps.d"; [ -e "$deps" ] || echo '# alldeps.d' > "$deps"
+
+    "${mymake}" MAKE="${mypath}" $@; status=$?
 
     mv "${tmp}" "${mymakefile}"
+    exit $status
 else
     echo "error: cannot write in /tmp or on ${mymakefile}."
+    exit 1
 fi
 
