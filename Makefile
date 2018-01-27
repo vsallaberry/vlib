@@ -592,9 +592,9 @@ $(CLASSES): $(ALLMAKEFILES) $(BUILDINC)
 .yyj.java:
 	$(YACC) $(YJFLAGS) $(FLAGS_YACC_$<) -o $@ $<
 .y.h:
-	@true
+	@[ ! -e $@ ] && $(TOUCH) $@ && $(MAKE) $(@:.h=.c) || true
 .yy.hh:
-	@true
+	@[ ! -e $@ ] && $(TOUCH) $@ && $(MAKE) $(@:.hh=.cc) || true
 ############################################################################################
 
 #@#cd "$(DISTDIR)" && ($(ZIP) -q -r "$${distname}.zip" "$${distname}" || true)
