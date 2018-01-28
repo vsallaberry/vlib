@@ -101,7 +101,6 @@ HEADN1		= head -n1
 PRINTF		= printf
 AWK		= awk
 SED		= sed
-GREP		= grep
 RM		= rm -f
 DATE		= date
 TAR		= tar
@@ -726,12 +725,12 @@ $(CLANGCOMPLETE): $(ALLMAKEFILES) $(BUILDINC)
 # to spread 'generic' makefile part to sub-directories
 merge-makefile:
 	@for makefile in `$(FIND) $(SUBDIRS) -name Makefile | $(SORT) | $(UNIQ)`; do \
-	     $(GREP) -E -i -B 10000 '^[[:space:]]*#[[:space:]]*generic[[:space:]]part' "$${makefile}" > "$${makefile}.tmp" \
-	     && $(GREP) -E -i -A 10000 '^[[:space:]]*#[[:space:]]*generic[[:space:]]part' Makefile | tail -n +2 >> "$${makefile}.tmp" \
+	     $(GREP) -E -i -B10000 '^[[:space:]]*#[[:space:]]*generic[[:space:]]part' "$${makefile}" > "$${makefile}.tmp" \
+	     && $(GREP) -E -i -A10000 '^[[:space:]]*#[[:space:]]*generic[[:space:]]part' Makefile | tail -n +2 >> "$${makefile}.tmp" \
 	     && mv "$${makefile}.tmp" "$${makefile}" && echo "merged $${makefile}" || echo "! cannot merge $${makefile}" && $(RM) -f "$${makefile}.tmp"; \
 	     file=make-fallback; target="`dirname $${makefile}`/$${file}"; if [ -e "$$file" ] && [ -e "$$target" ]; then \
-	         $(GREP) -E -i -B 10000 '^[[:space:]]*#[[:space:]]*This program is free software;' "$$target" > "$${target}.tmp" \
-	         && $(GREP) -E -i -A 10000 '^[[:space:]]*#[[:space:]]*This program is free software;' "$$file" | tail -n +2 >> "$${target}.tmp" \
+	         $(GREP) -E -i -B10000 '^[[:space:]]*#[[:space:]]*This program is free software;' "$$target" > "$${target}.tmp" \
+	         && $(GREP) -E -i -A10000 '^[[:space:]]*#[[:space:]]*This program is free software;' "$$file" | tail -n +2 >> "$${target}.tmp" \
 	         && mv "$${target}.tmp" "$${target}" && echo "merged $${target}" && chmod +x "$$target" || echo "! cannot merge $${target}" && $(RM) -f "$${target}.tmp"; \
 	     fi; \
 	 done
