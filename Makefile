@@ -174,6 +174,18 @@ INCS		= $(INCS_$(RELEASE_MODE))
 LIBS		= $(LIBS_$(RELEASE_MODE))
 MACROS		= $(MACROS_$(RELEASE_MODE))
 
+# Get system name
+cmd_UNAME_SYS	= uname | $(TR) '[A-Z]' '[a-z]'
+tmp_UNAME_SYS	!= $(cmd_UNAME_SYS)
+tmp_UNAME_SYS	?= $(shell $(cmd_UNAME_SYS))
+UNAME_SYS	:= $(tmp_UNAME_SYS)
+SYSDEP_SUF	= $(UNAME_SYS)
+
+#cmd_UNAME_ARCH	:= uname -m | $(TR) '[A-Z]' '[a-z]'
+#tmp_UNAME_ARCH	!= $(cmd_UNAME_ARCH)
+#tmp_UNAME_ARCH	?= $(shell $(cmd_UNAME_ARCH))
+#UNAME_ARCH	:= $(tmp_UNAME_ARCH)
+
 # Search bison 3 or later, fallback on bison, yacc.
 cmd_YACC	= { for bin in $$($(WHICH) -a bison $(YACC) $(NO_STDERR)); do \
 		      ver="$$($$bin -V 2>&1 | $(AWK) -F '.' '/[0-9]+(\.[0-9]+)+/{$$0=substr($$0,match($$0,/[0-9]+(\.[0-9]+)+/));\
@@ -347,16 +359,6 @@ CPP		= $(CC) -E
 OBJC		= $(CC)
 OBJCXX		= $(CXX)
 
-cmd_UNAME_SYS	= uname | $(TR) '[A-Z]' '[a-z]'
-tmp_UNAME_SYS	!= $(cmd_UNAME_SYS)
-tmp_UNAME_SYS	?= $(shell $(cmd_UNAME_SYS))
-UNAME_SYS	:= $(tmp_UNAME_SYS)
-
-#cmd_UNAME_ARCH	:= uname -m | $(TR) '[A-Z]' '[a-z]'
-#tmp_UNAME_ARCH	!= $(cmd_UNAME_ARCH)
-#tmp_UNAME_ARCH	?= $(shell $(cmd_UNAME_ARCH))
-#UNAME_ARCH	:= $(tmp_UNAME_ARCH)
-
 JAVA		= java
 JARBIN		= jar
 JAVAC		= javac
@@ -364,7 +366,6 @@ JAVAH		= javah
 
 ############################################################################################
 
-SYSDEP_SUF	= $(UNAME_SYS)
 sys_LIBS	= $(LIBS_$(SYSDEP_SUF))
 sys_INCS	= $(INCS_$(SYSDEP_SUF))
 sys_OPTI	= $(OPTI_$(SYSDEP_SUF))
