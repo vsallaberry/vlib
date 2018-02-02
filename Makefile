@@ -97,6 +97,15 @@ FLAGS_GCJ	=
 INCS_darwin	= $(FLAGS_GNUCXX_XTRA_$(UNAME_SYS)_$(CXX:++=pppp))
 LIBS_darwin	= -framework IOKit -framework Foundation $(LIBS_GNUCXX_XTRA_$(UNAME_SYS)_$(CXX:++=pppp))
 
+# TESTS and DEBUG parameters
+# VALGRIND_RUN_PROGRAM: how to run the program with valgrind (can be used to pass arguments to valgrind)
+#   (eg: './$(BIN) arguments', '--trace-children=no ./$(BIN) arguments')
+VALGRIND_RUN_PROGRAM = ./$(BIN)
+# VALGRIND_MEM_IGNORE_PATTERN: awk regexp to ignore keyworks in LEAKS reports
+VALGRIND_MEM_IGNORE_PATTERN = __CFInitialize|_objc_init|objc_msgSend|_NSInitializePlatform
+# TEST_RUN_PROGRAM: what to run with 'make test' (eg: 'true', './test.sh $(BIN)', './$(BIN) --test'
+TEST_RUN_PROGRAM = true
+
 ############################################################################################
 # GENERIC PART - in most cases no need to change anything below until end of file
 ############################################################################################
@@ -129,6 +138,8 @@ UNIQ		= uniq
 INSTALL		= install -c -m 0644
 INSTALLBIN	= install -c
 INSTALLDIR	= install -c -d
+VALGRIND	= valgrind
+MKTEMP		= mktemp
 NO_STDERR	= 2> /dev/null
 NO_STDOUT	= > /dev/null
 
@@ -475,7 +486,7 @@ $(CLEANDIRS):
 
 # --- distclean : remove objects, binaries and remove DEBUG flag in build.h
 distclean: $(DISTCLEANDIRS) clean
-	$(RM) $(BIN) $(LIB) $(BUILDINC) $(BUILDINCJAVA) `$(FIND) . -name '.*.swp' -or -name '.*.swo' -or -name '*~' -or -name '\#*' $(NO_STDERR)`
+	$(RM) $(BIN) $(LIB) $(BUILDINC) $(BUILDINCJAVA) valgrind_*.log `$(FIND) . -name '.*.swp' -or -name '.*.swo' -or -name '*~' -or -name '\#*' $(NO_STDERR)`
 	$(RM) -R $(BIN).dSYM || true
 	@$(TEST) "$(BUILDDIR)" != "$(SRCDIR)" && $(RMDIR) `$(FIND) $(BUILDDIR) -type d | $(SORT) -r` $(NO_STDERR) || true
 	@$(PRINTF) "$(NAME): distclean done, debug disabled.\n"
@@ -506,6 +517,7 @@ $(INSTALLDIRS):
 
 # --- test ---
 test: $(TESTDIRS) all
+	$(TEST_RUN_PROGRAM)
 $(TESTDIRS):
 	cd $(@:-test=) && $(MAKE) test
 
@@ -751,10 +763,12 @@ update-$(BUILDINC): $(BUILDINC)
 
 #.gitignore: $(ALLMAKEFILES)
 .gitignore:
-	@{ cat .gitignore $(NO_STDERR); for f in $(BIN) $(BIN).dSYM $(LIB) $(JAR) $(GENSRC) $(GENJAVA) $(GENINC) $(SRCINC) $(BUILDINC) $(BUILDINCJAVA) $(CLANGCOMPLETE) \
-	                                         '*.o' '*.d' '*.class' '*.a' '*~' '.*.swo' '.*.swp'; do \
-	    $(PRINTF) "$$f\n" | $(SED) -e 's|^./||'; done; } \
-	 | $(SORT) | $(UNIQ) > .gitignore
+	@{ cat .gitignore $(NO_STDERR); \
+	   for f in $(BIN) $(BIN).dSYM $(LIB) $(JAR) $(GENSRC) $(GENJAVA) $(GENINC) $(SRCINC) \
+	            $(BUILDINC) $(BUILDINCJAVA) $(CLANGCOMPLETE) \
+	            '*.o' '*.d' '*.class' '*.a' '*~' '.*.swo' '.*.swp' 'valgrind_*.log'; do \
+	       $(PRINTF) "$$f\n" | $(SED) -e 's|^./||'; done; \
+	 } | $(SORT) | $(UNIQ) > .gitignore
 
 gentags: $(CLANGCOMPLETE)
 $(CLANGCOMPLETE): $(ALLMAKEFILES) $(BUILDINC)
@@ -782,6 +796,26 @@ merge-makefile:
 debug-makefile:
 	@sed -e 's/^\(cmd_[[:space:]0-9a-zA-Z_]*\)=/\1= ls $(NAME)\/\1 || time /' Makefile > Makefile.debug
 	@$(MAKE) -f Makefile.debug
+
+# Run Valgrind filter output
+valgrind: all
+	@logfile=`$(MKTEMP) ./valgrind_XXXXXX` && $(MV) "$${logfile}" "$${logfile}.log"; logfile="$${logfile}.log"; \
+	 $(VALGRIND) --leak-check=full --log-file="$${logfile}" $(VALGRIND_RUN_PROGRAM); \
+	 $(AWK) '/[0-9]+[[:space:]]+bytes[[:space:]]+/ { block=1; blockignore=0; blockstr=$$0; } \
+	         //{ \
+	             if (block) { \
+	                 blockstr=blockstr "\n" $$0; \
+	                 if (/$(VALGRIND_MEM_IGNORE_PATTERN)/) blockignore=1; \
+	             } else { print $$0; } \
+	         } \
+	         /=+[0-9]+=+[[:space:]]*$$/ { \
+	             if (block) { \
+	                 if (!blockignore) print blockstr; \
+	                 block=0; \
+	             } \
+	         } \
+	         ' $${logfile} > $${logfile%.log}_filtered.log && cat $${logfile%.log}_filtered.log \
+	 && echo "* valgrind output in $${logfile} and $${logfile%.log}_filtered.log (will be deleted by 'make distclean')"
 
 info:
 	@echo "UNAME_SYS        : $(UNAME_SYS)"
@@ -842,7 +876,7 @@ info:
 .PHONY: subdirs $(DEBUGDIRS)
 .PHONY: subdirs $(DOCDIRS)
 .PHONY: default_rule all build_all clean distclean dist test info debug doc install \
-	gentags update-$(BUILDINC) .gitignore merge-makefile debug-makefile
+	gentags update-$(BUILDINC) .gitignore merge-makefile debug-makefile valgrind
 
 ############################################################################
 #$(BUILDDIR)/%.o: $(SRCDIR)/%.m $(INCLUDES) $(ALLMAKEFILES)

@@ -11,3 +11,4 @@ Build.java
 build.h
 libvlib.a
 src/_src_.c
+valgrind_*.log
