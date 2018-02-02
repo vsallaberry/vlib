@@ -326,7 +326,7 @@ cmd_SRC		= $(FIND) $(SRCDIR) \( -name '*.c' -or -name '*.cc' -or -name '*.cpp' -
 cmd_INCLUDES	= $(FIND) $(INCDIRS) $(SRCDIR) \( -name '*.h' -or -name '*.hh' -or -name '*.hpp' \) \
 		    $(find_AND_NOGEN) $(find_AND_NOGEN2) \
 		    -and \! -path $(VERSIONINC) -and \! -path ./$(VERSIONINC) \
-		    -and \! -path $(BUILDINC) -and \! -path ./$(BUILDINC) $(find_AND_SYSDEP)  \
+		    -and \! -path $(BUILDINC) -and \! -path ./$(BUILDINC) $(find_AND_SYSDEP) \
 		    -print $(NO_STDERR) | $(SED) -e 's|^\./||'
 
 # SRC variable, filled from the 'find' command (cmd_SRC) defined above.
@@ -808,7 +808,7 @@ debug-makefile:
 # Run Valgrind filter output
 valgrind: all
 	@logfile=`$(MKTEMP) ./valgrind_XXXXXX` && $(MV) "$${logfile}" "$${logfile}.log"; logfile="$${logfile}.log"; \
-	 $(VALGRIND) --leak-check=full --log-file="$${logfile}" $(VALGRIND_RUN_PROGRAM); \
+	 $(VALGRIND) --leak-check=full --log-file="$${logfile}" $(VALGRIND_RUN_PROGRAM) || true; \
 	 $(AWK) '/[0-9]+[[:space:]]+bytes[[:space:]]+/ { block=1; blockignore=0; blockstr=$$0; } \
 	         //{ \
 	             if (block) { \
