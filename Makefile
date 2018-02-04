@@ -259,9 +259,9 @@ GCJ		:= $(tmp_GCJ)
 find_AND_SYSDEP	= -and \( \! -path '$(SRCDIR)/$(SYSDEPDIR)/*' \
 		          -or -path '$(SRCDIR)/$(SYSDEPDIR)/*$(SYSDEP_SUF).*' \
 		          -or \( -path '$(SRCDIR)/$(SYSDEPDIR)/*$(SYSDEP_SUF_DEF).*' \
-		                 -and \! -exec $(SHELL) -c "echo \"{}\" \
+		                 -and \! \( -exec $(SHELL) -c "echo \"{}\" \
 		                   | $(SED) -e 's|$(SYSDEP_SUF_DEF)\(\.[^.]*\)$$|$(SYSDEP_SUF)\1|' \
-		                   | xargs $(TEST) -e " \; \) \)
+		                   | xargs $(TEST) -e " \; \) \) \)
 
 # Search Meta sources (used to generate sources)
 # For yacc/bison and lex/flex:
