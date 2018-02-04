@@ -22,11 +22,19 @@
 #ifndef VLIB_UTIL_H
 #define VLIB_UTIL_H
 
-#include <stdio.h>
-#include <string.h>
+#include <sys/time.h>
 
 #ifdef __cplusplus
+# include <cstring>
+# include <cstdio>
+# include <ctime>
+# include <climits>
 extern "C" {
+#else
+# include <string.h>
+# include <stdio.h>
+# include <time.h>
+# include <limits.h>
 #endif
 
 /**
@@ -57,22 +65,73 @@ int         strtok_ro_r(const char ** token, const char * seps,
 
 /** Bench Decl */
 #define BENCH_DECL(name)    struct {  \
-                                struct timeval t0; \
-                                struct timeval t1; \
-                            } name;
+                                clock_t t; \
+                            } name
 
-/** Bench Start */
-#define BENCH_START(name)   gettimeofday(&((name).t0), NULL)
+/**
+ * Bench Start
+ * It uses clock() then sleep time is not taken into account.
+ */
+#define BENCH_START(name)   (name).t = clock()
+
+/* Stop Bench */
+#define BENCH_STOP(name) \
+            do { \
+                clock_t __t1 = clock(); \
+                if ((name).t < 0 || __t1 < 0) { \
+                    (name).t = -1; \
+                } else { \
+                    (name).t = (__t1 - (name).t) / (CLOCKS_PER_SEC / 1000); \
+                } \
+            } while (0)
+
+/* Get Bench value (ms) */
+#define BENCH_GET(name)     (name).t
 
 /** Bench Stop & Display */
-#define BENCH_PRINT(name, ...) do { \
+#define BENCH_STOP_PRINT(name, ...) \
+            do { \
+                BENCH_STOP(name); \
+                fprintf(stderr, __VA_ARGS__); \
+                fprintf(stderr, "DURATION = %ld.%03lds\n", \
+                        ((name).t / 1000), \
+                        ((name).t % 1000)); \
+            } while(0)
+
+/* *************************************************************/
+
+/** Bench Time Decl */
+#define BENCH_TM_DECL(name)     struct {  \
+                                    struct timeval t0; \
+                                    struct timeval t1; \
+                                } name
+
+/** Bench Time Start */
+#define BENCH_TM_START(name)   gettimeofday(&((name).t0), NULL)
+
+/** Bench Time Stop & Display */
+#define BENCH_TM_STOP(name) \
+            do { \
                 gettimeofday(&((name).t1), NULL); \
                 timersub(&((name).t1), &((name).t0), &((name).t1)); \
-                fprintf(stderr, __VA_ARGS__); \
-                fprintf(stderr, "DURATION = %u.%06u\n", \
-                        (unsigned int) ((name).t1).tv_sec, \
-                        (unsigned int) ((name).t1).tv_usec);\
             } while(0)
+
+/** Get Bench Time */
+#define BENCH_TM_GET(name)  (unsigned long)( (((name).t1).tv_sec * 1000) \
+                                             + (((name).t1).tv_usec / 1000))
+
+/** Bench Time Stop & Display */
+#define BENCH_TM_STOP_PRINT(name, ...) \
+            do { \
+                unsigned long __t; \
+                BENCH_TM_STOP(name); \
+                __t = BENCH_TM_GET(name); \
+                fprintf(stderr, __VA_ARGS__); \
+                fprintf(stderr, "DURATION = %u.%03ums\n", \
+                        __t / 1000, __t % 1000); \
+            } while(0)
+
+/* *************************************************************/
 
 #ifdef __cplusplus
 }
