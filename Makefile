@@ -508,14 +508,15 @@ $(BUILDDIRS):
 	cd $(@:-build=) && $(MAKE)
 
 # --- clean : remove objects and generated files
-clean: $(CLEANDIRS)
+clean: cleanme $(CLEANDIRS)
+cleanme:
 	$(RM) $(OBJ:.class=*.class) $(SRCINC) $(GENSRC) $(GENINC) $(GENJAVA) $(CLASSES:.class=*.class) $(DEPS) $(INCLUDEDEPS)
 	@$(TEST) -L "$(FLEXLEXER_LNK)" && { cmd="$(RM) $(FLEXLEXER_LNK)"; echo "$$cmd"; $$cmd ; } || true
 $(CLEANDIRS):
 	cd $(@:-clean=) && $(MAKE) clean
 
 # --- distclean : remove objects, binaries and remove DEBUG flag in build.h
-distclean: $(DISTCLEANDIRS) clean
+distclean: cleanme $(DISTCLEANDIRS)
 	$(RM) $(BIN) $(LIB) $(BUILDINC) $(BUILDINCJAVA) valgrind_*.log `$(FIND) . -name '.*.swp' -or -name '.*.swo' -or -name '*~' -or -name '\#*' $(NO_STDERR)`
 	$(RM) -R $(BIN).dSYM || true
 	@$(TEST) "$(BUILDDIR)" != "$(SRCDIR)" && $(RMDIR) `$(FIND) $(BUILDDIR) -type d | $(SORT) -r` $(NO_STDERR) || true
@@ -906,7 +907,7 @@ info:
 .PHONY: subdirs $(DISTCLEANDIRS)
 .PHONY: subdirs $(DEBUGDIRS)
 .PHONY: subdirs $(DOCDIRS)
-.PHONY: default_rule all build_all clean distclean dist test info debug doc install \
+.PHONY: default_rule all build_all cleanme clean distclean dist test info debug doc install \
 	gentags update-$(BUILDINC) .gitignore merge-makefile debug-makefile valgrind
 
 ############################################################################
