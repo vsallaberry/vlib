@@ -10,5 +10,6 @@
 Build.java
 build.h
 libvlib.a
+src/FlexLexer.h
 src/_src_.c
 valgrind_*.log

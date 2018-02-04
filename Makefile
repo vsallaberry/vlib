@@ -207,20 +207,40 @@ SYSDEP_SUF_DEF	= default
 #UNAME_ARCH	:= $(tmp_UNAME_ARCH)
 
 # Search bison 3 or later, fallback on bison, yacc.
-cmd_YACC	= { for bin in $$($(WHICH) -a bison $(YACC) $(NO_STDERR)); do \
-		      ver="$$($$bin -V 2>&1 | $(AWK) -F '.' '/[0-9]+(\.[0-9]+)+/{$$0=substr($$0,match($$0,/[0-9]+(\.[0-9]+)+/));\
-		                                                                 print $$1*1000000 + $$2*10000 + $$3*100 + $$4*1 }')"; \
-		      $(TEST) $$ver -ge 03000000 $(NO_STDERR) && echo "$${bin}._have_bison3_" && break; done; $(WHICH) $(YACC) bison yacc $(NO_STDERR); } | $(HEADN1)
-tmp_YACC	!= $(cmd_YACC)
-tmp_YACC	?= $(shell $(cmd_YACC))
-YACC		:= $(tmp_YACC)
-BISON3		:= $(YACC)
-YACC		:= $(YACC:._have_bison3_=)
-BISON3$(YACC)._have_bison3_ := $(YACC)
+cmd_YACC        = found=; for bin in $$($(WHICH) -a bison $(YACC) $(NO_STDERR)); do \
+		      ver="$$($$bin -V 2>&1 | $(AWK) -F '.' '/[Bb][iI][sS][oO][nN].*[0-9]+(\.[0-9]+)+/ { \
+		                                               $$0=substr($$0,match($$0,/[0-9]+(\.[0-9]+)+/)); \
+		                                               print $$1*1000000 + $$2*1000 + $$3*1 }')"; \
+		      $(TEST) -n "$$ver" && $(TEST) $$ver -ge 03000000 $(NO_STDERR) && found="$${bin}._have_bison3_" && break; \
+		  done; $(TEST) -n "$$found" && $(PRINTF) "$$found" || $(WHICH) $(YACC) bison yacc $(NO_STDERR) | $(HEADN1) || true
+tmp_YACC0	!= $(cmd_YACC)
+tmp_YACC0	?= $(shell $(cmd_YACC))
+tmp_YACC	:= $(tmp_YACC0)
+BISON3		:= $(tmp_YACC)
+tmp_YACC	:= $(tmp_YACC:._have_bison3_=)
+BISON3$(tmp_YACC)._have_bison3_ := $(tmp_YACC)
 BISON3		:= $(BISON3$(BISON3))
+YACC		:= $(tmp_YACC)
 
-# Search flex, lex.
-cmd_LEX		= $(WHICH) flex lex $(NO_STDERR) | $(HEADN1)
+# Search flex, lex, and find the location of corresponding FlexLexer.h needed by C++ Scanners.
+# Depending on gcc include search paths, the wrong FlexLexer.h could be chosen if you have
+# several flex on your system -> create link to correct FlexLexer.h.
+# Particular case on MacOS where flex is a wrapper to xcode, meaning
+# $(dirname flex)/../include/FlexLexer.h does not exist.
+FLEXLEXER_INC	= FlexLexer.h
+FLEXLEXER_LNK	= $(BUILDDIR)/$(FLEXLEXER_INC)
+$(FLEXLEXER_LNK):
+cmd_LEX		= lex=`$(WHICH) $(LEX) flex lex $(NO_STDERR) | $(HEADN1)`; \
+		  $(TEST) -n "$$lex" -a \( ! -e "$(FLEXLEXER_LNK)" -o -L "$(FLEXLEXER_LNK)" \) \
+		  && flexinc="`dirname $$lex`/../include/$(FLEXLEXER_INC)" \
+		  && $(TEST) -e "$$flexinc" \
+		  || { $(TEST) "$(UNAME_SYS)" = "darwin" \
+		       && otool -L $$lex | $(GREP) -Eq 'libxcselect[^ ]*dylib' $(NO_STDERR) \
+		       && flexinc="`xcode-select -p $(NO_STDERR)`/Toolchains/Xcodedefault.xctoolchain/usr/include/$(FLEXLEXER_INC)" \
+		       && $(TEST) -e "$$flexinc"; } \
+		  && ! $(TEST) $(FLEXLEXER_LNK) -ef "$$flexinc" && echo 1>&2 "$(NAME): create link $(FLEXLEXER_LNK) -> $$flexinc" \
+		  && ln -sf "$$flexinc" "$(FLEXLEXER_LNK)" $(NO_STDERR) && $(TEST) -e $(BUILDINC) && $(TOUCH) $(BUILDINC); \
+		  echo $$lex
 tmp_LEX		!= $(cmd_LEX)
 tmp_LEX		?= $(shell $(cmd_LEX))
 LEX		:= $(tmp_LEX)
@@ -238,10 +258,10 @@ GCJ		:= $(tmp_GCJ)
 # or the one suffixed with 'default' if not found.
 find_AND_SYSDEP	= -and \( \! -path '$(SRCDIR)/$(SYSDEPDIR)/*' \
 		          -or -path '$(SRCDIR)/$(SYSDEPDIR)/*$(SYSDEP_SUF).*' \
-			  -or \( -path '$(SRCDIR)/$(SYSDEPDIR)/*$(SYSDEP_SUF_DEF).*' \
-			         -and \! -exec $(SHELL) -c "echo \"{}\" \
-				   | $(SED) -e 's|$(SYSDEP_SUF_DEF)\(\.[^.]*\)$$|$(SYSDEP_SUF)\1|' \
-				   | xargs $(TEST) -e " \; \) \)
+		          -or \( -path '$(SRCDIR)/$(SYSDEPDIR)/*$(SYSDEP_SUF_DEF).*' \
+		                 -and \! -exec $(SHELL) -c "echo \"{}\" \
+		                   | $(SED) -e 's|$(SYSDEP_SUF_DEF)\(\.[^.]*\)$$|$(SYSDEP_SUF)\1|' \
+		                   | xargs $(TEST) -e " \; \) \)
 
 # Search Meta sources (used to generate sources)
 # For yacc/bison and lex/flex:
@@ -255,9 +275,9 @@ cmd_YACCSRC	= $(TEST) -n "$(YACC)" && $(FIND) $(SRCDIR) \( -name '*.y' -or -name
 		                            $(find_AND_SYSDEP) -print $(NO_STDERR) | $(SED) -e 's|^\./||' || true
 cmd_LEXSRC	= $(TEST) -n "$(LEX)" && $(FIND) $(SRCDIR) \( -name '*.l' -or -name '*.ll' \) \
 		                           $(find_AND_SYSDEP) -print $(NO_STDERR) | $(SED) -e 's|^\./||' || true
-cmd_YACCJAVA	= $(TEST) -n "$(BIN)" && $(TEST) -n "$(GCJ)" || $(TEST) -n "$(JAR)" \
-		  && $(TEST) -n "$(BISON3)" && $(FIND) $(SRCDIR) -name '*.yyj' \
-		                                 $(find_AND_SYSDEP) -print $(NO_STDERR) | $(SED) -e 's|^\./||' || true
+cmd_YACCJAVA	= $(TEST) \( \( -n "$(BIN)" -a -n "$(GCJ)" \) -o -n "$(JAR)" \) -a  -n "$(BISON3)" \
+		  && $(FIND) $(SRCDIR) -name '*.yyj' \
+		             $(find_AND_SYSDEP) -print $(NO_STDERR) | $(SED) -e 's|^\./||' || true
 # METASRC variable, filled from the 'find' command (cmd_{YACC,LEX,..}SRC) defined above.
 tmp_YACCSRC	!= $(cmd_YACCSRC)
 tmp_YACCSRC	?= $(shell $(cmd_YACCSRC))
@@ -300,7 +320,7 @@ find_AND_NOGEN	:= $(tmp_FIND_NOGEN)
 
 # Search non-generated sources and headers. Extensions must be in low-case.
 # Include java only if a JAR is defined as output or if BIN and GCJ are defined.
-cmd_JAVASRC	= $(TEST) -n "$(BIN)" && $(TEST) -n "$(GCJ)" || $(TEST) -n "$(JAR)" \
+cmd_JAVASRC	= $(TEST) \( -n "$(BIN)" -a -n "$(GCJ)" \) -o -n "$(JAR)" \
 		  && $(FIND) $(SRCDIR) \( -name '*.java' \) \
 		       -and \! -path $(BUILDINCJAVA) -and \! -path ./$(BUILDINCJAVA) \
 		       $(find_AND_NOGEN) $(find_AND_SYSDEP) -print $(NO_STDERR) | $(SED) -e 's|^\./||' || true
@@ -326,6 +346,7 @@ cmd_SRC		= $(FIND) $(SRCDIR) \( -name '*.c' -or -name '*.cc' -or -name '*.cpp' -
 cmd_INCLUDES	= $(FIND) $(INCDIRS) $(SRCDIR) \( -name '*.h' -or -name '*.hh' -or -name '*.hpp' \) \
 		    $(find_AND_NOGEN) $(find_AND_NOGEN2) \
 		    -and \! -path $(VERSIONINC) -and \! -path ./$(VERSIONINC) \
+		    -and \! \( -path $(FLEXLEXER_LNK) -and -type l \) \
 		    -and \! -path $(BUILDINC) -and \! -path ./$(BUILDINC) $(find_AND_SYSDEP) \
 		    -print $(NO_STDERR) | $(SED) -e 's|^\./||'
 
@@ -343,7 +364,7 @@ JAVAOBJ.	:= $(JAVAOBJNAME)
 JAVAOBJ		:= $(JAVAOBJ$(BUILDDIR))
 TMPCLASSESDIR	= $(BUILDDIR)/.tmp_classes
 cmd_SRC_BUILD	:= echo " $(SRC)" | $(SED) -e 's| $(SRCDIR)/| $(BUILDDIR)/|g'; \
-		  case " $(JAVASRC) " in *" "*".java "*) $(TEST) -n "$(GCJ)" && $(TEST) -n "$(BIN)" && echo "$(JAVAOBJ)";; esac
+		  case " $(JAVASRC) " in *" "*".java "*) $(TEST) -n "$(GCJ)" -a -n "$(BIN)" && echo "$(JAVAOBJ)";; esac
 tmp_SRC_BUILD	!= $(cmd_SRC_BUILD)
 tmp_SRC_BUILD	?= $(shell $(cmd_SRC_BUILD))
 tmp_OBJ1	:= $(tmp_SRC_BUILD:.m=.o)
@@ -404,7 +425,7 @@ sys_DEBUG	= $(DEBUG_$(SYSDEP_SUF))
 # Generic Build Flags, taking care of system specific flags (sys_*)
 cmd_CPPFLAGS	= echo "-I."; $(TEST) "$(SRCDIR)" != "." && echo "-I$(SRCDIR)"; \
 		  $(TEST) "$(SRCDIR)" != "$(BUILDDIR)" && echo "-I$(BUILDDIR)"; \
-		  for dir in $(INCDIRS); do $(TEST) "$$dir" != "$(SRCDIR)" && $(TEST) "$$dir" != "." && echo "-I$$dir"; done; true
+		  for dir in $(INCDIRS); do $(TEST) "$$dir" != "$(SRCDIR)" -a "$$dir" != "." && echo "-I$$dir"; done; true
 tmp_CPPFLAGS	!= $(cmd_CPPFLAGS)
 tmp_CPPFLAGS	?= $(shell $(cmd_CPPFLAGS))
 tmp_CPPFLAGS	:= $(tmp_CPPFLAGS)
@@ -444,7 +465,7 @@ INCLUDEDEPS	:= .alldeps.d
 cmd_SINCLUDEDEPS= inc=1; if $(TEST) -e $(INCLUDEDEPS); then echo "$(INCLUDEDEPS)"; \
 		  else inc=; echo version.h; fi; \
 		  for f in $(DEPS:.d=); do \
-		      if $(TEST) -z "$$inc" || ! $(TEST) -e "$$f.d"; then \
+		      if $(TEST) -z "$$inc" -o ! -e "$$f.d"; then \
 		           $(TEST) "$$f.o" = "$(JAVAOBJ)" && echo "" > $$f.d || echo "$$f.o: $(INCLUDES) $(GENINC)" > $$f.d; \
 		           echo "include $$f.d" >> $(INCLUDEDEPS); \
 	      	      fi; \
@@ -489,6 +510,7 @@ $(BUILDDIRS):
 # --- clean : remove objects and generated files
 clean: $(CLEANDIRS)
 	$(RM) $(OBJ:.class=*.class) $(SRCINC) $(GENSRC) $(GENINC) $(GENJAVA) $(CLASSES:.class=*.class) $(DEPS) $(INCLUDEDEPS)
+	@$(TEST) -L "$(FLEXLEXER_LNK)" && { cmd="$(RM) $(FLEXLEXER_LNK)"; echo "$$cmd"; $$cmd ; } || true
 $(CLEANDIRS):
 	cd $(@:-clean=) && $(MAKE) clean
 
@@ -635,7 +657,7 @@ $(CLASSES): $(ALLMAKEFILES) $(BUILDINC)
 	     elif $(TEST) -e "$(@D)/y.tab.h"; then cmd='$(MV) $(@D)/y.tab.h $(@:.cc=.hh)'; echo "$$cmd"; $$cmd; fi; \
 	 esac
 .yyj.java:
-	$(YACC) $(YJFLAGS) $(FLAGS_YACC_$<) -o $@ $<
+	$(BISON3) $(YJFLAGS) $(FLAGS_YACC_$<) -o $@ $<
 .y.h:
 	@! $(TEST) -e $@ && $(TOUCH) $@ && $(MAKE) $(@:.h=.c) || true
 .yy.hh:
@@ -774,6 +796,7 @@ update-$(BUILDINC): $(BUILDINC)
 	@{ cat .gitignore $(NO_STDERR); \
 	   for f in $(BIN) $(BIN).dSYM $(LIB) $(JAR) $(GENSRC) $(GENJAVA) $(GENINC) $(SRCINC) \
 	            $(BUILDINC) $(BUILDINCJAVA) $(CLANGCOMPLETE) \
+	            `$(TEST) -L $(FLEXLEXER_LNK) && echo $(FLEXLEXER_LNK) || true` \
 	            '*.o' '*.d' '*.class' '*.a' '*~' '.*.swo' '.*.swp' 'valgrind_*.log'; do \
 	       $(PRINTF) "$$f\n" | $(SED) -e 's|^./||'; done; \
 	 } | $(SORT) | $(UNIQ) > .gitignore
@@ -793,7 +816,7 @@ merge-makefile:
 	     $(GREP) -E -i -B10000 '^[[:space:]]*#[[:space:]]*generic[[:space:]]part' "$${makefile}" > "$${makefile}.tmp" \
 	     && $(GREP) -E -i -A10000 '^[[:space:]]*#[[:space:]]*generic[[:space:]]part' Makefile | tail -n +2 >> "$${makefile}.tmp" \
 	     && mv "$${makefile}.tmp" "$${makefile}" && echo "merged $${makefile}" || echo "! cannot merge $${makefile}" && $(RM) -f "$${makefile}.tmp"; \
-	     file=make-fallback; target="`dirname $${makefile}`/$${file}"; if $(TEST) -e "$$file" && $(TEST) -e "$$target"; then \
+	     file=make-fallback; target="`dirname $${makefile}`/$${file}"; if $(TEST) -e "$$file" -a -e "$$target"; then \
 	         $(GREP) -E -i -B10000 '^[[:space:]]*#[[:space:]]*This program is free software;' "$$target" > "$${target}.tmp" \
 	         && $(GREP) -E -i -A10000 '^[[:space:]]*#[[:space:]]*This program is free software;' "$$file" | tail -n +2 >> "$${target}.tmp" \
 	         && mv "$${target}.tmp" "$${target}" && echo "merged $${target}" && chmod +x "$$target" || echo "! cannot merge $${target}" && $(RM) -f "$${target}.tmp"; \
