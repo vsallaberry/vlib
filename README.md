@@ -22,26 +22,26 @@ This is not an exhaustive list but the list of systems on which it has been buil
 - FreeBSD 11.1
 
 ## Compilation
-Make sure you clone the repository with '--recursive' option.
+Make sure you clone the repository with '--recursive' option.  
     $ git clone --recursive https://github.com/vsallaberry/vlib
 
-Just type:
+Just type:  
     $ make # (or 'make -j3' for SMP)
 
-If the Makefile cannot be parsed by 'make', try:
+If the Makefile cannot be parsed by 'make', try:  
     $ ./make-fallback
 
 Most of utilities used in Makefile are defined in variables and can be changed
 with something like 'make SED=gsed TAR=gnutar' (or ./make-fallback SED=...)
 
-To See how make understood the Makefile, you can type:
+To See how make understood the Makefile, you can type:  
     $ make info # ( or ./make-fallback info)
 
 When making without version.h created (not the case for this repo), some old
 bsd make can stop. Just type again '$ make' and it will be fine.
 
 ## Contact
-[vsallaberry@gmail.com]
+[vsallaberry@gmail.com]  
 <https://github.com/vsallaberry/vlib>
 
 ## License
