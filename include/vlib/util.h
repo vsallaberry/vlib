@@ -74,19 +74,20 @@ int         strtok_ro_r(const char ** token, const char * seps,
  */
 #define BENCH_START(name)   (name).t = clock()
 
-/* Stop Bench */
+/* Stop Bench
+ * man clock() indicate it can return -1 but some system have unsigned clock_t */
 #define BENCH_STOP(name) \
             do { \
                 clock_t __t1 = clock(); \
                 if ((name).t < 0 || __t1 < 0) { \
                     (name).t = -1; \
                 } else { \
-                    (name).t = (__t1 - (name).t) / (CLOCKS_PER_SEC / 1000); \
+                    (name).t = ((__t1 - (name).t) * 1000) / CLOCKS_PER_SEC; \
                 } \
             } while (0)
 
 /* Get Bench value (ms) */
-#define BENCH_GET(name)     (name).t
+#define BENCH_GET(name)     (long)(name).t
 
 /** Bench Stop & Display */
 #define BENCH_STOP_PRINT(name, ...) \
@@ -94,8 +95,8 @@ int         strtok_ro_r(const char ** token, const char * seps,
                 BENCH_STOP(name); \
                 fprintf(stderr, __VA_ARGS__); \
                 fprintf(stderr, "DURATION = %ld.%03lds\n", \
-                        ((name).t / 1000), \
-                        ((name).t % 1000)); \
+                        (long)((name).t / 1000), \
+                        (long)((name).t % 1000)); \
             } while(0)
 
 /* *************************************************************/
@@ -117,8 +118,8 @@ int         strtok_ro_r(const char ** token, const char * seps,
             } while(0)
 
 /** Get Bench Time */
-#define BENCH_TM_GET(name)  (unsigned long)( (((name).t1).tv_sec * 1000) \
-                                             + (((name).t1).tv_usec / 1000))
+#define BENCH_TM_GET(name)  (long)( (((name).t1).tv_sec * 1000) \
+                                      + (((name).t1).tv_usec / 1000))
 
 /** Bench Time Stop & Display */
 #define BENCH_TM_STOP_PRINT(name, ...) \
@@ -127,8 +128,9 @@ int         strtok_ro_r(const char ** token, const char * seps,
                 BENCH_TM_STOP(name); \
                 __t = BENCH_TM_GET(name); \
                 fprintf(stderr, __VA_ARGS__); \
-                fprintf(stderr, "DURATION = %u.%03ums\n", \
-                        __t / 1000, __t % 1000); \
+                fprintf(stderr, "DURATION = %lu.%03lums\n", \
+                        (unsigned long)(__t / 1000), \
+                        (unsigned long)(__t % 1000)); \
             } while(0)
 
 /* *************************************************************/
