@@ -63,26 +63,34 @@ int         strtok_ro_r(const char ** token, const char * seps,
                         const char ** next, size_t * maxlen,
                         int flags);
 
+/* ******************************************
+ * CLOCK BENCH: measures cpu tick of process
+ ********************************************/
+
 /** Bench Decl */
 #define BENCH_DECL(name)    struct {  \
                                 clock_t t; \
                             } name
 
 /**
- * Bench Start
- * It uses clock() then sleep time is not taken into account.
+ * Bench Start: start a bench using a bench variable previously declared
+ * with BENCH_DECL. It uses clock() then sleep time is not taken into account.
  */
-#define BENCH_START(name)   (name).t = clock()
+#define BENCH_START(name)       (name).t = clock()
 
-/* Stop Bench
- * man clock() indicate it can return -1 but some system have unsigned clock_t */
+/** Bench Decl_Start : declare bench variable and start bench.
+ * Be carefull when using BENCH_DECL_START, as it declares a variable outside
+ * a block and it generates 2 instructions not inside a block. */
+#define BENCH_DECL_START(name)  BENCH_DECL(name); BENCH_START(name)
+
+/** Stop Bench */
 #define BENCH_STOP(name) \
             do { \
-                clock_t __t1 = clock(); \
-                if ((name).t < 0 || __t1 < 0) { \
-                    (name).t = -1; \
+                clock_t __t = clock(); \
+                if ((name).t == (clock_t) -1 || __t == (clock_t) -1) { \
+                    (name).t = (clock_t) -1; \
                 } else { \
-                    (name).t = ((__t1 - (name).t) * 1000) / CLOCKS_PER_SEC; \
+                    (name).t = ((__t - (name).t) * 1000) / CLOCKS_PER_SEC; \
                 } \
             } while (0)
 
@@ -92,23 +100,35 @@ int         strtok_ro_r(const char ** token, const char * seps,
 /** Bench Stop & Display */
 #define BENCH_STOP_PRINT(name, ...) \
             do { \
+                long __t; \
                 BENCH_STOP(name); \
+                __t = BENCH_GET(name); \
                 fprintf(stderr, __VA_ARGS__); \
                 fprintf(stderr, "DURATION = %ld.%03lds\n", \
-                        (long)((name).t / 1000), \
-                        (long)((name).t % 1000)); \
+                        __t / 1000, \
+                        __t % 1000); \
             } while(0)
 
-/* *************************************************************/
+/* ******************************
+ * TIME BENCH: measures time.
+ ********************************/
 
 /** Bench Time Decl */
 #define BENCH_TM_DECL(name)     struct {  \
                                     struct timeval t0; \
                                     struct timeval t1; \
                                 } name
+/**
+ * Bench Start: start a time bench using a bench variable previously declared
+ * with BENCH_TM_DECL.
+ */
+#define BENCH_TM_START(name)        gettimeofday(&((name).t0), NULL)
 
-/** Bench Time Start */
-#define BENCH_TM_START(name)   gettimeofday(&((name).t0), NULL)
+/** Bench Time Decl_Start
+ * Be carefull when using BENCH_TM_DECL_START, as it declares a variable outside
+ * a block and it generates 2 instructions not inside a block.
+ */
+#define BENCH_TM_DECL_START(name)   BENCH_TM_DECL(name); BENCH_TM_START(name)
 
 /** Bench Time Stop & Display */
 #define BENCH_TM_STOP(name) \
@@ -120,17 +140,16 @@ int         strtok_ro_r(const char ** token, const char * seps,
 /** Get Bench Time */
 #define BENCH_TM_GET(name)  (long)( (((name).t1).tv_sec * 1000) \
                                       + (((name).t1).tv_usec / 1000))
-
 /** Bench Time Stop & Display */
 #define BENCH_TM_STOP_PRINT(name, ...) \
             do { \
-                unsigned long __t; \
+                long __t; \
                 BENCH_TM_STOP(name); \
                 __t = BENCH_TM_GET(name); \
                 fprintf(stderr, __VA_ARGS__); \
-                fprintf(stderr, "DURATION = %lu.%03lums\n", \
-                        (unsigned long)(__t / 1000), \
-                        (unsigned long)(__t % 1000)); \
+                fprintf(stderr, "DURATION = %ld.%03ldms\n", \
+                        __t / 1000, \
+                        __t % 1000); \
             } while(0)
 
 /* *************************************************************/
