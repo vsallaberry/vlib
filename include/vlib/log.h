@@ -22,13 +22,18 @@
 #ifndef VLIB_LOG_H
 #define VLIB_LOG_H
 
-#include <stdio.h>
-
-#include "slist.h"
+#include <sys/time.h>
 
 #ifdef __cplusplus
+# include <cstdio>
+# include <ctime>
 extern "C" {
+#else
+# include <stdio.h>
+# include <time.h>
 #endif
+
+#include "slist.h"
 
 /** Supported Log Levels */
 typedef enum {
@@ -39,36 +44,63 @@ typedef enum {
     LOG_LVL_VERBOSE = 4,
     LOG_LVL_DEBUG   = 5,
     LOG_LVL_SCREAM  = 6,
-    LOG_LVL_NB      = 7
+    LOG_LVL_NB      = 7,
+    LOG_LVL_DEFAULT = LOG_LVL_INFO
 } log_level_t;
 
-# define    LOG_PREFIX_SZ   20
+/** Supported Log Flags */
+typedef enum {
+    LOG_FLAG_NONE       = 0,
+    LOG_FLAG_DATETIME   = 1 << 0,
+    LOG_FLAG_MODULE     = 1 << 1,
+    LOG_FLAG_LEVEL      = 1 << 2,
+    LOG_FLAG_PID        = 1 << 3,
+    LOG_FLAG_TID        = 1 << 4,
+    LOG_FLAG_FILE       = 1 << 5,
+    LOG_FLAG_FUNC       = 1 << 6,
+    LOG_FLAG_LINE       = 1 << 7,
+    LOG_FLAG_LOC_TAIL   = 1 << 8,
+    LOG_FLAG_CLOSEFILE  = 1 << 29,
+    LOG_FLAG_FREEPREFIX = 1 << 30,
+    LOG_FLAG_DEFAULT    = LOG_FLAG_DATETIME | LOG_FLAG_MODULE | LOG_FLAG_LEVEL
+                        | LOG_FLAG_CLOSEFILE,
+} log_flag_t;
+
+/** log context */
 typedef struct {
     log_level_t     level;
     FILE *          out;
-    unsigned int    flags;
-    char            prefix[LOG_PREFIX_SZ];
+    log_flag_t      flags;
+    char *          prefix;
 } log_ctx_t;
-
-# define    LOG_LVL_DEFAULT     LOG_LVL_INFO
 
 # define    LOG_USE_VA_ARGS
 
 # ifdef LOG_USE_VA_ARGS
-#  define   LOG_ERROR(ctx,...)      xlog(LOG_LVL_ERROR,ctx,   __VA_ARGS__)
-#  define   LOG_WARN(ctx,...)       xlog(LOG_LVL_WARN,ctx,    __VA_ARGS__)
-#  define   LOG_INFO(ctx,...)       xlog(LOG_LVL_INFO,ctx,    __VA_ARGS__)
-#  define   LOG_VERBOSE(ctx,...)    xlog(LOG_LVL_VERBOSE,ctx, __VA_ARGS__)
+#  define   LOG_ERROR(ctx,...)      xlog(LOG_LVL_ERROR,ctx,   __FILE__,__func__,__LINE__,__VA_ARGS__)
+#  define   LOG_WARN(ctx,...)       xlog(LOG_LVL_WARN,ctx,    __FILE__,__func__,__LINE__,__VA_ARGS__)
+#  define   LOG_INFO(ctx,...)       xlog(LOG_LVL_INFO,ctx,    __FILE__,__func__,__LINE__,__VA_ARGS__)
+#  define   LOG_VERBOSE(ctx,...)    xlog(LOG_LVL_VERBOSE,ctx, __FILE__,__func__,__LINE__,__VA_ARGS__)
+#  define   LOG_BUFFER(lvl,ctx,buf,sz,...) \
+                xlog_buffer(lvl, ctx, buf, sz, __FILE__,__func__,__LINE__,__VA_ARGS__);
 #  ifdef _DEBUG
-#   define  LOG_DEBUG(ctx,...)      xlog(LOG_LVL_DEBUG,ctx,   __VA_ARGS__)
-#   define  LOG_SCREAM(ctx,...)     xlog(LOG_LVL_SCREAM,ctx,  __VA_ARGS__)
-#   define  LOG_DEBUG_BUF(ctx,buf,sz,...) xlog_buffer(LOG_LVL_DEBUG,ctx,buf,sz,__VA_ARGS__)
+#   define  LOG_DEBUG(ctx,...)      xlog(LOG_LVL_DEBUG,ctx,   __FILE__,__func__,__LINE__,__VA_ARGS__)
+#   define  LOG_SCREAM(ctx,...)     xlog(LOG_LVL_SCREAM,ctx,  __FILE__,__func__,__LINE__,__VA_ARGS__)
+#   define  LOG_DEBUG_BUF(ctx,buf,sz,...) \
+                LOG_BUFFER(LOG_LVL_DEBUG,ctx,buf,sz,__VA_ARGS__)
 #  else
 #   define  LOG_DEBUG(ctx,...)
 #   define  LOG_DEBUG_BUF(ctx,...)
 #   define  LOG_SCREAM(ctx,...)
 #  endif /* ! _DEBUG */
 # else /*! LOG_USE_VA_ARGS */
+int     xlog_error(log_ctx_t *ctx, const char *fmt, ...);
+int     xlog_warn(log_ctx_t *ctx, const char *fmt, ...);
+int     xlog_info(log_ctx_t *ctx, const char *fmt, ...);
+int     xlog_verbose(log_ctx_t *ctx, const char *fmt, ...);
+int     xlog_debug(log_ctx_t *ctx, const char *fmt, ...);
+int     xlog_debug_buffer(log_ctx_t *ctx, const char *fmt, ...);
+int     xlog_scream(log_ctx_t *ctx, const char *fmt, ...);
 #  define   LOG_ERROR               xlog_error
 #  define   LOG_WARN                xlog_warn
 #  define   LOG_INFO                xlog_info
@@ -95,24 +127,29 @@ typedef struct {
  * @param args the printf-like format arguments.
  * @return the number of written chars.
  */
-int         xlog(log_level_t level, log_ctx_t *ctx, const char *fmt, ...);
+int         xlog(log_level_t level, log_ctx_t *ctx,
+                 const char * file, const char * func, int line,
+                 const char *fmt, ...);
 
 /** Log a buffer with hex and ascii data. See xlog() */
-int	xlog_buffer(log_level_t level, log_ctx_t *ctx,
-                const void * pbuffer, size_t len,
-                const char *fmt_header, ...);
-
+int	        xlog_buffer(log_level_t     level,
+                        log_ctx_t *     ctx,
+                        const void *    pbuffer,
+                        size_t          len,
+                        const char * file, const char * func, int line,
+                        const char *    fmt_header, ...);
 
 log_ctx_t * xlog_create(log_ctx_t *from);
 slist_t *   xlog_create_from_cmdline(slist_t * logs,
                                      const char * log_levels, const char *const* modules);
 void        xlog_list_free(slist_t *logs);
 
-int         xlog_header(log_level_t level, log_ctx_t *ctx);
+int         xlog_header(log_level_t level, log_ctx_t *ctx,
+                        const char * file, const char * func, int line);
 int         xlog_list_prefixcmp(const void * vlist1_data, const void * vlist2_data);
 int         xlog_list_prefixfind(const void * vvalue, const void *vlist_data);
 void        xlog_close(log_ctx_t * ctx);
-void        xlog_close_and_free(void * vlog);
+void        xlog_destroy(void * vlog);
 
 #ifdef __cplusplus
 }
