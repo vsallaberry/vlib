@@ -169,9 +169,10 @@ int xlog_header(log_level_t level, log_ctx_t *ctx,
             if (localtime_r(&tim, &tm) == NULL) {
                 memset(&tm, 0, sizeof(tm));
             }
-            if ((ret = fprintf(out, "%04d.%02d.%02d %02d:%02d:%02d.%03d ",
+            if ((ret = fprintf(out, "%04d.%02d.%02d %02d:%02d:%02d.%03u ",
                                tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-                               tm.tm_hour, tm.tm_min, tm.tm_sec, (int)(tv.tv_usec / 1000))) > 0)
+                               tm.tm_hour, tm.tm_min, tm.tm_sec,
+                               (unsigned int)(tv.tv_usec / 1000))) > 0)
                 n += ret;
         } else {
             /* do localtime_r on minute change */
@@ -190,10 +191,11 @@ int xlog_header(log_level_t level, log_ctx_t *ctx,
                          tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
                          tm.tm_hour, tm.tm_min);
             }
-            strcpy(datetime, old_datetime);
+            strncpy(datetime, old_datetime, LOG_DATETIME_SZ);
             pthread_mutex_unlock(mutex);
-            if ((ret = fprintf(out, "%s%02ld.%03d ",
-                               datetime, tim % 60, (int)(tv.tv_usec/1000))) > 0)
+            if ((ret = fprintf(out, "%s%02u.%03u ", datetime,
+                               (unsigned int)(tim % 60),
+                               (unsigned int)(tv.tv_usec/1000))) > 0)
                 n += ret;
         }
     }
