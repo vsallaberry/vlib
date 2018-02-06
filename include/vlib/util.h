@@ -147,7 +147,7 @@ int         strtok_ro_r(const char ** token, const char * seps,
                 BENCH_TM_STOP(name); \
                 __t = BENCH_TM_GET(name); \
                 fprintf(stderr, __VA_ARGS__); \
-                fprintf(stderr, "DURATION = %ld.%03ldms\n", \
+                fprintf(stderr, "DURATION = %ld.%03lds\n", \
                         __t / 1000, \
                         __t % 1000); \
             } while(0)

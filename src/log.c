@@ -171,7 +171,7 @@ int xlog_header(log_level_t level, log_ctx_t *ctx,
             }
             if ((ret = fprintf(out, "%04d.%02d.%02d %02d:%02d:%02d.%03d ",
                                tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-                               tm.tm_hour, tm.tm_min, tm.tm_sec, tv.tv_usec / 1000)) > 0)
+                               tm.tm_hour, tm.tm_min, tm.tm_sec, (int)(tv.tv_usec / 1000))) > 0)
                 n += ret;
         } else {
             /* do localtime_r on minute change */
@@ -192,7 +192,8 @@ int xlog_header(log_level_t level, log_ctx_t *ctx,
             }
             strcpy(datetime, old_datetime);
             pthread_mutex_unlock(mutex);
-            if ((ret = fprintf(out, "%s%02ld.%03d ", datetime, tim % 60, tv.tv_usec/1000)) > 0)
+            if ((ret = fprintf(out, "%s%02ld.%03d ",
+                               datetime, tim % 60, (int)(tv.tv_usec/1000))) > 0)
                 n += ret;
         }
     }
@@ -316,9 +317,8 @@ log_ctx_t * xlog_create(log_ctx_t *from) {
     if (log != NULL) {
         if (from != NULL) {
             *log = *from;
-            if (from->prefix != NULL) {
+            if (from->prefix != NULL && (from->flags & LOG_FLAG_FREEPREFIX) != 0) {
                 log->prefix = strdup(from->prefix);
-                log->flags |= LOG_FLAG_FREEPREFIX;
             }
         } else {
             log->level = LOG_LVL_INFO;
@@ -352,7 +352,7 @@ int xlog_list_prefixcmp(const void * vlist1_data, const void * vlist2_data) {
 
 slist_t * xlog_create_from_cmdline(slist_t * logs,
                                    const char * log_levels, const char *const* modules) {
-    // FIXME: work in progress
+    // FIXME: work in progress, PARSING OK, using it is TODO
     if (log_levels == NULL) {
         return NULL;
     }
