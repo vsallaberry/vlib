@@ -51,18 +51,21 @@ typedef enum {
 /** Supported Log Flags */
 typedef enum {
     LOG_FLAG_NONE       = 0,
-    LOG_FLAG_DATETIME   = 1 << 0,
-    LOG_FLAG_MODULE     = 1 << 1,
-    LOG_FLAG_LEVEL      = 1 << 2,
-    LOG_FLAG_PID        = 1 << 3,
-    LOG_FLAG_TID        = 1 << 4,
-    LOG_FLAG_FILE       = 1 << 5,
-    LOG_FLAG_FUNC       = 1 << 6,
-    LOG_FLAG_LINE       = 1 << 7,
-    LOG_FLAG_LOC_TAIL   = 1 << 8,
-    LOG_FLAG_CLOSEFILE  = 1 << 29,
-    LOG_FLAG_FREEPREFIX = 1 << 30,
+    LOG_FLAG_DATETIME   = 1 << 0,   /* insert date/time */
+    LOG_FLAG_MODULE     = 1 << 1,   /* insert module name (log_ctx_t.prefix) */
+    LOG_FLAG_LEVEL      = 1 << 2,   /* insert level name (ERR,WRN,...) */
+    LOG_FLAG_PID        = 1 << 3,   /* insert process id */
+    LOG_FLAG_TID        = 1 << 4,   /* insert thread id */
+    LOG_FLAG_FILE       = 1 << 5,   /* insert current logging source file */
+    LOG_FLAG_FUNC       = 1 << 6,   /* insert current logging function in source */
+    LOG_FLAG_LINE       = 1 << 7,   /* insert current logging line in source */
+    LOG_FLAG_LOC_TAIL   = 1 << 8,   /* append file,func,line at the end of log line */
+    LOG_FLAG_LOC_ERR    = 1 << 9,   /* print file,func,line only on levels err,wrn,>=debug */
+    LOG_FLAG_CLOSEFILE  = 1 << 29,  /* the file will be closed by destroy/close if not std* */
+    LOG_FLAG_FREEPREFIX = 1 << 30,  /* log_ctx_t is considered allocated and freed on destroy */
     LOG_FLAG_DEFAULT    = LOG_FLAG_DATETIME | LOG_FLAG_MODULE | LOG_FLAG_LEVEL
+                        | LOG_FLAG_LOC_ERR | LOG_FLAG_LOC_TAIL
+                        | LOG_FLAG_FILE | LOG_FLAG_FUNC | LOG_FLAG_LINE
                         | LOG_FLAG_CLOSEFILE,
 } log_flag_t;
 
@@ -75,7 +78,10 @@ typedef struct {
 } log_ctx_t;
 
 # define    LOG_USE_VA_ARGS
-
+/**
+ * The are the MACROS to use for logging.
+ * See xlog() doc below for details, parameters, return value.
+ */
 # ifdef LOG_USE_VA_ARGS
 #  define   LOG_ERROR(ctx,...)      xlog(LOG_LVL_ERROR,ctx,   __FILE__,__func__,__LINE__,__VA_ARGS__)
 #  define   LOG_WARN(ctx,...)       xlog(LOG_LVL_WARN,ctx,    __FILE__,__func__,__LINE__,__VA_ARGS__)
@@ -89,9 +95,9 @@ typedef struct {
 #   define  LOG_DEBUG_BUF(ctx,buf,sz,...) \
                 LOG_BUFFER(LOG_LVL_DEBUG,ctx,buf,sz,__VA_ARGS__)
 #  else
-#   define  LOG_DEBUG(ctx,...)
-#   define  LOG_DEBUG_BUF(ctx,...)
-#   define  LOG_SCREAM(ctx,...)
+#   define  LOG_DEBUG(ctx,...)      0
+#   define  LOG_DEBUG_BUF(ctx,...)  0
+#   define  LOG_SCREAM(ctx,...)     0
 #  endif /* ! _DEBUG */
 # else /*! LOG_USE_VA_ARGS */
 int     xlog_error(log_ctx_t *ctx, const char *fmt, ...);
@@ -120,11 +126,16 @@ int     xlog_scream(log_ctx_t *ctx, const char *fmt, ...);
 
 /**
  * Log printf-like data.
+ * The end-of-line ('\n') is appended at the end of log.
+ * It is recommended to use macros LOG_ERROR, LOG_* rather than directly this function
+ * in order to have the Location and level conditional features.
+ *
  * @param level the level among log_level_t.
  *              Logging will not be done If level defined in ctx is inferior.
  * @param ctx the log context. If NULL, Log is done on stderr with level 0.
- * @param fmt the printf-like format string.
+ * @param fmt the printf-like format string. If null, '\n' is displayed without header.
  * @param args the printf-like format arguments.
+ *
  * @return the number of written chars.
  */
 int         xlog(log_level_t level, log_ctx_t *ctx,

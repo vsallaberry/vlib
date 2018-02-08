@@ -20,6 +20,7 @@
  * Simple Log utilities.
  */
 #include <sys/time.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <time.h>
 #include <stdio.h>
@@ -52,18 +53,22 @@ static const char * s_log_levels_str[] = {
     "+++"
 };
 
-static int xlog_location(FILE * out, log_flag_t flags,
+static int xlog_location(FILE * out, log_flag_t flags, log_level_t level,
                          const char * file, const char * func, int line) {
     int ret, n = 0;
 
-    if ((flags & (LOG_FLAG_FILE | LOG_FLAG_FUNC | LOG_FLAG_LINE)) != 0) {
+    /* Print location if requested. if LOG_FLAG_LOC_ERR is on, the location will be displayed
+     * only on levels ERR, WARN and >= DEBUG */
+    if ((flags & (LOG_FLAG_FILE | LOG_FLAG_FUNC | LOG_FLAG_LINE)) != 0
+    &&  ((flags & LOG_FLAG_LOC_ERR) == 0
+          || level == LOG_LVL_ERROR || level == LOG_LVL_WARN || level >= LOG_LVL_DEBUG)) {
         if (fputc('{', out) != EOF)
             n++;
-        if ((flags & LOG_FLAG_FILE) != 0 && (ret = fprintf(out, "%s", file)) > 0)
+        if ((flags & LOG_FLAG_FILE) != 0 && file && (ret = fprintf(out, "%s", file)) > 0)
             n += ret;
         if ((flags & LOG_FLAG_LINE) != 0 && (ret = fprintf(out, ":%d", line)) > 0)
             n += ret;
-        if ((flags & LOG_FLAG_FUNC) != 0 && (ret = fprintf(out, ">%s()", func)) > 0)
+        if ((flags & LOG_FLAG_FUNC) != 0 && func && (ret = fprintf(out, ">%s()", func)) > 0)
             n += ret;
         if (fputs("} ", out) != EOF)
             n+=2;
@@ -82,17 +87,21 @@ static int xvlog(log_level_t level, log_ctx_t *ctx,
         const char *    file = "?", * func = "?";
         int             line = 0;
 
-        flockfile();
+        if (fmt == NULL) {
+            return fputc('\n', out) != EOF ? 1 : 0;
+        }
+
+        flockfile(out);
         n += xlog_header(level, ctx, file, func, line);
 	    n += vfprintf(out, fmt, arg);
         if ((flags & LOG_FLAG_LOC_TAIL) == 0) {
             if (fputc(' ', out) != EOF)
                 ++n;
-            n += xlog_location(out, flags, file, func, line);
+            n += xlog_location(out, flags, level, file, func, line);
         }
         if (fputc('\n', out) != EOF)
             ++n;
-        funlockfile();
+        funlockfile(out);
 	}
 	return n;
 }
@@ -202,10 +211,27 @@ int xlog_header(log_level_t level, log_ctx_t *ctx,
     if ((flags & LOG_FLAG_LEVEL) != 0
     && (ret = fprintf(out, "%s ", s_log_levels_str[level > LOG_LVL_NB ? LOG_LVL_NB : level])) > 0)
         n += ret;
-    if ((flags & LOG_FLAG_MODULE) != 0 && (ret = fprintf(out, "[%s] ", prefix)) >0)
-        n += ret;
+    if ((flags & (LOG_FLAG_MODULE | LOG_FLAG_PID | LOG_FLAG_TID)) != 0) {
+        const char * space = "";
+        if (fputc('[', out) != EOF)
+            ++n;
+        if ((flags & LOG_FLAG_MODULE) != 0 && (ret = fprintf(out, "%s", prefix)) >0) {
+            n += ret;
+            space = ",";
+        }
+        if ((flags & LOG_FLAG_PID) != 0
+        && (ret = fprintf(out, "%spid:%u", space, (unsigned int) getpid())) > 0) {
+            n += ret;
+            space = ",";
+        }
+        if ((flags & LOG_FLAG_TID) != 0
+        && (ret = fprintf(out, "%stid:%lx", space, (unsigned long) pthread_self())) >0 )
+            n += ret;
+        if (fputs("] ", out) != EOF)
+            n += 2;
+    }
     if ((flags & LOG_FLAG_LOC_TAIL) == 0) {
-        n += xlog_location(out, flags, file, func, line);
+        n += xlog_location(out, flags, level, file, func, line);
     }
     return n;
 }
@@ -223,6 +249,10 @@ int	xlog(log_level_t level, log_ctx_t *ctx,
         va_list     arg;
         int         n;
 
+        if (fmt == NULL) {
+            return fputc('\n', out) != EOF ? 1 : 0;
+        }
+
         flockfile(out);
         total = xlog_header(level, ctx, file, func, line);
 
@@ -234,7 +264,7 @@ int	xlog(log_level_t level, log_ctx_t *ctx,
         if ((flags & LOG_FLAG_LOC_TAIL) != 0) {
             if (fputc(' ', out) != EOF)
                 ++total;
-            total += xlog_location(out, flags, file, func, line);
+            total += xlog_location(out, flags, level, file, func, line);
         }
         if (fputc('\n', out) != EOF)
             ++total;
@@ -248,7 +278,7 @@ int	xlog(log_level_t level, log_ctx_t *ctx,
 int	xlog_buffer(log_level_t level, log_ctx_t *ctx,
                 const void * pbuffer, size_t len,
                 const char * file, const char * func, int line,
-                const char *fmt_header, ...)
+                const char * fmt_header, ...)
 {
     int total = 0;
 
@@ -264,14 +294,16 @@ int	xlog_buffer(log_level_t level, log_ctx_t *ctx,
         if (buffer == NULL || len == 0) {
             flockfile(out);
             INCR_GE0(xlog_header(level, ctx, file, func, line), n, total);
-            va_start(arg, fmt_header);
-		    INCR_GE0(vfprintf(out, fmt_header, arg), n, total);
-            INCR_GE0(fprintf(out, "<empty>"), n, total);
-            va_end(arg);
+            if (fmt_header) {
+                va_start(arg, fmt_header);
+	    	    INCR_GE0(vfprintf(out, fmt_header, arg), n, total);
+                INCR_GE0(fprintf(out, "<empty>"), n, total);
+                va_end(arg);
+            }
             if ((flags & LOG_FLAG_LOC_TAIL) != 0) {
                 if (fputc(' ', out) != EOF)
                     ++total;
-                total += xlog_location(out, flags, file, func, line);
+                total += xlog_location(out, flags, level, file, func, line);
             }
             if (fputc('\n', out) != EOF)
                 ++total;
@@ -284,9 +316,11 @@ int	xlog_buffer(log_level_t level, log_ctx_t *ctx,
             size_t i_char;
 
             INCR_GE0(xlog_header(level, ctx, file, func, line), n, total);
-            va_start(arg, fmt_header);
-		    INCR_GE0(vfprintf(out, fmt_header, arg), n, total);
-            va_end(arg);
+            if (fmt_header) {
+                va_start(arg, fmt_header);
+	    	    INCR_GE0(vfprintf(out, fmt_header, arg), n, total);
+                va_end(arg);
+            }
 
             INCR_GE0(fprintf(out, "%04zx:", i_buf), n, total);
             for (i_char = i_buf; i_char < i_buf + chars_per_line && i_char < len; i_char++) {
@@ -304,7 +338,7 @@ int	xlog_buffer(log_level_t level, log_ctx_t *ctx,
             if ((flags & LOG_FLAG_LOC_TAIL) != 0) {
                 if (fputc(' ', out) != EOF)
                     ++total;
-                total += xlog_location(out, flags, file, func, line);
+                total += xlog_location(out, flags, level, file, func, line);
             }
             if (fputc('\n', out) != EOF)
                 ++total;
