@@ -97,17 +97,29 @@ int         strtok_ro_r(const char ** token, const char * seps,
 /* Get Bench value (ms) */
 #define BENCH_GET(name)     (long)(name).t
 
-/** Bench Stop & Display */
-#define BENCH_STOP_PRINT(name, ...) \
+/** Bench Stop & Display
+ * BENCH_STOP_PRINT(name, fprintf, stderr, "something") is
+ * not supported unless we use ##__VA_ARGS__ which is gnu extension
+ * you can use BENCH_STOP_PRINT(name, fprintf, stderr, "somthg%s", "").
+ * And because fmt must be a string constant, you should use
+ * BENCH_STOP_PRINT(name, fprintf, stderr, "%s", string_variable). */
+#define BENCH_STOP_PRINT(name, printf_fun, arg, fmt, ...) \
             do { \
                 long __t; \
                 BENCH_STOP(name); \
                 __t = BENCH_GET(name); \
-                fprintf(stderr, __VA_ARGS__); \
-                fprintf(stderr, "DURATION = %ld.%03lds\n", \
-                        __t / 1000, \
-                        __t % 1000); \
+                printf_fun(arg, fmt "DURATION = %ld.%03lds", \
+                           __VA_ARGS__, \
+                           __t / 1000, \
+                           __t % 1000); \
             } while(0)
+#define BENCH_STOP_PRINTF(name, ...) \
+            do { \
+                BENCH_STOP_PRINT(name, fprintf, stdout, __VA_ARGS__); \
+                fputc('\n', stdout); \
+            } while (0)
+#define BENCH_STOP_LOG(name, log, ...) \
+                BENCH_STOP_PRINT(name, LOG_INFO, log, __VA_ARGS__)
 
 /* ******************************
  * TIME BENCH: measures time.
@@ -140,17 +152,29 @@ int         strtok_ro_r(const char ** token, const char * seps,
 /** Get Bench Time */
 #define BENCH_TM_GET(name)  (long)( (((name).t1).tv_sec * 1000) \
                                       + (((name).t1).tv_usec / 1000))
-/** Bench Time Stop & Display */
-#define BENCH_TM_STOP_PRINT(name, ...) \
+/** Bench Time Stop & Display
+ * BENCH_TM_STOP_PRINT(name, fprintf, stderr, "something") is
+ * not supported unless we use ##__VA_ARGS__ which is gnu extension
+ * you can use BENCH_TM_STOP_PRINT(name, fprintf, stderr, "somthg%s", "").
+ * And because fmt must be a string constant, you should use
+ * BENCH_TM_STOP_PRINT(name, fprintf, stderr, "%s", string_variable). */
+#define BENCH_TM_STOP_PRINT(name, printf_fun, arg, fmt, ...) \
             do { \
                 long __t; \
                 BENCH_TM_STOP(name); \
                 __t = BENCH_TM_GET(name); \
-                fprintf(stderr, __VA_ARGS__); \
-                fprintf(stderr, "DURATION = %ld.%03lds\n", \
-                        __t / 1000, \
-                        __t % 1000); \
+                printf_fun(arg, fmt "DURATION = %ld.%03lds", \
+                           __VA_ARGS__, \
+                           __t / 1000, \
+                           __t % 1000); \
             } while(0)
+#define BENCH_TM_STOP_PRINTF(name, ...) \
+            do { \
+                BENCH_TM_STOP_PRINT(name, fprintf, stdout, __VA_ARGS__); \
+                fputc('\n', stdout); \
+            } while (0)
+#define BENCH_TM_STOP_LOG(name, log, ...) \
+                BENCH_TM_STOP_PRINT(name, LOG_INFO, log, __VA_ARGS__)
 
 /* *************************************************************/
 
