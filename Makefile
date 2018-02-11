@@ -674,8 +674,8 @@ dist:
 	 && $(MKDIR) -p "$(DISTDIR)/$${distname}" \
 	 && cp -Rf . "$(DISTDIR)/$${distname}" \
 	 && $(RM) -R `$(FIND) "$(DISTDIR)/$${distname}" -type d -and \( -name '.git' -or -name 'CVS' -or -name '.hg' -or -name '.svn' \) $(NO_STDERR)` \
-	 && true || { ver="$(DISTDIR)/$${distname}/$(VERSIONINC)"; rev=`$(SED) -n -e 's/GITREV\(.*\)/DIST_GITREV\1/p' $(BUILDINC) | tr '\n' '@'`;\
-	      $(SED) -e "s,^\([[:space:]]*#[[:space:]]*include\),$${rev}@\1," "$$ver" | tr '@' '\n' > "$${ver}.tmp" && $(MV) "$${ver}.tmp" "$$ver"; false; } \
+	 && true || { ver="$(DISTDIR)/$${distname}/$(VERSIONINC)"; rev=`$(SED) -n -e 's/BUILD_GIT\(.*\)/BUILD_DIST_GIT\1/p' $(BUILDINC) | tr '\n' '$$'`;\
+	      $(SED) -e "s,^\([[:space:]]*#[[:space:]]*include\),$${rev}\$$\1," "$$ver" | tr '$$' '\n' > "$${ver}.tmp" && $(MV) "$${ver}.tmp" "$$ver"; false; } \
 	 && $(PRINTF) "$(NAME): building dist...\n" \
 	 && cd "$(DISTDIR)/$${distname}" && $(MAKE) distclean && $(MAKE) && $(MAKE) distclean && cd "$$topdir" \
 	 && cd "$(DISTDIR)" && { $(TAR) czf "$${distname}.tar.gz" "$${distname}" && targz=true || targz=false; \
@@ -730,8 +730,8 @@ $(BUILDINC): $(VERSIONINC)
 	     echo "$(NAME): create $(BUILDINC)"; \
 	     build=`$(SED) -n -e 's/^[[:space:]]*#define[[:space:]]APP_BUILD_NUMBER[[:space:]][[:space:]]*\([0-9][0-9]*\).*/\1/p' $(VERSIONINC)`; \
 	     $(PRINTF) "#define BUILD_APPNAME \"\"\n#define BUILD_NUMBER $$build\n#define BUILD_GITREV \"\"\n" > $(BUILDINC); \
-	     $(PRINTF) "#define BUILD_FULLGITREV \"\"\n#define BUILD_PREFIX \"\"\n#define BUILD_SRCPATH \"\"\n" >> $(BUILDINC); \
-	     $(PRINTF) "#define BUILD_SYSNAME \"\"\n#define BUILD_SYS_unknown\n" >> $(BUILDINC); \
+	     $(PRINTF) "#define BUILD_GITREVFULL \"\"\n#define BUILD_GITREMOTE \"\"\n#define BUILD_PREFIX \"\"\n" >> $(BUILDINC); \
+	     $(PRINTF) "#define BUILD_SRCPATH \"\"\n#define BUILD_SYSNAME \"\"\n#define BUILD_SYS_unknown\n" >> $(BUILDINC); \
 	     $(PRINTF) "#define BUILD_CC_CMD \"\"\n#define BUILD_CXX_CMD \"\"\n#define BUILD_OBJC_CMD \"\"\n" >> $(BUILDINC); \
 	     $(PRINTF) "#define BUILD_GCJ_CMD \"\"\n#define BUILD_CCLD_CMD \"\"\n#define BUILD_JAVAOBJ 0\n" >> $(BUILDINC); \
 	     $(PRINTF) "#define BUILD_JAR 0\n#define BUILD_BIN 0\n#define BUILD_LIB 0\n" >> $(BUILDINC); \
@@ -746,7 +746,8 @@ update-$(BUILDINC): $(BUILDINC)
 	         case $$i in 0) gitrev="$$rev";; 1) fullgitrev="$$rev" ;; esac; \
        	         i=$$((i+1)); \
 	     done; if $(TEST) -n "$$gitstatus"; then gitrev="$${gitrev}-dirty"; fullgitrev="$${fullgitrev}-dirty"; fi; \
-	 else gitrev="unknown"; fullgitrev="$${gitrev}"; fi; \
+	     gitremote=`$(GIT) remote get-url origin`; \
+	 else gitrev="unknown"; fullgitrev="$${gitrev}"; gitremote="$${gitrev}"; fi; \
  	 case " $(OBJ) " in *" $(JAVAOBJ) "*) javaobj=1;; *) javaobj=0;; esac; \
 	 $(TEST) -n "$(JAR)" && jar=1 || jar=0; \
 	 $(TEST) -n "$(BIN)" && bin=1 || bin=0; \
@@ -755,7 +756,8 @@ update-$(BUILDINC): $(BUILDINC)
 	 $(TEST) -n "$(LEX)" && lex=1 || lex=0; \
 	 $(TEST) -n "$(BISON3)" && bison3=1 || bison3=0; \
 	 if $(SED) -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREV[[:space:]]\).*|\1\"$${gitrev}\"|" \
-	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_FULLGITREV[[:space:]]\).*|\1\"$${fullgitrev}\"|" \
+	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREVFULL[[:space:]]\).*|\1\"$${fullgitrev}\"|" \
+	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREMOTE[[:space:]]\).*|\1\"$${gitremote}\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_PREFIX[[:space:]]\).*|\1\"$(PREFIX)\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_SRCPATH[[:space:]]\).*|\1\"$$PWD\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_APPNAME[[:space:]]\).*|\1\"$(NAME)\"|" \
