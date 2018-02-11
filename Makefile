@@ -69,13 +69,14 @@ PREFIX		= /usr/local
 # Choice between <flag>_RELEASE/_DEBUG is done according to BUILDINC / make debug
 WARN_RELEASE	= -Wall -W -pedantic # -Wno-ignored-attributes -Wno-attributes
 ARCH_RELEASE	= -march=native # -arch i386 -arch x86_64
-OPTI_RELEASE	= -O3 -pipe
+OPTI_COMMON	= -pipe -fstack-protector
+OPTI_RELEASE	= -O3 $(OPTI_COMMON)
 INCS_RELEASE	=
 LIBS_RELEASE	= $(SUBLIBS)
 MACROS_RELEASE	=
 WARN_DEBUG	= $(WARN_RELEASE) # -Werror
 ARCH_DEBUG	= $(ARCH_RELEASE)
-OPTI_DEBUG	= -O0 -g -pipe
+OPTI_DEBUG	= -O0 -g $(OPTI_COMMON)
 INCS_DEBUG	= $(INCS_RELEASE)
 LIBS_DEBUG	= $(LIBS_RELEASE)
 MACROS_DEBUG	= -D_DEBUG -D_TEST
