@@ -51,7 +51,7 @@ typedef struct opt_config_s opt_config_t;
  * @return
  *   > 0 on SUCCESS, no exit required
  *   0   on SUCCESS, exit required
- *   < 0 on ERROR
+ *   < 0 on ERROR, exit required
  */
 typedef int     (*opt_option_callback_t)(int opt, const char *arg, int *i_argv,
                                          const opt_config_t * opt_config);
@@ -83,9 +83,9 @@ int             opt_usage(int exit_status, const opt_config_t * opt_config);
  *                   it can also contain EOL and/or copyright, description.
  *    user_data the specific user data to be given to callback
  * @return
- *  > 0 on SUCCESS with no exit required
+ *  > 0 on SUCCESS, no exit required
  *  0 on SUCCESS, with exit required
- *  < 0 on ERROR
+ *  < 0 on ERROR, with exit required
  */
 int             opt_parse_options(const opt_config_t * opt_config);
 

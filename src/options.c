@@ -135,12 +135,6 @@ int opt_parse_options(const opt_config_t * opt_config) {
             int             long_opt_val    = 0;
             int             i_opt;
 
-	        if (!*short_args) {
-                /* '-' alone is not a valid option */
-		        fprintf(stderr, "error: missing option\n");
-		        return opt_usage(-6, opt_config);
-	        }
-
             /* Check for a second '-' : long option. */
 	        if (*short_args == '-') {
                 /* The '--' special option will stop taking words starting with '-' as options */
@@ -159,14 +153,14 @@ int opt_parse_options(const opt_config_t * opt_config) {
             }
 
             /* Proceed each short option. */
-            for (const char *arg = short_args; *arg; arg++) {
+            for (const char * arg = short_args; *arg; arg++) {
                 /* Check if short option is reconized */
                 if (!long_opt_val && get_registered_short_opt(*arg, opt_config) < 0) {
                     fprintf(stderr, "error: unknown option '-%c'\n", *arg);
                     return opt_usage(-2, opt_config);
                 }
 
-                /* Pass the argument any and if no option follows in the same word.
+                /* Pass the argument if any and if no option follows in the same word.
                  * The handler will have responsibility to shift i_argv accordinally. */
                 if (opt_config->callback) {
                     result = opt_config->callback(long_opt_val ? long_opt_val : *arg,
@@ -174,7 +168,10 @@ int opt_parse_options(const opt_config_t * opt_config) {
                                                     ? argv[i_argv + 1] : NULL,
                                                   &i_argv, opt_config);
                     if (result < 0) {
-                        fprintf(stderr, "error: incorrect option '-%c'\n", *arg);
+                        if (long_opt_val)
+                            fprintf(stderr, "error: incorrect option '-%s'\n", arg);
+                        else
+                            fprintf(stderr, "error: incorrect option '-%c'\n", *arg);
                         return opt_usage(-3, opt_config);
                     }
                     if (result == 0) {

@@ -95,9 +95,9 @@ typedef struct {
 #   define  LOG_DEBUG_BUF(ctx,buf,sz,...) \
                 LOG_BUFFER(LOG_LVL_DEBUG,ctx,buf,sz,__VA_ARGS__)
 #  else
-#   define  LOG_DEBUG(ctx,...)      0
-#   define  LOG_DEBUG_BUF(ctx,...)  0
-#   define  LOG_SCREAM(ctx,...)     0
+#   define  LOG_DEBUG(ctx,...)
+#   define  LOG_DEBUG_BUF(ctx,...)
+#   define  LOG_SCREAM(ctx,...)
 #  endif /* ! _DEBUG */
 # else /*! LOG_USE_VA_ARGS */
 int     xlog_error(log_ctx_t *ctx, const char *fmt, ...);

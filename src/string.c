@@ -35,19 +35,21 @@ int strn0cpy(char *dst, const char *src, size_t len, size_t maxlen) {
 
 
 int strtok_ro_r(const char ** token, const char * seps,
-                       const char ** next, size_t * maxlen,
-                       int flags) {
+                const char ** next, size_t * maxlen,
+                int flags) {
     size_t token_len;
 
+    /* sanity checks */
     if (!token || !next || !seps || !*next) {
         return 0;
     }
 
-    // Index in next of any character of seps or index of '0'.
-    // Will also be the length of token;
+    /* token_len: index in *next of any character of seps or index of '0'.
+     * It will also be the length of *token */
     *token = *next;
     token_len = strcspn(*next, seps);
 
+    /* checking whether the separator was found or not */
     int found = 1;
     if (maxlen && token_len > *maxlen) {
         found = 0;
@@ -56,12 +58,14 @@ int strtok_ro_r(const char ** token, const char * seps,
         found = 0;
     }
 
+    /* if separator not found, flags determines if we consider the token */
     if (found) {
         (*next)++;
     } else if ((flags & 1) != 0) {
         return 0;
     }
 
+    /* token is taken into account, update remaining length and go to next one */
     *next += token_len;
     if (maxlen) {
         *maxlen -= (*next - *token);
@@ -69,5 +73,4 @@ int strtok_ro_r(const char ** token, const char * seps,
 
     return token_len;
 }
-
 

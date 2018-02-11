@@ -165,7 +165,7 @@ int xlog_header(log_level_t level, log_ctx_t *ctx,
         static time_t * const   plast_timet = &g_vlib_log_global_ctx.last_timet;
         time_t                  tim;
 
-        /* do localtime_r each time */
+        /* do gettimeofday each time, used to call or not to call localtime_r */
         struct timeval tv;
         if (gettimeofday(&tv, NULL) >= 0) {
             tim = (time_t) tv.tv_sec;
@@ -174,6 +174,7 @@ int xlog_header(log_level_t level, log_ctx_t *ctx,
             tv.tv_usec = 0;
         }
         if (plast_timet == NULL) {
+            /* do localtime_r each time if plast_timet is null */
             struct tm tm;
             if (localtime_r(&tim, &tm) == NULL) {
                 memset(&tm, 0, sizeof(tm));
@@ -431,7 +432,8 @@ slist_t * xlog_create_from_cmdline(slist_t * logs,
 }
 
 void xlog_close(log_ctx_t * ctx) {
-    if (ctx) {
+    if (ctx && ctx->out) {
+        fflush(ctx->out);
         if (ctx->out != stderr && ctx->out != stdout
         &&  (ctx->flags & LOG_FLAG_CLOSEFILE) != 0) {
             fclose(ctx->out);
