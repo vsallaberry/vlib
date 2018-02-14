@@ -70,7 +70,6 @@ static int get_registered_long_opt(const char * long_opt, const char ** popt_arg
 int opt_usage(int exit_status, const opt_config_t * opt_config) {
     FILE *                      out         = OPT_IS_ERROR(exit_status) ? stderr : stdout;
     const char *                start_name  = strrchr(*opt_config->argv, '/');
-    const opt_options_desc_t *  opt_desc    = opt_config->opt_desc;
 
     if (start_name == NULL) {
     	start_name = *opt_config->argv;
@@ -86,39 +85,65 @@ int opt_usage(int exit_status, const opt_config_t * opt_config) {
     /* print usage summary */
     fprintf(out, "Usage: %s [<options>] [<arguments>]\nOptions:\n", start_name);
     /* print list of options with their descrption */
-    for (int i_opt = 0; opt_desc[i_opt].short_opt; i_opt++) {
+    for (const opt_options_desc_t * opt = opt_config->opt_desc; opt->short_opt; opt++) {
         int             n_printed = 0;
         const char *    token;
         const char *    next;
         int             len;
         int             eol_shift = 0;
+        char            desc_buffer[4096];
+        int             desc_size = 0;
+        size_t          size, * psize = NULL;
 
         /* short options */
         n_printed += fprintf(out, "  ");
-        if (is_valid_short_opt(opt_desc[i_opt].short_opt)) {
-    	    n_printed += fprintf(out, "-%c%s", opt_desc[i_opt].short_opt,
-                                      opt_desc[i_opt].long_opt != NULL ? ", " : "");
+        if (is_valid_short_opt(opt->short_opt)) {
+    	    n_printed += fprintf(out, "-%c%s", opt->short_opt,
+                                      opt->long_opt != NULL ? ", " : "");
         }
         /* long options */
-        if (opt_desc[i_opt].long_opt != NULL) {
-	        n_printed += fprintf(out, "--%s", opt_desc[i_opt].long_opt);
+        if (opt->long_opt != NULL) {
+	        n_printed += fprintf(out, "--%s", opt->long_opt);
         }
         /* option argument name */
-	    if (opt_desc[i_opt].arg) {
-	        n_printed += fprintf(out, " %s", opt_desc[i_opt].arg);
+	    if (opt->arg) {
+	        n_printed += fprintf(out, " %s", opt->arg);
 	    }
         /* padding before printing description */
         if (n_printed > OPT_USAGE_OPT_PAD) {
             fputc('\n', out);
             n_printed = 0;
         }
-        /* printing option static description */
-        next = opt_desc[i_opt].desc;
-        if (!next || !*next) {
+        /* getting dynamic option description */
+        if (opt_config->callback
+        &&  ((opt->short_opt >= OPT_ID_USER && opt->short_opt <= OPT_ID_USER_MAX)
+             || (isprint(opt->short_opt)))) {
+            desc_size = sizeof(desc_buffer);
+            *desc_buffer = 0;
+            if (!OPT_IS_CONTINUE(
+                  opt_config->callback(OPT_DESCRIBE_OPTION | opt->short_opt,
+                                       (const char *) desc_buffer, &desc_size, opt_config))) {
+                desc_size = 0;
+            }
+        }
+        /* printing option description */
+        next = opt->desc;
+        if ((!next || !*next) && desc_size <= 0) {
             fputc('\n', out);
             continue ;
         }
-        while ((len = strtok_ro_r(&token, "\n", &next, NULL, 0)) > 0) {
+        /* parsing option descriptions, splitting them with '\n' and fix alignment */
+        while (1) {
+            if ((len = strtok_ro_r(&token, "\n", &next, psize, 0)) <= 0) {
+                if (desc_size > 0 && psize == NULL) {
+                    /* switch to dynamic buffer if static buffer is finished */
+                    next = desc_buffer;
+                    psize = &size;
+                    *psize = desc_size;
+                    continue ;
+                }
+                break ;
+            }
             while (n_printed++ < OPT_USAGE_OPT_PAD) {
 	            fputc(' ', out);
 	        }

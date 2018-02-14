@@ -26,10 +26,12 @@
 extern "C" {
 #endif
 
-#define OPT_DESCRIBE_OPTION     0x80000000  /* mask for option dynamic description */
-#define OPT_ID_ARG              0           /* id of an argument without option */
-#define OPT_ID_USER             10000       /* first id available for USER */
-#define OPT_ID_USER_MAX         INT_MAX     /* last id available for USER */
+#define OPT_DESCRIBE_OPTION     0x40000000      /* mask for option dynamic description */
+#define OPT_OPTION_FLAG_MIN     0x00020000      /* internal: first bit used for flags */
+#define OPT_ID_ARG              0               /* id of an argument without option */
+
+#define OPT_ID_USER             0x00010000      /* first id available for USER */
+#define OPT_ID_USER_MAX         (OPT_OPTION_FLAG_MIN-1) /* last available USER id  */
 
 /**
  * Option description, User will create a 0,NULL,NULL,NULL terminated array.
@@ -118,8 +120,8 @@ const char *const* vlib_get_source();
 
 /**
  * opt_parse_options() and opt_option_callback_t()
- * Macros to generate return values from code.
- * and to test these return values.
+ * Macros to generate return values from code and to test these return values.
+ * OPT_IS_*, OPT_EXIT_CODE are written to not repeat 'code' if it is a call().
  */
 #define OPT_EXIT_OK(code)       0
 #define OPT_ERROR(code)         (!(code) ? -1 : ((code) > 0 ? -(code) : (code)))
@@ -128,7 +130,7 @@ const char *const* vlib_get_source();
 #define OPT_IS_ERROR(code)      ((code) < 0)
 #define OPT_IS_CONTINUE(code)   ((code) > 0)
 #define OPT_IS_EXIT(code)       ((code) <= 0)
-#define OPT_EXIT_CODE(code)     ((code) < 0 ? -(code) : (code))
+#define OPT_EXIT_CODE(code)     (-(code))
 
 /**
  * Default version string, and copyright notice.
