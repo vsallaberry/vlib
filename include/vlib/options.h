@@ -26,10 +26,16 @@
 extern "C" {
 #endif
 
+#define OPT_DESCRIBE_OPTION     0x80000000  /* mask for option dynamic description */
+#define OPT_ID_ARG              0           /* id of an argument without option */
+#define OPT_ID_USER             10000       /* first id available for USER */
+#define OPT_ID_USER_MAX         INT_MAX     /* last id available for USER */
+
 /**
  * Option description, User will create a 0,NULL,NULL,NULL terminated array.
  * For a long option without corresponding char option, use for short_opt
- * a non printable character except 0 (man isgraph); eg: 1000, 1001, ...
+ * a non printable character (man isgraph) except 0, in the
+ * range OPT_ID_USER..OPT_ID_USER_MAX.
  */
 typedef struct {
     int             short_opt;
@@ -43,15 +49,25 @@ typedef struct opt_config_s opt_config_t;
 
 /**
  * opt_option_callback_t() : handler for customized option management
- * @param opt the option (short_opt) to be treated or 0 if it is a simple program argument
- * @param arg the option argument if any or simple program argument (opt=0), or NULL.
+ *
+ * @param opt * the option (short_opt) to be treated
+ *            * or OPT_ID_ARG if it is a simple program argument
+ *            * or (opt|OPT_DESCRIBE_OPTION) to give dynamic information
+ *              about usage of this option (used for --help - opt_usage)
+ *
+ * @param arg NULL or the option argument or simple program argument (opt=OPT_ID_ARG).
+ *
  * @param i_argv the current argv index for 'opt'.
  *               this handler has reponsibility to shift i_argv if it uses arguments.
+ *
  * @param opt_config the option config data including argc,argc,user_data, ...
- * @return
- *   > 0 on SUCCESS, no exit required
- *   0   on SUCCESS, exit required
- *   < 0 on ERROR, exit required
+ *
+ * @return status of option parsing
+ *   generated with 'return OPT_ERROR(code), OPT_EXIT_OK(code), OPT_CONTINUE(code)'
+ *   tested with:
+ *     IS_CONTINUE(status) => SUCCESS, no exit required
+ *     IS_EXIT_OK(status)  => SUCCESS, exit(OPT_EXIT_CODE(status)) required.
+ *     IS_ERROR(status)    => ERROR, exit(OPT_EXIT_CODE(status)) required.
  */
 typedef int     (*opt_option_callback_t)(int opt, const char *arg, int *i_argv,
                                          const opt_config_t * opt_config);
@@ -82,10 +98,10 @@ int             opt_usage(int exit_status, const opt_config_t * opt_config);
  *    version_string the program version (can be OPT_VERSION_STRING defined below)
  *                   it can also contain EOL and/or copyright, description.
  *    user_data the specific user data to be given to callback
- * @return
- *  > 0 on SUCCESS, no exit required
- *  0 on SUCCESS, with exit required
- *  < 0 on ERROR, with exit required
+ * @return the parse status, which can be treated as below:
+ *  if (OPT_IS_CONTINUE(status)) => SUCCESS,  no exit required
+ *  if (OPT_IS_EXIT_OK(status))  => SUCCESS,  exit(OPT_EXIT_CODE(status)) required.
+ *  if (OPT_IS_ERROR(status))    => on ERROR, exit(OPT_EXIT_CODE(status)) required.
  */
 int             opt_parse_options(const opt_config_t * opt_config);
 
@@ -99,6 +115,20 @@ const char *    vlib_get_version();
  * @return array of const char *, terminated by NULL.
  */
 const char *const* vlib_get_source();
+
+/**
+ * opt_parse_options() and opt_option_callback_t()
+ * Macros to generate return values from code.
+ * and to test these return values.
+ */
+#define OPT_EXIT_OK(code)       0
+#define OPT_ERROR(code)         (!(code) ? -1 : ((code) > 0 ? -(code) : (code)))
+#define OPT_CONTINUE(code)      (!(code) ? 1  : ((code) < 0 ? -(code) : (code)))
+#define OPT_IS_EXIT_OK(code)    ((code) == 0)
+#define OPT_IS_ERROR(code)      ((code) < 0)
+#define OPT_IS_CONTINUE(code)   ((code) > 0)
+#define OPT_IS_EXIT(code)       ((code) <= 0)
+#define OPT_EXIT_CODE(code)     ((code) < 0 ? -(code) : (code))
 
 /**
  * Default version string, and copyright notice.
