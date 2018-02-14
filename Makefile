@@ -725,17 +725,18 @@ $(VERSIONINC):
 	@$(PRINTF) "#ifndef APP_VERSION_H\n#define APP_VERSION_H\n#define APP_VERSION \"0.1\"\n" > $(VERSIONINC)
 	@$(PRINTF) "#define APP_INCLUDE_SOURCE\n#define APP_BUILD_NUMBER 1\n#include \"build.h\"\n#endif\n" >> $(VERSIONINC)
 
-$(BUILDINC): $(VERSIONINC)
+$(BUILDINC): $(VERSIONINC) $(ALLMAKEFILES)
 	@if ! $(TEST) -e $(BUILDINC); then \
 	     echo "$(NAME): create $(BUILDINC)"; \
 	     build=`$(SED) -n -e 's/^[[:space:]]*#define[[:space:]]APP_BUILD_NUMBER[[:space:]][[:space:]]*\([0-9][0-9]*\).*/\1/p' $(VERSIONINC)`; \
-	     $(PRINTF) "#define BUILD_APPNAME \"\"\n#define BUILD_NUMBER $$build\n#define BUILD_GITREV \"\"\n" > $(BUILDINC); \
-	     $(PRINTF) "#define BUILD_GITREVFULL \"\"\n#define BUILD_GITREMOTE \"\"\n#define BUILD_PREFIX \"\"\n" >> $(BUILDINC); \
-	     $(PRINTF) "#define BUILD_SRCPATH \"\"\n#define BUILD_SYSNAME \"\"\n#define BUILD_SYS_unknown\n" >> $(BUILDINC); \
+	     $(PRINTF) "#define BUILD_APPNAME \"\"\n#define BUILD_NUMBER $$build\n#define BUILD_PREFIX \"\"\n" > $(BUILDINC); \
+	     $(PRINTF) "#define BUILD_GITREV \"\"\n#define BUILD_GITREVFULL \"\"\n#define BUILD_GITREMOTE \"\"\n" >> $(BUILDINC); \
+	     $(PRINTF) "#define BUILD_APPRELEASE \"\"\n#define BUILD_SYSNAME \"\"\n#define BUILD_SYS_unknown\n" >> $(BUILDINC); \
 	     $(PRINTF) "#define BUILD_CC_CMD \"\"\n#define BUILD_CXX_CMD \"\"\n#define BUILD_OBJC_CMD \"\"\n" >> $(BUILDINC); \
-	     $(PRINTF) "#define BUILD_GCJ_CMD \"\"\n#define BUILD_CCLD_CMD \"\"\n#define BUILD_JAVAOBJ 0\n" >> $(BUILDINC); \
-	     $(PRINTF) "#define BUILD_JAR 0\n#define BUILD_BIN 0\n#define BUILD_LIB 0\n" >> $(BUILDINC); \
+	     $(PRINTF) "#define BUILD_GCJ_CMD \"\"\n#define BUILD_CCLD_CMD \"\"\n#define BUILD_SRCPATH \"\"\n" >> $(BUILDINC); \
+	     $(PRINTF) "#define BUILD_JAVAOBJ 0\n#define BUILD_JAR 0\n#define BUILD_BIN 0\n#define BUILD_LIB 0\n" >> $(BUILDINC); \
      	     $(PRINTF) "#define BUILD_YACC 0\n#define BUILD_LEX 0\n#define BUILD_BISON3 0\n" >> $(BUILDINC); \
+	     $(PRINTF) "const char *const* $(NAME)_get_source();\n" >> $(BUILDINC); \
 	 fi;
 
 #fullgitrev=`$(GIT) describe --match "v[0-9]*" --always --tags --dirty --abbrev=0 $(NO_STDERR)`
@@ -755,12 +756,14 @@ update-$(BUILDINC): $(BUILDINC)
 	 $(TEST) -n "$(YACC)" && yacc=1 || yacc=0; \
 	 $(TEST) -n "$(LEX)" && lex=1 || lex=0; \
 	 $(TEST) -n "$(BISON3)" && bison3=1 || bison3=0; \
+	 $(TEST) -n "$(SRCINC)" && appsource=true || appsource=false; \
 	 if $(SED) -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREV[[:space:]]\).*|\1\"$${gitrev}\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREVFULL[[:space:]]\).*|\1\"$${fullgitrev}\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREMOTE[[:space:]]\).*|\1\"$${gitremote}\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_PREFIX[[:space:]]\).*|\1\"$(PREFIX)\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_SRCPATH[[:space:]]\).*|\1\"$$PWD\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_APPNAME[[:space:]]\).*|\1\"$(NAME)\"|" \
+	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_APPRELEASE[[:space:]]\).*|\1\"$(RELEASE_MODE)\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_SYSNAME[[:space:]]\).*|\1\"$(SYSDEP_SUF)\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_SYS_\).*|\1$(SYSDEP_SUF)|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_CC_CMD[[:space:]]\).*|\1\"$(CC) $(CFLAGS) $(CPPFLAGS) -c\"|" \
@@ -781,15 +784,14 @@ update-$(BUILDINC): $(BUILDINC)
             else $(MV) $(BUILDINC).tmp $(BUILDINC) && echo "$(NAME): $(BUILDINC) updated" \
 	    && if $(TEST) "$$javaobj" = "1" || $(TEST) "$$jar" = "1"; then \
 	        debug=false;test=false;echo " $(MACROS) " | $(GREP) -q -- ' -D_TEST ' && test=true; echo " $(MACROS) " | $(GREP) -q -- ' -D_DEBUG ' && debug=true; \
-	        $(TEST) -n "$(SRCINC)" && appsource=true || appsource=false; \
 	        { $(PRINTF) "public final class Build {\n" && \
 	        $(SED) -e 's|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*\([^[:space:]]*\)[[:space:]][[:space:]]*\(".*"\).*|    public static final String  \1 = \2;|' \
-		       -e 's|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*\([^[:space:]]*\)[[:space:]][[:space:]]*\([^[:space:]]*\).*|    public static final int     \1 = \2;|' \
-		       -e 's|^[[:space:]]*#.*||' $(VERSIONINC) $(BUILDINC) \
-		&& $(PRINTF) "    public static final String  BUILD_SYS = \"$(UNAME_SYS)\";\n" \
-		&& $(PRINTF) "    public static final boolean BUILD_DEBUG = $$debug;\n" \
-		&& $(PRINTF) "    public static final boolean BUILD_TEST = $$test;\n" \
-		&& $(PRINTF) "    public static final boolean APP_INCLUDE_SOURCE = $$appsource;\n}\n"; \
+	               -e 's|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*\([^[:space:]]*\)[[:space:]][[:space:]]*\([^[:space:]]*\).*|    public static final int     \1 = \2;|' \
+	               -e 's|^[[:space:]]*#.*||' $(VERSIONINC) $(BUILDINC) \
+	        && $(PRINTF) "    public static final String  BUILD_SYS = \"$(UNAME_SYS)\";\n" \
+	        && $(PRINTF) "    public static final boolean BUILD_DEBUG = $$debug;\n" \
+	        && $(PRINTF) "    public static final boolean BUILD_TEST = $$test;\n" \
+	        && $(PRINTF) "    public static final boolean APP_INCLUDE_SOURCE = $$appsource;\n}\n"; \
 	        } > $(BUILDINCJAVA); \
 	       fi; \
 	    fi; \
