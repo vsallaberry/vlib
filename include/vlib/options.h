@@ -79,7 +79,7 @@ int             opt_usage(int exit_status, const opt_config_t * opt_config);
  *    argv given by main
  *    opt_desc, an array of options, terminated by { 0, NULL,....,NULL }
  *    callback the user specific function called for each argument.
- *    version_string the program version (can be OPT_VERSION_STR defined below)
+ *    version_string the program version (can be OPT_VERSION_STRING defined below)
  *                   it can also contain EOL and/or copyright, description.
  *    user_data the specific user data to be given to callback
  * @return
@@ -92,13 +92,29 @@ int             opt_parse_options(const opt_config_t * opt_config);
 /**
  * Get vlib version
  */
-const char * vlib_get_version();
+const char *    vlib_get_version();
 
 /**
  * Get vlib source code
  * @return array of const char *, terminated by NULL.
  */
 const char *const* vlib_get_source();
+
+/**
+ * Default version string, and copyright notice.
+ */
+#define OPT_VERSION_STRING(app_name, app_version, revision) \
+    app_name " v" app_version " " BUILD_APPRELEASE " (built on " \
+    __DATE__ ", " __TIME__ " from " revision ")"
+
+#define OPT_LICENSE_GPL(author, copyright, gplver_s, gplver_l ) \
+    "Copyright (C) " copyright " " author ".\n" \
+    "License GPLv" gplver_s ": GNU GPL version " gplver_l " <http://gnu.org/licenses/gpl.html>.\n" \
+    "This is free software: you are free to change and redistribute it.\n" \
+    "There is NO WARRANTY, to the extent permitted by law."
+
+#define OPT_LICENSE_GPL3PLUS(author, copyright) \
+    OPT_LICENSE_GPL(author, copyright, "3+", "3 or later")
 
 #ifdef __cplusplus
 }
