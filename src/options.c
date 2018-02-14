@@ -36,6 +36,11 @@ static int is_valid_short_opt(int c) {
     return c && isascii(c) && isgraph(c);
 }
 
+static int is_valid_opt(int c) {
+    return (c >= OPT_ID_USER && c <= OPT_ID_USER_MAX)
+           || is_valid_short_opt(c);
+}
+
 static int get_registered_short_opt(int c, const opt_config_t * opt_config) {
     if (!is_valid_short_opt(c)) {
         return -1;
@@ -115,9 +120,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config) {
             n_printed = 0;
         }
         /* getting dynamic option description */
-        if (opt_config->callback
-        &&  ((opt->short_opt >= OPT_ID_USER && opt->short_opt <= OPT_ID_USER_MAX)
-             || (isprint(opt->short_opt)))) {
+        if (opt_config->callback && is_valid_opt(opt->short_opt)) {
             desc_size = sizeof(desc_buffer);
             *desc_buffer = 0;
             if (!OPT_IS_CONTINUE(
