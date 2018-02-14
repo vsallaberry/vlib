@@ -50,7 +50,13 @@ static int get_registered_short_opt(int c, const opt_config_t * opt_config) {
 
 static int get_registered_long_opt(const char * long_opt, const opt_config_t * opt_config) {
     for (int i_opt = 0; opt_config->opt_desc[i_opt].short_opt; i_opt++) {
-        if (!strcmp(long_opt, opt_config->opt_desc[i_opt].long_opt)) {
+        const char * cur_longopt = opt_config->opt_desc[i_opt].long_opt;
+        size_t len;
+
+        if (cur_longopt == NULL)
+            continue ;
+        len = strlen(cur_longopt);
+        if (!strncmp(long_opt, cur_longopt, len) && (long_opt[len] == 0)) {
             return i_opt;
         }
     }
