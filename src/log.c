@@ -332,7 +332,7 @@ int	xlog_buffer(log_level_t level, log_ctx_t *ctx,
             INCR_GE0(fprintf(out, " | "), n, total);
             for (i_char = i_buf; i_char < i_buf + chars_per_line && i_char < len; i_char++) {
                 char ch = buffer[i_char] & 0xff;
-                if (!isgraph(ch))
+                if (!isprint(ch))
                     ch = '?';
                 INCR_GE0(fprintf(out, "%c", ch), n, total);
             }
