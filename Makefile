@@ -736,7 +736,7 @@ $(BUILDINC): $(VERSIONINC) $(ALLMAKEFILES)
 	     $(PRINTF) "#define BUILD_GCJ_CMD \"\"\n#define BUILD_CCLD_CMD \"\"\n#define BUILD_SRCPATH \"\"\n" >> $(BUILDINC); \
 	     $(PRINTF) "#define BUILD_JAVAOBJ 0\n#define BUILD_JAR 0\n#define BUILD_BIN 0\n#define BUILD_LIB 0\n" >> $(BUILDINC); \
      	     $(PRINTF) "#define BUILD_YACC 0\n#define BUILD_LEX 0\n#define BUILD_BISON3 0\n" >> $(BUILDINC); \
-	     $(PRINTF) "#ifdef __cplusplus\nextern \"C\" {\n#endif\nconst char *const* $(NAME)_get_source();\n#ifdef __cplusplus\n}\n#endif" >> $(BUILDINC); \
+	     $(PRINTF) "#ifdef __cplusplus\nextern \"C\" {\n#endif\nconst char *const* $(NAME)_get_source();\n#ifdef __cplusplus\n}\n#endif\n" >> $(BUILDINC); \
 	 fi;
 
 #fullgitrev=`$(GIT) describe --match "v[0-9]*" --always --tags --dirty --abbrev=0 $(NO_STDERR)`
