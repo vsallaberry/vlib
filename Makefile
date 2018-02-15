@@ -493,7 +493,6 @@ CLEANDIRS	= $(SUBDIRS:=-clean)
 TESTDIRS	= $(SUBDIRS:=-test)
 DEBUGDIRS	= $(SUBDIRS:=-debug)
 DOCDIRS		= $(SUBDIRS:=-doc)
-
 ############################################################################################
 
 # --- default_rule : build all
@@ -855,6 +854,7 @@ valgrind: all
 	 && echo "* valgrind output in $${logfile} and $${logfile%.log}_filtered.log (will be deleted by 'make distclean')"
 
 info:
+	@echo "NAME             : $(NAME)"
 	@echo "UNAME_SYS        : $(UNAME_SYS)"
 	@#echo "UNAME_ARCH       : $(UNAME_ARCH)"
 	@echo "MAKE             : $(MAKE)"
@@ -903,6 +903,8 @@ info:
 	@echo "JAVASRC          : $(JAVASRC)"
 	@echo "OBJ              : $(OBJ)"
 	@echo "CLASSES          : $(CLASSES)"
+rinfo: info
+	old="$$PWD"; for d in $(SUBDIRS); do cd "$$d" && $(MAKE) rinfo; cd "$$old"; done
 
 .PHONY: subdirs $(SUBDIRS)
 .PHONY: subdirs $(BUILDDIRS)
@@ -912,8 +914,8 @@ info:
 .PHONY: subdirs $(DISTCLEANDIRS)
 .PHONY: subdirs $(DEBUGDIRS)
 .PHONY: subdirs $(DOCDIRS)
-.PHONY: default_rule all build_all cleanme clean distclean dist test info debug doc install \
-	gentags update-$(BUILDINC) .gitignore merge-makefile debug-makefile valgrind
+.PHONY: default_rule all build_all cleanme clean distclean dist test info rinfo doc install \
+	debug gentags update-$(BUILDINC) .gitignore merge-makefile debug-makefile valgrind
 
 ############################################################################
 #$(BUILDDIR)/%.o: $(SRCDIR)/%.m $(INCLUDES) $(ALLMAKEFILES)
