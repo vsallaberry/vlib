@@ -22,11 +22,24 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <errno.h>
+
+#include "version.h"
+
+#ifndef BUILD_CURSES
+# define BUILD_CURSES 0
+#endif
+#if BUILD_CURSES
+# include <dlfcn.h>
+//# include <curses.h>
+//# include <term.h>
+//# include <termios.h>
+#endif
 
 #include "vlib/options.h"
 #include "vlib/util.h"
-
-#include "version.h"
 
 /* ** OPTIONS *********************************************************************************/
 
@@ -72,10 +85,49 @@ static int get_registered_long_opt(const char * long_opt, const char ** popt_arg
     return -1;
 }
 
-int opt_usage(int exit_status, const opt_config_t * opt_config) {
-    FILE *                      out         = OPT_IS_ERROR(exit_status) ? stderr : stdout;
-    const char *                start_name  = strrchr(*opt_config->argv, '/');
+static unsigned int get_max_columns(FILE * out, const opt_config_t * opt_config) {
+    unsigned int max_columns = 80;
+    (void) opt_config;
+#if BUILD_CURSES
+    if (isatty(fileno(out))) {
+        int ret;
+        void * lib;
+        int (*setup)(char*, int, int*);
+        int (*getnum)(char*);
+        char * libs[] = { "libncurses.so", "libcurses.so", "libncurses.dylib", "libcurses.dylib",
+                          "libtinfo.so", "libtinfo.dylib",
+                          "libncurses.so.5", "libcurses.so.5", "libtinfo.so.5", NULL };
+        for (char ** path = libs; *path && (lib = dlopen(*path, RTLD_LAZY)) == NULL; path++)
+            ; /* loop */
+#       pragma GCC diagnostic ignored "-Wpedantic"
+        if (lib && (setup = (int(*)(char*,int,int*)) dlsym(lib, "setupterm"))
+                && (getnum = (int(*)(char*)) dlsym(lib, "tigetnum"))) {
+#       pragma GCC diagnostic warning "-Wpedantic"
+            if (setup(NULL, fileno(out), &ret) < 0) {
+                /* maybe not needed to printf error, could use column=80 silently */
+                if      (ret == 1)  fprintf(out, "setupterm(): term is hardcopy.\n");
+                else if (ret == 0)  fprintf(out, "setupterm(): term not found.\n");
+                else if (ret == -1) fprintf(out, "setupterm(): term db not found.\n");
+                else                fprintf(out, "setupterm(): unknown error.\n");
+            } else if (((ret = getnum("cols")) > 0
+                        || (ret = getnum("columns")) > 0
+                        || (ret = getnum("COLUMNS")) > 0)
+                       && ret > OPT_USAGE_OPT_PAD + 10) {
+                max_columns = ret;
+            }
+            dlclose(lib);
+        }
+    }
+#endif
+    return max_columns;
+}
 
+int opt_usage(int exit_status, const opt_config_t * opt_config) {
+    FILE *          out         = OPT_IS_ERROR(exit_status) ? stderr : stdout;
+    const char *    start_name  = strrchr(*opt_config->argv, '/');
+    unsigned int    max_columns;
+
+    max_columns = get_max_columns(out, opt_config);
     if (start_name == NULL) {
     	start_name = *opt_config->argv;
     } else {
@@ -83,18 +135,22 @@ int opt_usage(int exit_status, const opt_config_t * opt_config) {
     }
 
     if (OPT_IS_ERROR(exit_status) != 0) {
+        /* if this is an error, put a blank between error message and usage. */
         fprintf(out, "\n");
     }
+
     /* print program name and version */
     fprintf(out, "%s\n\n", opt_config->version_string);
+
     /* print usage summary */
     fprintf(out, "Usage: %s [<options>] [<arguments>]\nOptions:\n", start_name);
+
     /* print list of options with their descrption */
     for (const opt_options_desc_t * opt = opt_config->opt_desc; opt->short_opt; opt++) {
         int             n_printed = 0;
         const char *    token;
         const char *    next;
-        int             len;
+        size_t          len;
         int             eol_shift = 0;
         char            desc_buffer[4096];
         int             desc_size = 0;
@@ -137,7 +193,8 @@ int opt_usage(int exit_status, const opt_config_t * opt_config) {
         }
         /* parsing option descriptions, splitting them with '\n' and fix alignment */
         while (1) {
-            if ((len = strtok_ro_r(&token, "\n", &next, psize, 0)) <= 0) {
+            if ((len = strtok_ro_r(&token, " \n-,;:/?=+*\\", &next, psize,
+                                   VLIB_STRTOK_INCLUDE_SEP)) <= 0) {
                 if (desc_size > 0 && psize == NULL) {
                     /* switch to dynamic buffer if static buffer is finished */
                     next = desc_buffer;
@@ -147,16 +204,22 @@ int opt_usage(int exit_status, const opt_config_t * opt_config) {
                 }
                 break ;
             }
-            while (n_printed++ < OPT_USAGE_OPT_PAD) {
+            if (len + n_printed > max_columns) {
+                n_printed = 0;
+                eol_shift = 2;
+                fputc('\n', out);
+            }
+            while (n_printed++ < OPT_USAGE_OPT_PAD + eol_shift) {
 	            fputc(' ', out);
 	        }
             if (!eol_shift)
                 fputs(": ", out);
-            while (len--)
-                fputc(*token++, out);
-            fputc('\n', out);
-            n_printed = eol_shift = -2;
+            eol_shift = 2;
+            n_printed += fwrite(token, 1, len, out);
+            if (token[len-1] == '\n')
+                n_printed = 0;
         }
+        fputc('\n', out);
     }
     fprintf(out, "\n");
     return exit_status;

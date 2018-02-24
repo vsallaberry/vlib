@@ -34,7 +34,7 @@ int strn0cpy(char *dst, const char *src, size_t len, size_t maxlen) {
 }
 
 
-int strtok_ro_r(const char ** token, const char * seps,
+size_t strtok_ro_r(const char ** token, const char * seps,
                 const char ** next, size_t * maxlen,
                 int flags) {
     size_t token_len;
@@ -60,8 +60,11 @@ int strtok_ro_r(const char ** token, const char * seps,
 
     /* if separator not found, flags determines if we consider the token */
     if (found) {
-        (*next)++;
-    } else if ((flags & 1) != 0) {
+        if ((flags & VLIB_STRTOK_INCLUDE_SEP) == 0)
+            ++(*next);
+        else
+            ++token_len;
+    } else if ((flags & VLIB_STRTOK_MANDATORY_SEP) != 0) {
         return 0;
     }
 

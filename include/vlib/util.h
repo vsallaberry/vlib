@@ -45,6 +45,10 @@ extern "C" {
  */
 int strn0cpy(char *dst, const char *src, size_t len, size_t maxlen);
 
+/** strtok_ro_r flags */
+#define VLIB_STRTOK_MANDATORY_SEP   (1 << 0)    /* token not found (len=0) if sep no found */
+#define VLIB_STRTOK_INCLUDE_SEP     (1 << 1)    /* sep included in returned token */
+
 /**
  * //TODO improve doc
  *
@@ -59,9 +63,9 @@ int strn0cpy(char *dst, const char *src, size_t len, size_t maxlen);
  *                 and the next is not updated
  * @return the length of token
  */
-int         strtok_ro_r(const char ** token, const char * seps,
-                        const char ** next, size_t * maxlen,
-                        int flags);
+size_t          strtok_ro_r(const char ** token, const char * seps,
+                            const char ** next, size_t * maxlen,
+                            int flags);
 
 /* ******************************************
  * CLOCK BENCH: measures cpu tick of process

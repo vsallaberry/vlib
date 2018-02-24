@@ -734,7 +734,7 @@ $(BUILDINC): $(VERSIONINC) $(ALLMAKEFILES)
 	     $(PRINTF) "#define BUILD_CC_CMD \"\"\n#define BUILD_CXX_CMD \"\"\n#define BUILD_OBJC_CMD \"\"\n" >> $(BUILDINC); \
 	     $(PRINTF) "#define BUILD_GCJ_CMD \"\"\n#define BUILD_CCLD_CMD \"\"\n#define BUILD_SRCPATH \"\"\n" >> $(BUILDINC); \
 	     $(PRINTF) "#define BUILD_JAVAOBJ 0\n#define BUILD_JAR 0\n#define BUILD_BIN 0\n#define BUILD_LIB 0\n" >> $(BUILDINC); \
-     	     $(PRINTF) "#define BUILD_YACC 0\n#define BUILD_LEX 0\n#define BUILD_BISON3 0\n" >> $(BUILDINC); \
+     	     $(PRINTF) "#define BUILD_YACC 0\n#define BUILD_LEX 0\n#define BUILD_BISON3 0\n#define BUILD_CURSES 1\n" >> $(BUILDINC); \
 	     $(PRINTF) "#ifdef __cplusplus\nextern \"C\" {\n#endif\nconst char *const* $(NAME)_get_source();\n#ifdef __cplusplus\n}\n#endif\n" >> $(BUILDINC); \
 	 fi;
 
@@ -855,7 +855,7 @@ valgrind: all
 
 info:
 	@echo "NAME             : $(NAME)"
-	@echo "UNAME_SYS        : $(UNAME_SYS)  [ `uname -a`]"
+	@echo "UNAME_SYS        : $(UNAME_SYS)  [`uname -a`]"
 	@#echo "UNAME_ARCH       : $(UNAME_ARCH)"
 	@echo "MAKE             : $(MAKE)  [`$(MAKE) --version $(NO_STDERR) | $(HEADN1) || $(MAKE) -V $(NO_STDERR) | $(HEADN1)`]"
 	@echo "SHELL            : $(SHELL)"

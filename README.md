@@ -40,7 +40,8 @@ To See how make understood the Makefile, you can type:
 When making without version.h created (not the case for this repo), some old
 bsd make can stop. Just type again '$ make' and it will be fine.
 
-When you link **vlib** with a program, you need pthread (-lpthread).
+When you link **vlib** with a program, you need pthread (-lpthread), 
+and on linux, rt, dl (-lrt -ldl).
 
 ## Contact
 [vsallaberry@gmail.com]  
