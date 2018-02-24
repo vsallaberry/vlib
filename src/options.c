@@ -123,26 +123,30 @@ static unsigned int get_max_columns(FILE * out, const opt_config_t * opt_config)
 #pragma GCC diagnostic warning "-Wpedantic"
 
 int opt_usage(int exit_status, const opt_config_t * opt_config) {
-    FILE *          out         = OPT_IS_ERROR(exit_status) ? stderr : stdout;
-    const char *    start_name  = strrchr(*opt_config->argv, '/');
+    FILE *          out         = stdout;
+    const char *    start_name;
     unsigned int    max_columns;
 
+    /* sanity checks */
+    if (opt_config == NULL || opt_config->argv == NULL || opt_config->opt_desc == NULL) {
+        fprintf(stderr, "%s/%s(): opt_config or opt_desc or argv is NULL!\n", __FILE__, __func__);
+        return OPT_ERROR(64);
+    }
+    /* if this is an error: use stderr and put a blank between error message and usage */
+    if (OPT_IS_ERROR(exit_status) != 0) {
+        fprintf(out, "\n");
+        out = stderr;
+    }
+    /* get max columns usable for display */
     max_columns = get_max_columns(out, opt_config);
-    if (start_name == NULL) {
+
+    /* print program name, version and usage summary */
+    if ((start_name = strrchr(*opt_config->argv, '/')) == NULL) {
     	start_name = *opt_config->argv;
     } else {
 	    start_name++;
     }
-
-    if (OPT_IS_ERROR(exit_status) != 0) {
-        /* if this is an error, put a blank between error message and usage. */
-        fprintf(out, "\n");
-    }
-
-    /* print program name and version */
     fprintf(out, "%s\n\n", opt_config->version_string);
-
-    /* print usage summary */
     fprintf(out, "Usage: %s [<options>] [<arguments>]\nOptions:\n", start_name);
 
     /* print list of options with their descrption */
@@ -152,9 +156,8 @@ int opt_usage(int exit_status, const opt_config_t * opt_config) {
         const char *    next;
         size_t          len;
         int             eol_shift = 0;
-        char            desc_buffer[4096];
-        int             desc_size = 0;
-        size_t          size, * psize = NULL;
+        char            desc_buffer[4096] = { 0, };
+        size_t          desc_size, * psize = NULL;
 
         /* short options */
         n_printed += fprintf(out, "  ");
@@ -177,15 +180,15 @@ int opt_usage(int exit_status, const opt_config_t * opt_config) {
         }
         /* getting dynamic option description */
         if (opt_config->callback && is_valid_opt(opt->short_opt)) {
-            desc_size = sizeof(desc_buffer);
-            *desc_buffer = 0;
+            int i_desc_size = sizeof(desc_buffer);
             if (!OPT_IS_CONTINUE(
                   opt_config->callback(OPT_DESCRIBE_OPTION | opt->short_opt,
-                                       (const char *) desc_buffer, &desc_size, opt_config))) {
-                desc_size = 0;
+                                       (const char *) desc_buffer, &i_desc_size, opt_config))) {
+                i_desc_size = 0;
             }
+            desc_size = i_desc_size;
         }
-        /* printing option description */
+        /* skip option description and process next option if no description */
         next = opt->desc;
         if ((!next || !*next) && desc_size <= 0) {
             fputc('\n', out);
@@ -198,41 +201,47 @@ int opt_usage(int exit_status, const opt_config_t * opt_config) {
                 if (desc_size > 0 && psize == NULL) {
                     /* switch to dynamic buffer if static buffer is finished */
                     next = desc_buffer;
-                    psize = &size;
-                    *psize = desc_size;
+                    psize = &desc_size;
                     continue ;
                 }
                 break ;
             }
+            /* insert EOL if it does not fit in max_columns */
             if (len + n_printed > max_columns) {
                 n_printed = 0;
                 eol_shift = 2;
                 fputc('\n', out);
             }
+            /* Align description if needed */
             while (n_printed++ < OPT_USAGE_OPT_PAD + eol_shift) {
 	            fputc(' ', out);
 	        }
             if (!eol_shift)
                 fputs(": ", out);
             eol_shift = 2;
+            /* print description */
             n_printed += fwrite(token, 1, len, out);
             if (token[len-1] == '\n')
                 n_printed = 0;
         }
+        /* EOL before processing next option */
         fputc('\n', out);
     }
-    fprintf(out, "\n");
+    fputc('\n', out);
     return exit_status;
 }
 
 int opt_parse_options(const opt_config_t * opt_config) {
-    if (opt_config == NULL || opt_config->opt_desc == NULL || opt_config->argv == NULL) {
+    const char *const*          argv;
+    const opt_options_desc_t *  desc;
+	int                         result;
+
+    /* sanity checks */
+    if (opt_config == NULL || (desc = opt_config->opt_desc) == NULL
+    ||  (argv = opt_config->argv) == NULL) {
         fprintf(stderr, "%s/%s(): opt_config or opt_desc or argv is NULL!\n", __FILE__, __func__);
         return OPT_ERROR(64);
     }
-    const char *const*          argv    = opt_config->argv;
-    const opt_options_desc_t *  desc    = opt_config->opt_desc;
-	int                         result;
 
     /* Analysing each argument of commandline. */
     for(int i_argv = 1, stop_options = 0; i_argv < opt_config->argc; i_argv++) {
