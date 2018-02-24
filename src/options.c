@@ -85,6 +85,7 @@ static int get_registered_long_opt(const char * long_opt, const char ** popt_arg
     return -1;
 }
 
+#pragma GCC diagnostic ignored "-Wpedantic"
 static unsigned int get_max_columns(FILE * out, const opt_config_t * opt_config) {
     unsigned int max_columns = 80;
     (void) opt_config;
@@ -99,10 +100,8 @@ static unsigned int get_max_columns(FILE * out, const opt_config_t * opt_config)
                           "libncurses.so.5", "libcurses.so.5", "libtinfo.so.5", NULL };
         for (char ** path = libs; *path && (lib = dlopen(*path, RTLD_LAZY)) == NULL; path++)
             ; /* loop */
-#       pragma GCC diagnostic ignored "-Wpedantic"
         if (lib && (setup = (int(*)(char*,int,int*)) dlsym(lib, "setupterm"))
                 && (getnum = (int(*)(char*)) dlsym(lib, "tigetnum"))) {
-#       pragma GCC diagnostic warning "-Wpedantic"
             if (setup(NULL, fileno(out), &ret) < 0) {
                 /* maybe not needed to printf error, could use column=80 silently */
                 if      (ret == 1)  fprintf(out, "setupterm(): term is hardcopy.\n");
@@ -121,6 +120,7 @@ static unsigned int get_max_columns(FILE * out, const opt_config_t * opt_config)
 #endif
     return max_columns;
 }
+#pragma GCC diagnostic warning "-Wpedantic"
 
 int opt_usage(int exit_status, const opt_config_t * opt_config) {
     FILE *          out         = OPT_IS_ERROR(exit_status) ? stderr : stdout;
