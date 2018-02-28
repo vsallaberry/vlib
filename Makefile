@@ -33,6 +33,9 @@ all: default_rule
 # PROJECT SPECIFIC PART
 #############################################################################################
 
+# Name of the Package (DISTNAME, BIN and LIB depends on it)
+NAME		= vlib
+
 # SRCDIR: Folder where sources are. Use '.' for current directory. MUST NEVER BE EMPTY !!
 # Folders which contains a Makefile are ignored, you have to add them in SUBDIRS and update SUBLIBS.
 # RESERVED FILES for internal use: ./build.h, ./version.h ./Makefile ./Build.java $(BUILDDIR)/_src_.c
@@ -50,9 +53,6 @@ INCDIRS 	= include
 # Where targets are created (OBJs, BINs, ...). Eg: '.' or 'build'. ONLY 'SRCDIR' is supported!
 BUILDDIR	= $(SRCDIR)
 
-# Name of the Package (DISTNAME, BIN and LIB depends on it)
-NAME		= vlib
-
 # Binary name and library name (prefix with '$(BUILDDIR)/' to put it in build folder).
 # Fill LIB and set BIN,JAR empty to create a library, or clear LIB,JAR and set BIN to create a binary.
 BIN		=
@@ -64,6 +64,7 @@ DISTDIR		= ../../dist
 
 # PREFIX: where the application is to be installed
 PREFIX		= /usr/local
+INSTALL_FILES	=
 
 # Project specific Flags (system specific flags are handled further)
 # Choice between <flag>_RELEASE/_DEBUG is done according to BUILDINC / make debug
@@ -137,8 +138,8 @@ GIT		= git
 DIFF		= diff
 UNIQ		= uniq
 INSTALL		= install -c -m 0644
-INSTALLBIN	= install -c
-INSTALLDIR	= install -c -d
+INSTALLBIN	= install -c -m 0755
+INSTALLDIR	= install -c -d -m 0755
 VALGRIND	= valgrind
 MKTEMP		= mktemp
 NO_STDERR	= 2> /dev/null
@@ -475,6 +476,9 @@ tmp_SINCLUDEDEPS != $(cmd_SINCLUDEDEPS)
 tmp_SINCLUDEDEPS ?= $(shell $(cmd_SINCLUDEDEPS))
 SINCLUDEDEPS := $(tmp_SINCLUDEDEPS)
 include $(SINCLUDEDEPS)
+# When .alldeps.d ($(INCLUDEDEPS) does not exist and created, default dependencies
+# of OBJS are forced to all includes.
+OBJDEPS_version.h	= $(INCLUDES) $(GENINC) $(ALLMAKEFILES)
 
 ############################################################################################
 
@@ -542,7 +546,24 @@ $(DOCDIRS):
 	cd $(@:-doc=) && $(MAKE) doc
 
 # --- install ---
-install: $(INSTALLDIRS) all
+installme: all
+	@for f in $(INSTALL_FILES); do \
+	     case "$$f" in \
+	         *.h|*.hh)    install="$(INSTALL)"; dest="$(PREFIX)/include" ;; \
+	         *.a|*.so)    install="$(INSTALL)"; dest="$(PREFIX)/lib" ;; \
+	         *)           if $(TEST) -x "$$f"; then \
+	                          install="$(INSTALLBIN)"; dest="$(PREFIX)/bin"; \
+		              else \
+			          install="$(INSTALL)"; dest="$(PREFIX)/share/$(NAME)"; \
+	                      fi ;; \
+	     esac; \
+	     if $(TEST) -n "$$install" -a -n "$$dest"; then \
+	         if ! $(TEST) -d "$$dest"; then cmd="$(INSTALLDIR) $$dest"; echo "$$cmd"; $$cmd; fi; \
+		 cmd="$$install $$f $$dest"; echo "$$cmd"; \
+		 $$cmd; \
+	     fi; \
+	 done
+install: installme $(INSTALLDIRS)
 $(INSTALLDIRS):
 	cd $(@:-install=) && $(MAKE) install
 
@@ -605,10 +626,10 @@ $(JAR): $(JAVASRC) $(SUBLIBS) $(MANIFEST) $(ALLMAKEFILES)
 #$(YACCGENJAVA): $(ALLMAKEFILES) $(BUILDINC)
 
 ### WITH -MD
-$(OBJ): $(ALLMAKEFILES) $(BUILDINC)
-$(GENSRC): $(ALLMAKEFILES) $(BUILDINC)
-$(GENJAVA): $(ALLMAKEFILES) $(BUILDINC)
-$(CLASSES): $(ALLMAKEFILES) $(BUILDINC)
+$(OBJ): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(OBJDEPS_$(SINCLUDEDEPS))
+$(GENSRC): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC)
+$(GENJAVA): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC)
+$(CLASSES): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC)
 
 # Implicit rules: old-fashionned double suffix rules to be compatible with most make.
 .m.o:
@@ -660,9 +681,9 @@ $(CLASSES): $(ALLMAKEFILES) $(BUILDINC)
 .yyj.java:
 	$(BISON3) $(YJFLAGS) $(FLAGS_YACC_$<) -o $@ $<
 .y.h:
-	@! $(TEST) -e $@ && $(TOUCH) $@ && $(MAKE) $(@:.h=.c) || true
+	@true #! $(TEST) -e $@ && $(TOUCH) $@ && $(MAKE) $(@:.h=.c) || true
 .yy.hh:
-	@! $(TEST) -e $@ && $(TOUCH) $@ && $(MAKE) $(@:.hh=.cc) || true
+	@true #! $(TEST) -e $@ && $(TOUCH) $@ && $(MAKE) $(@:.hh=.cc) || true
 ############################################################################################
 
 #@#cd "$(DISTDIR)" && ($(ZIP) -q -r "$${distname}.zip" "$${distname}" || true)
@@ -673,8 +694,10 @@ dist:
 	 && $(MKDIR) -p "$(DISTDIR)/$${distname}" \
 	 && cp -Rf . "$(DISTDIR)/$${distname}" \
 	 && $(RM) -R `$(FIND) "$(DISTDIR)/$${distname}" -type d -and \( -name '.git' -or -name 'CVS' -or -name '.hg' -or -name '.svn' \) $(NO_STDERR)` \
-	 && true || { ver="$(DISTDIR)/$${distname}/$(VERSIONINC)"; rev=`$(SED) -n -e 's/BUILD_GIT\(.*\)/BUILD_DIST_GIT\1/p' $(BUILDINC) | tr '\n' '$$'`;\
-	      $(SED) -e "s,^\([[:space:]]*#[[:space:]]*include\),$${rev}\$$\1," "$$ver" | tr '$$' '\n' > "$${ver}.tmp" && $(MV) "$${ver}.tmp" "$$ver"; false; } \
+	 && { for d in . $(SUBDIRS); do ver="$(DISTDIR)/$${distname}/$$d/$(VERSIONINC)"; cd "$$d" && $(MAKE) update-$(BUILDINC); cd "$${topdir}"; \
+	      pat=`$(SED) -n -e "s|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*BUILD_\(GIT[^[:space:]]*\)[[:space:]]*\"\(.*\)|-e 's,DIST_\1 .*,DIST_\1 \"?-from:\2,'|p" \
+	           "$$d/$(BUILDINC)" | $(TR) '\n' ' '`; \
+	      mv "$${ver}" "$${ver}.tmp" && eval "$(SED) $$pat $${ver}.tmp" > "$${ver}" && $(RM) "$${ver}.tmp"; done; } \
 	 && $(PRINTF) "$(NAME): building dist...\n" \
 	 && cd "$(DISTDIR)/$${distname}" && $(MAKE) distclean && $(MAKE) && $(MAKE) distclean && cd "$$topdir" \
 	 && cd "$(DISTDIR)" && { $(TAR) czf "$${distname}.tar.gz" "$${distname}" && targz=true || targz=false; \
@@ -722,7 +745,9 @@ $(README):
 $(VERSIONINC):
 	@echo "$(NAME): create $(VERSIONINC)"
 	@$(PRINTF) "#ifndef APP_VERSION_H\n#define APP_VERSION_H\n#define APP_VERSION \"0.1\"\n" > $(VERSIONINC)
-	@$(PRINTF) "#define APP_INCLUDE_SOURCE\n#define APP_BUILD_NUMBER 1\n#include \"build.h\"\n#endif\n" >> $(VERSIONINC)
+	@$(PRINTF) "#define APP_INCLUDE_SOURCE\n#define APP_BUILD_NUMBER 1\n#define DIST_GITREV \"unknown\"\n" >> $(VERSIONINC)
+	@$(PRINTF) "#define DIST_GITREVFULL \"unknown\"\n#define DIST_GITREMOTE \"unknown\"\n" >> $(VERSIONINC)
+	@$(PRINTF) "#include \"build.h\"\n#endif\n" >> $(VERSIONINC)
 
 $(BUILDINC): $(VERSIONINC) $(ALLMAKEFILES)
 	@if ! $(TEST) -e $(BUILDINC); then \
@@ -734,7 +759,7 @@ $(BUILDINC): $(VERSIONINC) $(ALLMAKEFILES)
 	     $(PRINTF) "#define BUILD_CC_CMD \"\"\n#define BUILD_CXX_CMD \"\"\n#define BUILD_OBJC_CMD \"\"\n" >> $(BUILDINC); \
 	     $(PRINTF) "#define BUILD_GCJ_CMD \"\"\n#define BUILD_CCLD_CMD \"\"\n#define BUILD_SRCPATH \"\"\n" >> $(BUILDINC); \
 	     $(PRINTF) "#define BUILD_JAVAOBJ 0\n#define BUILD_JAR 0\n#define BUILD_BIN 0\n#define BUILD_LIB 0\n" >> $(BUILDINC); \
-     	     $(PRINTF) "#define BUILD_YACC 0\n#define BUILD_LEX 0\n#define BUILD_BISON3 0\n#define BUILD_CURSES 1\n" >> $(BUILDINC); \
+	     $(PRINTF) "#define BUILD_YACC 0\n#define BUILD_LEX 0\n#define BUILD_BISON3 0\n#define BUILD_CURSES 1\n" >> $(BUILDINC); \
 	     $(PRINTF) "#ifdef __cplusplus\nextern \"C\" {\n#endif\nconst char *const* $(NAME)_get_source();\n#ifdef __cplusplus\n}\n#endif\n" >> $(BUILDINC); \
 	 fi;
 
@@ -746,8 +771,9 @@ update-$(BUILDINC): $(BUILDINC)
 	         case $$i in 0) gitrev="$$rev";; 1) fullgitrev="$$rev" ;; esac; \
        	         i=$$((i+1)); \
 	     done; if $(TEST) -n "$$gitstatus"; then gitrev="$${gitrev}-dirty"; fullgitrev="$${fullgitrev}-dirty"; fi; \
-	     gitremote=`$(GIT) remote get-url origin`; \
-	 else gitrev="unknown"; fullgitrev="$${gitrev}"; gitremote="$${gitrev}"; fi; \
+	     gitremote="\"`$(GIT) remote get-url origin`\""; \
+	     gitrev="\"$${gitrev}\""; fullgitrev="\"$${fullgitrev}\""; \
+	     else gitrev="DIST_GITREV"; fullgitrev="DIST_GITREVFULL"; gitremote="DIST_GITREMOTE"; fi; \
  	 case " $(OBJ) " in *" $(JAVAOBJ) "*) javaobj=1;; *) javaobj=0;; esac; \
 	 $(TEST) -n "$(JAR)" && jar=1 || jar=0; \
 	 $(TEST) -n "$(BIN)" && bin=1 || bin=0; \
@@ -756,9 +782,9 @@ update-$(BUILDINC): $(BUILDINC)
 	 $(TEST) -n "$(LEX)" && lex=1 || lex=0; \
 	 $(TEST) -n "$(BISON3)" && bison3=1 || bison3=0; \
 	 $(TEST) -n "$(SRCINC)" && appsource=true || appsource=false; \
-	 if $(SED) -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREV[[:space:]]\).*|\1\"$${gitrev}\"|" \
-	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREVFULL[[:space:]]\).*|\1\"$${fullgitrev}\"|" \
-	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREMOTE[[:space:]]\).*|\1\"$${gitremote}\"|" \
+	 if $(SED) -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREV[[:space:]]\).*|\1$${gitrev}|" \
+	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREVFULL[[:space:]]\).*|\1$${fullgitrev}|" \
+	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREMOTE[[:space:]]\).*|\1$${gitremote}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_PREFIX[[:space:]]\).*|\1\"$(PREFIX)\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_SRCPATH[[:space:]]\).*|\1\"$$PWD\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_APPNAME[[:space:]]\).*|\1\"$(NAME)\"|" \
@@ -784,12 +810,14 @@ update-$(BUILDINC): $(BUILDINC)
 	    && if $(TEST) "$$javaobj" = "1" || $(TEST) "$$jar" = "1"; then \
 	        debug=false;test=false;echo " $(MACROS) " | $(GREP) -q -- ' -D_TEST ' && test=true; echo " $(MACROS) " | $(GREP) -q -- ' -D_DEBUG ' && debug=true; \
 	        { $(PRINTF) "public final class Build {\n" && \
-	        $(SED) -e 's|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*\([^[:space:]]*\)[[:space:]][[:space:]]*\(".*"\).*|    public static final String  \1 = \2;|' \
-	               -e 's|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*\([^[:space:]]*\)[[:space:]][[:space:]]*\([^[:space:]]*\).*|    public static final int     \1 = \2;|' \
-	               -e 's|^[[:space:]]*#.*||' $(VERSIONINC) $(BUILDINC) \
+	        $(SED) -n -e 's|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*\(BUILD_GIT[^[:space:]]*\)[[:space:]][[:space:]]*\(.*\).*|    public static final String  \1 = \2;|p' \
+	                  -e 's|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*\([^[:space:]]*\)[[:space:]][[:space:]]*\(".*"\).*|    public static final String  \1 = \2;|p' \
+	                  -e 's|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*\([^[:space:]]*\)[[:space:]][[:space:]]*\([^[:space:]]*\).*|    public static final int     \1 = \2;|p' \
+	                   $(VERSIONINC) $(BUILDINC) \
 	        && $(PRINTF) "    public static final String  BUILD_SYS = \"$(UNAME_SYS)\";\n" \
 	        && $(PRINTF) "    public static final boolean BUILD_DEBUG = $$debug;\n" \
 	        && $(PRINTF) "    public static final boolean BUILD_TEST = $$test;\n" \
+		&& $(PRINTF) "    public static final String  BUILD_DATE = \"`date '+%Y-%m-%d %H:%M:%S %Z'`\";\n" \
 	        && $(PRINTF) "    public static final boolean APP_INCLUDE_SOURCE = $$appsource;\n}\n"; \
 	        } > $(BUILDINCJAVA); \
 	       fi; \
@@ -914,8 +942,9 @@ rinfo: info
 .PHONY: subdirs $(DISTCLEANDIRS)
 .PHONY: subdirs $(DEBUGDIRS)
 .PHONY: subdirs $(DOCDIRS)
-.PHONY: default_rule all build_all cleanme clean distclean dist test info rinfo doc install \
-	debug gentags update-$(BUILDINC) .gitignore merge-makefile debug-makefile valgrind
+.PHONY: default_rule all build_all cleanme clean distclean dist test info rinfo \
+	doc installme install debug gentags update-$(BUILDINC) .gitignore \
+	merge-makefile debug-makefile valgrind
 
 ############################################################################
 #$(BUILDDIR)/%.o: $(SRCDIR)/%.m $(INCLUDES) $(ALLMAKEFILES)
