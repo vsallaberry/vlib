@@ -35,12 +35,12 @@ int strn0cpy(char *dst, const char *src, size_t len, size_t maxlen) {
 
 
 size_t strtok_ro_r(const char ** token, const char * seps,
-                const char ** next, size_t * maxlen,
-                int flags) {
+                   const char ** next, size_t * maxlen,
+                   int flags) {
     size_t token_len;
 
     /* sanity checks */
-    if (!token || !next || !seps || !*next) {
+    if (!token || !next || !seps || !*next || (maxlen && *maxlen == 0)) {
         return 0;
     }
 

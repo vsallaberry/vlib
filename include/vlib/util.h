@@ -43,29 +43,33 @@ extern "C" {
  * causing possibe src truncation.
  * @return the length of <dst> after copy.
  */
-int strn0cpy(char *dst, const char *src, size_t len, size_t maxlen);
+int         strn0cpy(char *dst, const char *src, size_t len, size_t maxlen);
 
 /** strtok_ro_r flags */
 #define VLIB_STRTOK_MANDATORY_SEP   (1 << 0)    /* token not found (len=0) if sep no found */
 #define VLIB_STRTOK_INCLUDE_SEP     (1 << 1)    /* sep included in returned token */
 
 /**
- * //TODO improve doc
- *
+ * strtok_ro_r()
  * Reentrant strtok/strsep which does not update buffers with ending 0 chars.
+ * Search for the next token in <next>, set its address in <token>, return
+ * its length, update <next> and <maxlen> for the next call.
  *
- * @param token [out] the pointer to current string token
- * @param seps [in] the set of delimiters
- * @param next [in/out] the string to be parsed. set to next token after call
- * @param maxlen the maximum size of *next used for parsing. updated after call.
- * @param flags parsing options
- *              1: if seps not found, token is considered as not found (size 0)
- *                 and the next is not updated
- * @return the length of token
+ * @param token  [out] the pointer to parsed string token
+ * @param seps   [in] the set of delimiters
+ * @param next   [in/out] the string to be parsed. set to next token after call
+ * @param maxlen [in/out] the maximum size of *next used for parsing. updated
+ *               after call.
+ * @param flags  [in] parsing options
+ *               * VLIB_STRTOK_MANDATORY_SEP: if seps not found, token is
+ *               considered as not found (size 0) and the next is not updated.
+ *               * VLIB_STRTOK_INCLUDE_SEP: include the separator in the token (last char)
+ * @return the length of token if any, or 0. Parsing is finished when *maxlen or *next is 0.
  */
-size_t          strtok_ro_r(const char ** token, const char * seps,
-                            const char ** next, size_t * maxlen,
-                            int flags);
+size_t      strtok_ro_r(const char ** token, const char * seps,
+                        const char ** next, size_t * maxlen,
+                        int flags);
+
 
 /* ******************************************
  * CLOCK BENCH: measures cpu tick of process

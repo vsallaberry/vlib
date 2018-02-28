@@ -234,7 +234,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config) {
 int opt_parse_options(const opt_config_t * opt_config) {
     const char *const*          argv;
     const opt_options_desc_t *  desc;
-	int                         result;
+    int                         result;
 
     /* sanity checks */
     if (opt_config == NULL || (desc = opt_config->opt_desc) == NULL
