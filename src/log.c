@@ -33,6 +33,9 @@
 #include "vlib/log.h"
 #include "vlib/util.h"
 
+/** global internal vlib log instance, shared between vlib components */
+log_t * g_vlib_log = NULL;
+
 /** global vlib log state structure */
 #define LOG_DATETIME_SZ 18
 struct {
@@ -52,6 +55,10 @@ static const char * s_log_levels_str[] = {
     "SCR",
     "+++"
 };
+
+void log_set_vlib_instance(log_t * log) {
+    g_vlib_log = log;
+}
 
 static int log_location(FILE * out, log_flag_t flags, log_level_t level,
                         const char * file, const char * func, int line) {
