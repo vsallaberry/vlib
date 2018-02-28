@@ -365,15 +365,16 @@ JAVAOBJ$(BUILDDIR) := $(BUILDDIR)/$(JAVAOBJNAME)
 JAVAOBJ.	:= $(JAVAOBJNAME)
 JAVAOBJ		:= $(JAVAOBJ$(BUILDDIR))
 TMPCLASSESDIR	= $(BUILDDIR)/.tmp_classes
-cmd_SRC_BUILD	:= echo " $(SRC)" | $(SED) -e 's| $(SRCDIR)/| $(BUILDDIR)/|g'; \
-		  case " $(JAVASRC) " in *" "*".java "*) $(TEST) -n "$(GCJ)" -a -n "$(BIN)" && echo "$(JAVAOBJ)";; esac
-tmp_SRC_BUILD	!= $(cmd_SRC_BUILD)
-tmp_SRC_BUILD	?= $(shell $(cmd_SRC_BUILD))
-tmp_OBJ1	:= $(tmp_SRC_BUILD:.m=.o)
+tmp_OBJ1	:= $(SRC:.m=.o)
 tmp_OBJ2	:= $(tmp_OBJ1:.mm=.o)
 tmp_OBJ3	:= $(tmp_OBJ2:.cpp=.o)
 tmp_OBJ4	:= $(tmp_OBJ3:.cc=.o)
-OBJ		:= $(tmp_OBJ4:.c=.o)
+OBJ_NOJAVA	:= $(tmp_OBJ4:.c=.o)
+cmd_SRC_BUILD	:= echo " $(OBJ_NOJAVA)" | $(SED) -e 's| $(SRCDIR)/| $(BUILDDIR)/|g'; \
+		  case " $(JAVASRC) " in *" "*".java "*) $(TEST) -n "$(GCJ)" -a -n "$(BIN)" && echo "$(JAVAOBJ)";; esac
+tmp_SRC_BUILD	!= $(cmd_SRC_BUILD)
+tmp_SRC_BUILD	?= $(shell $(cmd_SRC_BUILD))
+OBJ		:= $(tmp_SRC_BUILD)
 
 # INCLUDE VARIABLE, filled from the 'find' command (cmd_INCLUDES) defined above.
 tmp_INCLUDES	!= $(cmd_INCLUDES)
@@ -498,17 +499,18 @@ TESTDIRS	= $(SUBDIRS:=-test)
 DEBUGDIRS	= $(SUBDIRS:=-debug)
 DOCDIRS		= $(SUBDIRS:=-doc)
 ############################################################################################
-
-# --- default_rule : build all
-default_rule: update-$(BUILDINC) $(BUILDDIRS)
-	@# This is not the most beautilful thing here, but the best portable stuff i found yet,
-	@# because some make consider dependents of PHONY targets always outdated.
-	@$(MAKE) build_all
-
-build_all: $(BIN) $(LIB) $(JAR) gentags
+# .POSIX: for bsd-like dependency management
+# .PHONY: .WAIT and .EXEC for compatibility, when not supported.
+# .EXEC is needed on some bsdmake, so as
+# phony targets don't taint to outdated the files which depend on them.
+# .WAIT might not be mandatory
+.POSIX:
+.PHONY: .WAIT .EXEC
+default_rule: update-$(BUILDINC) $(BUILDDIRS) .WAIT $(BIN) $(LIB) $(JAR) gentags
 
 $(SUBDIRS): $(BUILDDIRS)
-$(BUILDDIRS):
+$(SUBLIBS): $(BUILDDIRS)
+$(BUILDDIRS): .EXEC
 	cd $(@:-build=) && $(MAKE)
 
 # --- clean : remove objects and generated files
@@ -558,7 +560,8 @@ installme: all
 	                      fi ;; \
 	     esac; \
 	     if $(TEST) -n "$$install" -a -n "$$dest"; then \
-	         if ! $(TEST) -d "$$dest"; then cmd="$(INSTALLDIR) $$dest"; echo "$$cmd"; $$cmd; fi; \
+	         dir=`dirname "$$dest"`; \
+	         if ! $(TEST) -d "$$dir"; then cmd="$(INSTALLDIR) $$dir"; echo "$$cmd"; $$cmd; fi; \
 		 cmd="$$install $$f $$dest"; echo "$$cmd"; \
 		 $$cmd; \
 	     fi; \
@@ -626,7 +629,8 @@ $(JAR): $(JAVASRC) $(SUBLIBS) $(MANIFEST) $(ALLMAKEFILES)
 #$(YACCGENJAVA): $(ALLMAKEFILES) $(BUILDINC)
 
 ### WITH -MD
-$(OBJ): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(OBJDEPS_$(SINCLUDEDEPS))
+$(OBJ): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC)
+$(OBJ_NOJAVA): $(OBJDEPS_$(SINCLUDEDEPS))
 $(GENSRC): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC)
 $(GENJAVA): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC)
 $(CLASSES): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC)
@@ -735,7 +739,7 @@ $(SRCINC): $(SRCINC_CONTENT)
 
 $(LICENSE):
 	@echo "$(NAME): create $(LICENSE)"
-	@$(PRINTF) "GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007 - http://www.gnu.org/licenses/\n" > $(LICENSE)
+	@$(PRINTF) "GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007 - http://gnu.org/licenses/gpl.html\n" > $(LICENSE)
 
 $(README):
 	@echo "$(NAME): create $(README)"
@@ -749,7 +753,13 @@ $(VERSIONINC):
 	@$(PRINTF) "#define DIST_GITREVFULL \"unknown\"\n#define DIST_GITREMOTE \"unknown\"\n" >> $(VERSIONINC)
 	@$(PRINTF) "#include \"build.h\"\n#endif\n" >> $(VERSIONINC)
 
-$(BUILDINC): $(VERSIONINC) $(ALLMAKEFILES)
+# As defined above, everything depends on $(BUILDINC), and we want they wait for update-$(BUILDINC)
+# create-$(BUILDINC) and update-$(BUILDINC) have .EXEC so that some bsd-make don' taint to outdated
+# the files which depends on them.
+$(BUILDINC): update-$(BUILDINC)
+	@true
+
+create-$(BUILDINC): $(VERSIONINC) $(ALLMAKEFILES) .EXEC
 	@if ! $(TEST) -e $(BUILDINC); then \
 	     echo "$(NAME): create $(BUILDINC)"; \
 	     build=`$(SED) -n -e 's/^[[:space:]]*#define[[:space:]]APP_BUILD_NUMBER[[:space:]][[:space:]]*\([0-9][0-9]*\).*/\1/p' $(VERSIONINC)`; \
@@ -765,7 +775,7 @@ $(BUILDINC): $(VERSIONINC) $(ALLMAKEFILES)
 
 #fullgitrev=`$(GIT) describe --match "v[0-9]*" --always --tags --dirty --abbrev=0 $(NO_STDERR)`
 
-update-$(BUILDINC): $(BUILDINC)
+update-$(BUILDINC): create-build.h .EXEC
 	@if gitstatus=`$(GIT) status --untracked-files=no --ignore-submodules=untracked --short --porcelain $(NO_STDERR)`; then \
 	     i=0; for rev in `$(GIT) show --quiet --ignore-submodules=untracked --format="%h %H" HEAD $(NO_STDERR)`; do \
 	         case $$i in 0) gitrev="$$rev";; 1) fullgitrev="$$rev" ;; esac; \
@@ -824,7 +834,6 @@ update-$(BUILDINC): $(BUILDINC)
 	    fi; \
 	 fi
 
-#.gitignore: $(ALLMAKEFILES)
 .gitignore:
 	@{ cat .gitignore $(NO_STDERR); \
 	   for f in $(BIN) $(BIN).dSYM $(LIB) $(JAR) $(GENSRC) $(GENJAVA) $(GENINC) $(SRCINC) \
@@ -943,8 +952,8 @@ rinfo: info
 .PHONY: subdirs $(DEBUGDIRS)
 .PHONY: subdirs $(DOCDIRS)
 .PHONY: default_rule all build_all cleanme clean distclean dist test info rinfo \
-	doc installme install debug gentags update-$(BUILDINC) .gitignore \
-	merge-makefile debug-makefile valgrind
+	doc installme install debug gentags update-$(BUILDINC) create-$(BUILDINC) \
+	.gitignore merge-makefile debug-makefile valgrind
 
 ############################################################################
 #$(BUILDDIR)/%.o: $(SRCDIR)/%.m $(INCLUDES) $(ALLMAKEFILES)
