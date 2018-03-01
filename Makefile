@@ -457,19 +457,22 @@ BCOMPAT_SED_YYPREFIX=$(SED) -n -e \
 # GCC -MD management (dependencies generation)
 # make on some BSD systems 1) does not support '-include' or 'sinclude', 2) does not support
 # including several files in one include statement, and 3) does not see a file created before
-# inclusion by a shell command.
-# Here, if .alldeps does not exit, we include version.h (contains only lines starting with
-# dash(#)), and we create .alldeps.d containing inclusion of all .d files, created with
-# default headers dependency. This method works thanks to MAKE recursion. Without recursion,
-# some stuff would be needed to guaranty the good order of the first build.
+# inclusion by a shell command '!=' or '$(shell ...)'.
+# Here, if .alldeps does not exit, we include version.h (containing only lines starting with
+# dash(#), so that it can be parsed by make and do nothing), and the OBJs will depends on
+# $(OBJDEPS_version.h). In the same time, we create .alldeps.d containing inclusion of
+# all .d files, created with default headers dependency (OBJ depends on all includes), that
+# will be used on next 'make' and overrided by gcc -MMD.
 #
+OBJDEPS_version.h= $(INCLUDES) $(GENINC) $(ALLMAKEFILES)
 DEPS		:= $(OBJ:.o=.d)
 INCLUDEDEPS	:= .alldeps.d
 cmd_SINCLUDEDEPS= inc=1; if $(TEST) -e $(INCLUDEDEPS); then echo "$(INCLUDEDEPS)"; \
 		  else inc=; echo version.h; fi; \
 		  for f in $(DEPS:.d=); do \
 		      if $(TEST) -z "$$inc" -o ! -e "$$f.d"; then \
-		           $(TEST) "$$f.o" = "$(JAVAOBJ)" && echo "" > $$f.d || echo "$$f.o: $(INCLUDES) $(GENINC)" > $$f.d; \
+		           $(TEST) "$$f.o" = "$(JAVAOBJ)" && echo "" > $$f.d \
+			                                  || echo "$$f.o: $(OBJDEPS_version.h)" > $$f.d; \
 		           echo "include $$f.d" >> $(INCLUDEDEPS); \
 	      	      fi; \
 		  done
@@ -477,9 +480,6 @@ tmp_SINCLUDEDEPS != $(cmd_SINCLUDEDEPS)
 tmp_SINCLUDEDEPS ?= $(shell $(cmd_SINCLUDEDEPS))
 SINCLUDEDEPS := $(tmp_SINCLUDEDEPS)
 include $(SINCLUDEDEPS)
-# When .alldeps.d ($(INCLUDEDEPS) does not exist and created, default dependencies
-# of OBJS are forced to all includes.
-OBJDEPS_version.h	= $(INCLUDES) $(GENINC) $(ALLMAKEFILES)
 
 ############################################################################################
 
@@ -510,6 +510,7 @@ default_rule: update-$(BUILDINC) $(BUILDDIRS) .WAIT $(BIN) $(LIB) $(JAR) gentags
 
 $(SUBDIRS): $(BUILDDIRS)
 $(SUBLIBS): $(BUILDDIRS)
+	@true
 $(BUILDDIRS): .EXEC
 	cd $(@:-build=) && $(MAKE)
 
