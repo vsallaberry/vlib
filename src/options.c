@@ -207,7 +207,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config) {
                 break ;
             }
             /* insert EOL if it does not fit in max_columns */
-            if (len + n_printed > max_columns) {
+            if (*token != '\n' && len + n_printed > max_columns) {
                 n_printed = 0;
                 eol_shift = 2;
                 fputc('\n', out);
