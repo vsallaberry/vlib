@@ -149,6 +149,7 @@ VALGRIND	= valgrind
 MKTEMP		= mktemp
 NO_STDERR	= 2> /dev/null
 NO_STDOUT	= > /dev/null
+STDOUT_TO_ERR	= 1>&2
 
 ############################################################################################
 # About shell commands execution in this Makefile:
@@ -468,6 +469,7 @@ BCOMPAT_SED_YYPREFIX=$(SED) -n -e \
 # $(OBJDEPS_version.h). In the same time, we create .alldeps.d containing inclusion of
 # all .d files, created with default headers dependency (OBJ depends on all includes), that
 # will be used on next 'make' and overrided by gcc -MMD.
+# Additionnaly, we use this command to populate git submodules if needed.
 #
 OBJDEPS_version.h= $(INCLUDES) $(GENINC) $(ALLMAKEFILES)
 DEPS		:= $(OBJ:.o=.d)
@@ -480,7 +482,12 @@ cmd_SINCLUDEDEPS= inc=1; if $(TEST) -e $(INCLUDEDEPS); then echo "$(INCLUDEDEPS)
 			                                  || echo "$$f.o: $(OBJDEPS_version.h)" > $$f.d; \
 		           echo "include $$f.d" >> $(INCLUDEDEPS); \
 	      	      fi; \
-		  done
+		  done; \
+		  ret=true; $(TEST) -x "$(GIT)" || true && for d in $(SUBDIRS); do \
+		      if ! $(TEST) -e "$$d/Makefile" && $(GIT) submodule status "$$d" $(NO_STDERR) | $(GREP) -Eq "^-.*$$d"; then \
+		          $(GIT) submodule update --init "$$d" $(STDOUT_TO_ERR) || ret=false; \
+		      fi; \
+		  done; $$ret
 tmp_SINCLUDEDEPS != $(cmd_SINCLUDEDEPS)
 tmp_SINCLUDEDEPS ?= $(shell $(cmd_SINCLUDEDEPS))
 SINCLUDEDEPS := $(tmp_SINCLUDEDEPS)
@@ -549,7 +556,8 @@ debug: update-$(BUILDINC) $(DEBUGDIRS)
 	@{ $(GREP) -Ev '^[[:space:]]*\#[[:space:]]*define[[:space:]]+(BUILD_DEBUG|BUILD_TEST)([[:space:]]|$$)' $(BUILDINC) $(NO_STDERR); \
 		$(PRINTF) "#define BUILD_DEBUG\n#define BUILD_TEST\n"; } > $(BUILDINC).tmp && $(MV) $(BUILDINC).tmp $(BUILDINC)
 	@$(PRINTF) "$(NAME): debug enabled ('make distclean' to disable it).\n"
-	@$(MAKE)
+	@$(PRINTF) "$(NAME): "
+	$(MAKE) SUBMODROOTDIR="$(SUBMODROOTDIR)"
 $(DEBUGDIRS):
 	@recdir=$(@:-debug=); rectarget=debug; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs} debug
 # Code to disable debug without deleting BUILDINC:
