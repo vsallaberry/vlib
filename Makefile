@@ -556,8 +556,7 @@ debug: update-$(BUILDINC) $(DEBUGDIRS)
 	@{ $(GREP) -Ev '^[[:space:]]*\#[[:space:]]*define[[:space:]]+(BUILD_DEBUG|BUILD_TEST)([[:space:]]|$$)' $(BUILDINC) $(NO_STDERR); \
 		$(PRINTF) "#define BUILD_DEBUG\n#define BUILD_TEST\n"; } > $(BUILDINC).tmp && $(MV) $(BUILDINC).tmp $(BUILDINC)
 	@$(PRINTF) "$(NAME): debug enabled ('make distclean' to disable it).\n"
-	@$(PRINTF) "$(NAME): "
-	$(MAKE) SUBMODROOTDIR="$(SUBMODROOTDIR)"
+	@$(TEST) -n "$(SUBMODROOTDIR)" && $(MAKE) SUBMODROOTDIR="$(SUBMODROOTDIR)" || $(MAKE)
 $(DEBUGDIRS):
 	@recdir=$(@:-debug=); rectarget=debug; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs} debug
 # Code to disable debug without deleting BUILDINC:
