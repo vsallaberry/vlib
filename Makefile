@@ -41,9 +41,14 @@ NAME		= vlib
 # RESERVED FILES for internal use: ./build.h, ./version.h ./Makefile ./Build.java $(BUILDDIR)/_src_.c
 SRCDIR 		= src
 
+# SUBMODROOTDIR, allowing to group all submodules together instead of creating a complex tree
+# in case the project (A) uses module B (which uses module X) and module C (which uses module X).
+# Put empty value, or don't use it in sub directories' Makefile to disable this feature.
+SUBMODROOTDIR	= ext
+
 # SUBDIRS, put empty if there is no need to run make on sub directories.
 SUBDIRS 	=
-# SUBLIBS: libraries built from subdirs, needed for binary dependency. Put empty if none.
+# SUBLIBS: libraries produced from SUBDIRS, needed correct build order. Put empty if none.
 SUBLIBS		=
 
 # INCDIRS: Folder where public includes are. It can be SRCDIR or even empty if
@@ -73,7 +78,7 @@ ARCH_RELEASE	= -march=native # -arch i386 -arch x86_64
 OPTI_COMMON	= -pipe -fstack-protector
 OPTI_RELEASE	= -O3 $(OPTI_COMMON)
 INCS_RELEASE	=
-LIBS_RELEASE	= $(SUBLIBS)
+LIBS_RELEASE	= $(SUBLIBS) -lpthread
 MACROS_RELEASE	=
 WARN_DEBUG	= $(WARN_RELEASE) # -Werror
 ARCH_DEBUG	= $(ARCH_RELEASE)
@@ -498,6 +503,14 @@ CLEANDIRS	= $(SUBDIRS:=-clean)
 TESTDIRS	= $(SUBDIRS:=-test)
 DEBUGDIRS	= $(SUBDIRS:=-debug)
 DOCDIRS		= $(SUBDIRS:=-doc)
+
+# RECURSEMAKEARGS, see doc for SUBMODROOTDIR above.
+# If the submodule is fetched alone, it will use its own submodules, if it is fetched as a
+# submodule, it will use the root submodule directory, redefined when recursing in SUBDIRS.
+RECURSEMAKEARGS	= $(TEST) -n "$(SUBMODROOTDIR)" && recargs="SUBMODROOTDIR=\"`echo $${recdir} \
+				| $(SED) -e 's/[^/][^/]*/../g'`/$(SUBMODROOTDIR)\"" || recargs=; \
+		  echo "cd $${recdir} && $(MAKE) $${rectarget} $${recargs}"
+
 ############################################################################################
 # .POSIX: for bsd-like dependency management
 # .PHONY: .WAIT and .EXEC for compatibility, when not supported.
@@ -512,7 +525,7 @@ $(SUBDIRS): $(BUILDDIRS)
 $(SUBLIBS): $(BUILDDIRS)
 	@true
 $(BUILDDIRS): .EXEC
-	cd $(@:-build=) && $(MAKE)
+	@recdir=$(@:-build=); rectarget=; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs}
 
 # --- clean : remove objects and generated files
 clean: cleanme $(CLEANDIRS)
@@ -520,7 +533,7 @@ cleanme:
 	$(RM) $(OBJ:.class=*.class) $(SRCINC) $(GENSRC) $(GENINC) $(GENJAVA) $(CLASSES:.class=*.class) $(DEPS) $(INCLUDEDEPS)
 	@$(TEST) -L "$(FLEXLEXER_LNK)" && { cmd="$(RM) $(FLEXLEXER_LNK)"; echo "$$cmd"; $$cmd ; } || true
 $(CLEANDIRS):
-	cd $(@:-clean=) && $(MAKE) clean
+	@recdir=$(@:-clean=); rectarget=clean; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs} clean
 
 # --- distclean : remove objects, binaries and remove DEBUG flag in build.h
 distclean: cleanme $(DISTCLEANDIRS)
@@ -529,7 +542,7 @@ distclean: cleanme $(DISTCLEANDIRS)
 	@$(TEST) "$(BUILDDIR)" != "$(SRCDIR)" && $(RMDIR) `$(FIND) $(BUILDDIR) -type d | $(SORT) -r` $(NO_STDERR) || true
 	@$(PRINTF) "$(NAME): distclean done, debug disabled.\n"
 $(DISTCLEANDIRS):
-	cd $(@:-distclean=) && $(MAKE) distclean
+	@recdir=$(@:-distclean=); rectarget=distclean; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs} distclean
 
 # --- debug : set DEBUG flag in build.h and rebuild
 debug: update-$(BUILDINC) $(DEBUGDIRS)
@@ -538,7 +551,7 @@ debug: update-$(BUILDINC) $(DEBUGDIRS)
 	@$(PRINTF) "$(NAME): debug enabled ('make distclean' to disable it).\n"
 	@$(MAKE)
 $(DEBUGDIRS):
-	cd $(@:-debug=) && $(MAKE) debug
+	@recdir=$(@:-debug=); rectarget=debug; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs} debug
 # Code to disable debug without deleting BUILDINC:
 # @$(GREP) -Ev '^[[:space:]]*\#[[:space:]]*define[[:space:]]+(BUILD_DEBUG|BUILD_TEST)([[:space:]]|$$)' $(BUILDINC) \
 #	    > $(BUILDINC).tmp && $(MV) $(BUILDINC).tmp $(BUILDINC)
@@ -546,7 +559,7 @@ $(DEBUGDIRS):
 # --- doc : generate doc
 doc: $(DOCDIRS)
 $(DOCDIRS):
-	cd $(@:-doc=) && $(MAKE) doc
+	@recdir=$(@:-doc=); rectarget=doc; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs} doc
 
 # --- install ---
 installme: all
@@ -569,13 +582,13 @@ installme: all
 	 done
 install: installme $(INSTALLDIRS)
 $(INSTALLDIRS):
-	cd $(@:-install=) && $(MAKE) install
+	@recdir=$(@:-install=); rectarget=install; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs} install
 
 # --- test ---
 test: $(TESTDIRS) all
 	$(TEST_RUN_PROGRAM)
 $(TESTDIRS):
-	cd $(@:-test=) && $(MAKE) test
+	@recdir=$(@:-test=); rectarget=test; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs} test
 
 # --- build bin&lib ---
 $(BIN): $(OBJ) $(SUBLIBS) $(JCNIINC)
