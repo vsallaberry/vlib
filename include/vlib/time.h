@@ -22,6 +22,7 @@
 #ifndef VLIB_TIME_H
 #define VLIB_TIME_H
 
+#include <sys/types.h>
 #include <sys/time.h>
 
 #ifdef __cplusplus
@@ -40,6 +41,35 @@
 extern "C" {
 #endif
 
+/** define constants used by clock_gettime if not existing */
+#undef VLIB_CLOCK_GETTIME_WRAPPER
+#ifndef CLOCK_MONOTONIC
+# define VLIB_CLOCK_GETTIME_WRAPPER
+# define CLOCK_MONOTONIC        -130
+#elif ! defined(CLOCK_MONOTONIC_RAW)
+# define CLOCK_MONOTONIC_RAW    CLOCK_MONOTONIC
+#endif
+#ifndef CLOCK_MONOTONIC_RAW
+# define CLOCK_MONOTONIC_RAW    -131
+#endif
+#ifndef CLOCK_REALTIME
+# define CLOCK_REALTIME         -132
+#endif
+
+/* timespecsub: similar to timersub but for 'struct timespec' */
+#define timespecsub(tsop1, tsop2, tsres) \
+            do { \
+                (tsres)->tv_sec = (tsop1)->tv_sec - (tsop2)->tv_sec; \
+                (tsres)->tv_nsec = (tsop1)->tv_nsec - (tsop2)->tv_nsec; \
+                if ((tsres)->tv_nsec < 0) { \
+                    (tsres)->tv_sec--; \
+                    (tsres)->tv_nsec += 1000000000; \
+                } \
+            } while (0)
+/* timespeccmp: compare timespec, return 0 if =, <0 if op1<op2, >0 if op1>op2 */
+#define timespeccmp(tsop1, tsop2) \
+            ((tsop1)->tv_sec == (tsop2)->tv_sec ? (tsop1)->tv_nsec - (tsop2)->tv_nsec \
+                                                : (tsop1)->tv_sec - (tsop2)->tvsec)
 /*
  * vclock_gettime() wrapper to clock_gettime() or
  * other available clock service on the system.
@@ -80,7 +110,9 @@ int vclock_gettime(int id, struct timespec * ts);
 /* Get Bench value (ms) */
 #define BENCH_GET(name)     (long)(((name).t * 1000) / CLOCKS_PER_SEC)
 /* Get Bench value (us) */
-#define BENCH_GET_US(name)  (long)(((name).t * 1000000) / CLOCKS_PER_SEC)
+#define BENCH_GET_US(name)  (long)(((name).t * 1000000) / (CLOCKS_PER_SEC))
+/* Get Bench value (ns) */
+#define BENCH_GET_NS(name)  (long)(((name).t * 1000000000) / (CLOCKS_PER_SEC))
 
 /** Bench Stop & Display
  * BENCH_STOP_PRINT(name, fprintf, stderr, "something") is
@@ -93,7 +125,7 @@ int vclock_gettime(int id, struct timespec * ts);
                 long __t; \
                 BENCH_STOP(name); \
                 __t = BENCH_GET(name); \
-                printf_fun(arg, fmt "DURATION = %ld.%03lds", \
+                printf_fun(arg, fmt "DURATION(cpu) = %ld.%03lds", \
                            __VA_ARGS__, \
                            __t / 1000, \
                            __t % 1000); \
@@ -112,14 +144,14 @@ int vclock_gettime(int id, struct timespec * ts);
 
 /** Bench Time Decl */
 #define BENCH_TM_DECL(name)     struct {  \
-                                    struct timeval t0; \
-                                    struct timeval t1; \
+                                    struct timespec t0; \
+                                    struct timespec t1; \
                                 } name
 /**
  * Bench Start: start a time bench using a bench variable previously declared
  * with BENCH_TM_DECL.
  */
-#define BENCH_TM_START(name)        gettimeofday(&((name).t0), NULL)
+#define BENCH_TM_START(name)       vclock_gettime(CLOCK_MONOTONIC_RAW, &((name).t0))
 
 /** Bench Time Decl_Start
  * Be carefull when using BENCH_TM_DECL_START, as it declares a variable outside
@@ -130,13 +162,18 @@ int vclock_gettime(int id, struct timespec * ts);
 /** Bench Time Stop & Display */
 #define BENCH_TM_STOP(name) \
             do { \
-                gettimeofday(&((name).t1), NULL); \
-                timersub(&((name).t1), &((name).t0), &((name).t1)); \
+                vclock_gettime(CLOCK_MONOTONIC_RAW, &((name).t1)); \
+                timespecsub(&((name).t1), &((name).t0), &((name).t1)); \
             } while(0)
 
 /** Get Bench Time */
-#define BENCH_TM_GET(name)  (long)( (((name).t1).tv_sec * 1000) \
-                                      + (((name).t1).tv_usec / 1000))
+#define BENCH_TM_GET(name)      (long)( (((name).t1).tv_sec * 1000) \
+                                        + (((name).t1).tv_nsec / 1000000))
+#define BENCH_TM_GET_US(name)   (long)( (((name).t1).tv_sec * 1000000) \
+                                        + (((name).t1).tv_nsec / 1000))
+#define BENCH_TM_GET_NS(name)   (long)( (((name).t1).tv_sec * 1000000000) \
+                                        + (((name).t1).tv_nsec))
+
 /** Bench Time Stop & Display
  * BENCH_TM_STOP_PRINT(name, fprintf, stderr, "something") is
  * not supported unless we use ##__VA_ARGS__ which is gnu extension
