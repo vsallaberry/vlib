@@ -57,7 +57,13 @@ static const char * s_log_levels_str[] = {
 };
 
 void log_set_vlib_instance(log_t * log) {
+    FILE * out = g_vlib_log ? g_vlib_log->out : NULL;
+
+    if (out)
+        flockfile(out);
     g_vlib_log = log;
+    if (out)
+        funlockfile(out);
 }
 
 static int log_location(FILE * out, log_flag_t flags, log_level_t level,
