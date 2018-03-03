@@ -73,12 +73,14 @@ int vclock_gettime(int id, struct timespec * ts);
                 if ((name).t == (clock_t) -1 || __t == (clock_t) -1) { \
                     (name).t = (clock_t) -1; \
                 } else { \
-                    (name).t = ((__t - (name).t) * 1000) / CLOCKS_PER_SEC; \
+                    (name).t = (__t - (name).t); \
                 } \
             } while (0)
 
 /* Get Bench value (ms) */
-#define BENCH_GET(name)     (long)(name).t
+#define BENCH_GET(name)     (long)(((name).t * 1000) / CLOCKS_PER_SEC)
+/* Get Bench value (us) */
+#define BENCH_GET_US(name)  (long)(((name).t * 1000000) / CLOCKS_PER_SEC)
 
 /** Bench Stop & Display
  * BENCH_STOP_PRINT(name, fprintf, stderr, "something") is
