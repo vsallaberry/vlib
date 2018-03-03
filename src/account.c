@@ -21,7 +21,11 @@
  * Initially written for vrunas (<https://github.com/vsallaberry/vrunas>,
  *                               Copyright (C) 2018 Vincent Sallaberry.)
  */
+#include <sys/types.h>
+#include <pwd.h>
+#include <grp.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
@@ -55,9 +59,30 @@ int pwfind_r(const char * str, struct passwd * pw, char ** pbuf, size_t * pbufsz
         return -1;
     }
 
-    if (getpwnam_r(str, pw, *pbuf, *pbufsz, &pwres) != 0
-    ||  (pwres != pw && (errno = EINVAL))) {
+    if (getpwnam_r(str, pw, *pbuf, *pbufsz, &pwres) != 0 || pwres != pw) {
+        if (errno == 0)
+            errno = EINVAL;
         LOG_VERBOSE(g_vlib_log, "user `%s` (getpwnam_r): %s", str, strerror(errno));
+    } else {
+        ret = errno = 0;
+    }
+
+    return ret;
+}
+
+int pwfindbyid_r(uid_t uid, struct passwd * pw, char ** pbuf, size_t * pbufsz) {
+    struct passwd *     pwres;
+    int                 ret = -1;
+
+    if ((pw == NULL && (errno = EFAULT))
+    ||  nam2id_alloc_r(pbuf, pbufsz) != 0) {
+        return -1;
+    }
+
+    if (getpwuid_r(uid, pw, *pbuf, *pbufsz, &pwres) != 0 || pwres != pw) {
+        if (errno == 0)
+            errno = EINVAL;
+        LOG_VERBOSE(g_vlib_log, "uid `%ld` (getpwuid_r): %s", (long) uid, strerror(errno));
     } else {
         ret = errno = 0;
     }
@@ -74,9 +99,30 @@ int grfind_r(const char * str, struct group * gr, char ** pbuf, size_t * pbufsz)
         return -1;
     }
 
-    if (getgrnam_r(str, gr, *pbuf, *pbufsz, &grres) != 0
-    ||  (grres != gr && (errno = EINVAL))) {
+    if (getgrnam_r(str, gr, *pbuf, *pbufsz, &grres) != 0 || grres != gr) {
+        if (errno == 0)
+            errno = EINVAL;
         LOG_VERBOSE(g_vlib_log, "group `%s` (getgrnam_r): %s", str, strerror(errno));
+    } else {
+        ret = errno = 0;
+    }
+
+    return ret;
+}
+
+int grfindbyid_r(gid_t gid, struct group * gr, char ** pbuf, size_t * pbufsz) {
+    struct group *      grres;
+    int                 ret = -1;
+
+    if ((gr == NULL && (errno = EFAULT))
+    ||  nam2id_alloc_r(pbuf, pbufsz) != 0) {
+        return -1;
+    }
+
+    if (getgrgid_r(gid, gr, *pbuf, *pbufsz, &grres) != 0 || grres != gr) {
+        if (errno == 0)
+            errno = EINVAL;
+        LOG_VERBOSE(g_vlib_log, "gid `%ld` (getgrgid_r): %s", (long) gid, strerror(errno));
     } else {
         ret = errno = 0;
     }
@@ -133,5 +179,4 @@ int grfindid_r(const char * str, gid_t *gid, char ** pbuf, size_t * pbufsz) {
         free(*pbuf);
     return ret;
 }
-
 

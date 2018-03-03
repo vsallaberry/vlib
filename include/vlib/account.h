@@ -22,16 +22,9 @@
 #ifndef VLIB_ACCOUNT_H
 #define VLIB_ACCOUNT_H
 
+#include <sys/types.h>
 #include <pwd.h>
 #include <grp.h>
-
-#ifdef __cplusplus
-# include <cstdlib>
-# include <cstring>
-#else
-# include <string.h>
-# include <stdlib.h>
-#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -47,11 +40,19 @@ extern "C" {
  *   * if not null and allocated, it is used,
  *   * if not null and not allocated, it is malloced.
  *   When pbuf not null, the caller must free *pbuf.
- *   *pbuf can be shared between pwfind_r, pwfindid_r(), grfind_r() and grfindid_r().
+ *   *pbuf can be shared between pwfind_r, pwfindid_r(), grfind_r() and grfindid_r(),
+ *   knowing that data in *pbuf can be overriden at each call.
  * @param pbufsz [in/out] the pointer to size of *pbuf. Is ignored when pbuf is NULL.
  * @return 0 on success, -1 otherwise.
  */
 int     pwfind_r(const char * str, struct passwd * pw, char ** pbuf, size_t * pbufsz);
+
+/**
+ * pwfindbyid_r(): wrapper to getpwuid_r() with automatic memory allocation,
+ * retrieving the passwd struct from uid.
+ * See pwfind_r().
+ */
+int     pwfindbyid_r(uid_t uid, struct passwd * gr, char ** pbuf, size_t * pbufsz);
 
 /**
  * grfind_r(): wrapper to getgrnam_r() with automatic memory allocation,
@@ -59,6 +60,13 @@ int     pwfind_r(const char * str, struct passwd * pw, char ** pbuf, size_t * pb
  * See pwfind_r().
  */
 int     grfind_r(const char * str, struct group * gr, char ** pbuf, size_t * pbufsz);
+
+/**
+ * grfindbyid_r(): wrapper to getgrgid_r() with automatic memory allocation,
+ * retrieving the group struct from gid.
+ * See pwfind_r().
+ */
+int     grfindbyid_r(gid_t gid, struct group * gr, char ** pbuf, size_t * pbufsz);
 
 /**
  * pwfindid_r(): wrapper to getpwnam_r() with automatic memory allocation,
