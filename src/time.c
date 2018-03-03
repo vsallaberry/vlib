@@ -30,7 +30,7 @@
 /* _POSIX_C_SOURCE >= 199309L */
 /* assume that clock_gettime exists on this system */
 /* # define vclock_gettime clock_gettime */
-inline int vlock_gettime(int id, struct timespec * ts) {
+inline int vclock_gettime(int id, struct timespec * ts) {
     return clock_gettime(id, ts);
 }
 #elif defined(__APPLE__) || defined(BUILD_SYS_darwin)
