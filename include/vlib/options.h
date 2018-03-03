@@ -136,8 +136,8 @@ const char *const* vlib_get_source();
  * Default version string, and copyright notice.
  */
 #define OPT_VERSION_STRING(app_name, app_version, revision) \
-    app_name " v" app_version " " BUILD_APPRELEASE " (built on " \
-    __DATE__ ", " __TIME__ " from " revision ")"
+    app_name " v" app_version " " BUILD_APPRELEASE " (build:" \
+    __DATE__ ", " __TIME__ " " revision ")"
 
 #define OPT_LICENSE_GPL(author, copyright, gplver_s, gplver_l ) \
     "Copyright (C) " copyright " " author ".\n" \
@@ -147,6 +147,13 @@ const char *const* vlib_get_source();
 
 #define OPT_LICENSE_GPL3PLUS(author, copyright) \
     OPT_LICENSE_GPL(author, copyright, "3+", "3 or later")
+
+#define OPT_VERSION_STRING_LIC(app_name, app_version, revision, license) \
+            OPT_VERSION_STRING(app_name, app_version, revision) "\n\n" license
+
+#define OPT_VERSION_STRING_GPL3PLUS(app_name, app_version, revision, author, copyright) \
+            OPT_VERSION_STRING_LIC(app_name, app_version, revision, \
+                                   OPT_LICENSE_GPL3PLUS(author, copyright))
 
 #ifdef __cplusplus
 }
