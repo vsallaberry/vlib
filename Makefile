@@ -483,11 +483,11 @@ cmd_SINCLUDEDEPS= inc=1; if $(TEST) -e $(INCLUDEDEPS); then echo "$(INCLUDEDEPS)
 		           echo "include $$f.d" >> $(INCLUDEDEPS); \
 	      	      fi; \
 		  done; \
-		  ret=true; $(TEST) -x "$(GIT)" || true && for d in $(SUBDIRS); do \
+		  ret=true; $(TEST) -x "$(GIT)" && for d in $(SUBDIRS); do \
 		      if ! $(TEST) -e "$$d/Makefile" && $(GIT) submodule status "$$d" $(NO_STDERR) | $(GREP) -Eq "^-.*$$d"; then \
 		          $(GIT) submodule update --init "$$d" $(STDOUT_TO_ERR) || ret=false; \
 		      fi; \
-		  done; $$ret
+		  done || true; $$ret
 tmp_SINCLUDEDEPS != $(cmd_SINCLUDEDEPS)
 tmp_SINCLUDEDEPS ?= $(shell $(cmd_SINCLUDEDEPS))
 SINCLUDEDEPS := $(tmp_SINCLUDEDEPS)
