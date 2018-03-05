@@ -753,49 +753,49 @@ $(SRCINC): $(SRCINC_CONTENT)
 		           blk=blk "\n" $$0; \
 		   } END { \
 		       printblk(); print "NULL };\nconst char *const* $(NAME)_get_source() { return s_program_source; }\n#endif"; \
-		   }' $(SRCINC_CONTENT) >> $(SRCINC) ; \
-	     $(CC) -I. -c $(SRCINC) -o $(SRCINC).tmp.o $(NO_STDERR) \
-	         || $(PRINTF) "#include <stdlib.h>\n#include \"$(VERSIONINC)\"\n#ifdef APP_INCLUDE_SOURCE\nstatic const char * const s_program_source[] = {\n  \"cannot include source. check awk version or antivirus or bug\\\\n\", NULL};\nconst char *const* $(NAME)_get_source() { return s_program_source; }\n#endif\n" > $(SRCINC); \
-	     $(RM) -f $(SRCINC).*
+		   }' $(SRCINC_CONTENT) >> $@ ; \
+	     $(CC) -I. -c $@ -o $(@).tmp.o $(NO_STDERR) \
+	         || $(PRINTF) "%s\n" "#include <stdlib.h>" "#include \"$(VERSIONINC)\"" "#ifdef APP_INCLUDE_SOURCE" \
+	                             "static const char * const s_program_source[] = {" \
+				     "  \"cannot include source. check awk version or antivirus or bug\\n\", NULL};" \
+				     "const char *const* $(NAME)_get_source() { return s_program_source; }" "#endif" > $@; \
+	     $(RM) -f $(@).*
 
 $(LICENSE):
 	@echo "$(NAME): create $(LICENSE)"
 	@$(PRINTF) "GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007 - http://gnu.org/licenses/gpl.html\n" > $(LICENSE)
 
 $(README):
-	@echo "$(NAME): create $(README)"
-	@$(PRINTF) "## $(NAME)\n---------------\n\n* [Overview](#overview)\n* [License](#license)\n\n" > $(README)
-	@$(PRINTF) "## Overview\nTODO !\n\n## License\nGPLv3 or later. See LICENSE file.\n" >> $(README)
+	@echo "$(NAME): create $@"
+	@$(PRINTF) "%s\n" "## $(NAME)" "---------------" "" "* [Overview](#overview)" "* [License](#license)" "" \
+	                  "## Overview" "TODO !" "" "## License" "GPLv3 or later. See LICENSE file." >> $@
 
 $(VERSIONINC):
-	@echo "$(NAME): create $(VERSIONINC)"
-	@$(PRINTF) "#ifndef APP_VERSION_H\n#define APP_VERSION_H\n#define APP_VERSION \"0.1\"\n" > $(VERSIONINC)
-	@$(PRINTF) "#define APP_INCLUDE_SOURCE\n#define APP_BUILD_NUMBER 1\n#define DIST_GITREV \"unknown\"\n" >> $(VERSIONINC)
-	@$(PRINTF) "#define DIST_GITREVFULL \"unknown\"\n#define DIST_GITREMOTE \"unknown\"\n" >> $(VERSIONINC)
-	@$(PRINTF) "#include \"build.h\"\n#endif\n" >> $(VERSIONINC)
+	@echo "$(NAME): create $@"
+	@$(PRINTF) "%s\n" "#ifndef APP_VERSION_H" "#define APP_VERSION_H" "#define APP_VERSION \"0.1\"" \
+			  "#define APP_INCLUDE_SOURCE" "#define APP_BUILD_NUMBER 1" "#define DIST_GITREV \"unknown\"" \
+			  "#define DIST_GITREVFULL \"unknown\"" "#define DIST_GITREMOTE \"unknown\"" \
+			  "#include \"build.h\"" "#endif" >> $@
 
 # As defined above, everything depends on $(BUILDINC), and we want they wait for update-$(BUILDINC)
 # create-$(BUILDINC) and update-$(BUILDINC) have .EXEC so that some bsd-make don' taint to outdated
 # the files which depends on them.
 $(BUILDINC): update-$(BUILDINC)
 	@true
-
 create-$(BUILDINC): $(VERSIONINC) $(ALLMAKEFILES) .EXEC
 	@if ! $(TEST) -e $(BUILDINC); then \
 	     echo "$(NAME): create $(BUILDINC)"; \
 	     build=`$(SED) -n -e 's/^[[:space:]]*#define[[:space:]]APP_BUILD_NUMBER[[:space:]][[:space:]]*\([0-9][0-9]*\).*/\1/p' $(VERSIONINC)`; \
-	     $(PRINTF) "#define BUILD_APPNAME \"\"\n#define BUILD_NUMBER $$build\n#define BUILD_PREFIX \"\"\n" > $(BUILDINC); \
-	     $(PRINTF) "#define BUILD_GITREV \"\"\n#define BUILD_GITREVFULL \"\"\n#define BUILD_GITREMOTE \"\"\n" >> $(BUILDINC); \
-	     $(PRINTF) "#define BUILD_APPRELEASE \"\"\n#define BUILD_SYSNAME \"\"\n#define BUILD_SYS_unknown\n" >> $(BUILDINC); \
-	     $(PRINTF) "#define BUILD_CC_CMD \"\"\n#define BUILD_CXX_CMD \"\"\n#define BUILD_OBJC_CMD \"\"\n" >> $(BUILDINC); \
-	     $(PRINTF) "#define BUILD_GCJ_CMD \"\"\n#define BUILD_CCLD_CMD \"\"\n#define BUILD_SRCPATH \"\"\n" >> $(BUILDINC); \
-	     $(PRINTF) "#define BUILD_JAVAOBJ 0\n#define BUILD_JAR 0\n#define BUILD_BIN 0\n#define BUILD_LIB 0\n" >> $(BUILDINC); \
-	     $(PRINTF) "#define BUILD_YACC 0\n#define BUILD_LEX 0\n#define BUILD_BISON3 0\n#define BUILD_CURSES 1\n" >> $(BUILDINC); \
-	     $(PRINTF) "#ifdef __cplusplus\nextern \"C\" {\n#endif\nconst char *const* $(NAME)_get_source();\n#ifdef __cplusplus\n}\n#endif\n" >> $(BUILDINC); \
+	     $(PRINTF) "%s\n" "#define BUILD_APPNAME \"\"" "#define BUILD_NUMBER $$build" "#define BUILD_PREFIX \"\"" \
+	       "#define BUILD_GITREV \"\"" "#define BUILD_GITREVFULL \"\"" "#define BUILD_GITREMOTE \"\"" \
+	       "#define BUILD_APPRELEASE \"\"" "#define BUILD_SYSNAME \"\"" "#define BUILD_SYS_unknown" \
+	       "#define BUILD_CC_CMD \"\"" "#define BUILD_CXX_CMD \"\"" "#define BUILD_OBJC_CMD \"\"" \
+	       "#define BUILD_GCJ_CMD \"\"" "#define BUILD_CCLD_CMD \"\"" "#define BUILD_SRCPATH \"\"" \
+	       "#define BUILD_JAVAOBJ 0" "#define BUILD_JAR 0" "#define BUILD_BIN 0" "#define BUILD_LIB 0" \
+	       "#define BUILD_YACC 0" "#define BUILD_LEX 0" "#define BUILD_BISON3 0" "#define BUILD_CURSES 1" \
+	       "#ifdef __cplusplus" "extern \"C\" {" "#endif" "const char *const* $(NAME)_get_source();" "#ifdef __cplusplus" "}" "#endif" >> $(BUILDINC); \
 	 fi;
-
 #fullgitrev=`$(GIT) describe --match "v[0-9]*" --always --tags --dirty --abbrev=0 $(NO_STDERR)`
-
 update-$(BUILDINC): create-build.h .EXEC
 	@if gitstatus=`$(GIT) status --untracked-files=no --ignore-submodules=untracked --short --porcelain $(NO_STDERR)`; then \
 	     i=0; for rev in `$(GIT) show --quiet --ignore-submodules=untracked --format="%h %H" HEAD $(NO_STDERR)`; do \
@@ -845,11 +845,11 @@ update-$(BUILDINC): create-build.h .EXEC
 	                  -e 's|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*\([^[:space:]]*\)[[:space:]][[:space:]]*\(".*"\).*|    public static final String  \1 = \2;|p' \
 	                  -e 's|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*\([^[:space:]]*\)[[:space:]][[:space:]]*\([^[:space:]]*\).*|    public static final int     \1 = \2;|p' \
 	                   $(VERSIONINC) $(BUILDINC) \
-	        && $(PRINTF) "    public static final String  BUILD_SYS = \"$(UNAME_SYS)\";\n" \
-	        && $(PRINTF) "    public static final boolean BUILD_DEBUG = $$debug;\n" \
-	        && $(PRINTF) "    public static final boolean BUILD_TEST = $$test;\n" \
-		&& $(PRINTF) "    public static final String  BUILD_DATE = \"`date '+%Y-%m-%d %H:%M:%S %Z'`\";\n" \
-	        && $(PRINTF) "    public static final boolean APP_INCLUDE_SOURCE = $$appsource;\n}\n"; \
+	        && $(PRINTF) "%s\n" "    public static final String  BUILD_SYS = \"$(UNAME_SYS)\";" \
+	                            "    public static final boolean BUILD_DEBUG = $$debug;" \
+	                            "    public static final boolean BUILD_TEST = $$test;" \
+		                    "    public static final String  BUILD_DATE = \"`date '+%Y-%m-%d %H:%M:%S %Z'`\";" \
+	                            "    public static final boolean APP_INCLUDE_SOURCE = $$appsource;" "}"; \
 	        } > $(BUILDINCJAVA); \
 	       fi; \
 	    fi; \
@@ -912,55 +912,55 @@ valgrind: all
 	 && echo "* valgrind output in $${logfile} and $${logfile%.log}_filtered.log (will be deleted by 'make distclean')"
 
 info:
-	@echo "NAME             : $(NAME)"
-	@echo "UNAME_SYS        : $(UNAME_SYS)  [`uname -a`]"
-	@#echo "UNAME_ARCH       : $(UNAME_ARCH)"
-	@echo "MAKE             : $(MAKE)  [`$(MAKE) --version $(NO_STDERR) | $(HEADN1) || $(MAKE) -V $(NO_STDERR) | $(HEADN1)`]"
-	@echo "SHELL            : $(SHELL)"
-	@echo "FIND             : $(FIND)  [`$(FIND) --version $(NO_STDERR) | $(HEADN1) || $(FIND) -V $(NO_STDERR) | $(HEADN1)`]"
-	@echo "AWK              : $(AWK)  [`$(AWK) --version $(NO_STDERR) | $(HEADN1) || $(AWK) -V $(NO_STDERR) | $(HEADN1)`]"
-	@echo "GREP             : $(GREP)  [`$(GREP) --version $(NO_STDERR) | $(HEADN1) || $(GREP) -V $(NO_STDERR) | $(HEADN1)`]"
-	@echo "SED              : $(SED)  [`$(SED) --version $(NO_STDERR) | $(HEADN1) || $(SED) -V $(NO_STDERR) | $(HEADN1)`]"
-	@echo "TAR              : $(TAR)  [`$(TAR) --version $(NO_STDERR) | $(HEADN1) || $(TAR) -V $(NO_STDERR) | $(HEADN1)`]"
-	@echo "DATE             : $(DATE)  [`$(DATE) --version $(NO_STDERR) | $(HEADN1) || $(DATE) -V $(NO_STDERR) | $(HEADN1)`]"
-	@echo "PKGCONFIG        : $(PKGCONFIG)"
-	@echo "CC               : $(CC)  [`$(CC) --version $(NO_STDERR) | $(HEADN1)`]"
-	@echo "CXX              : $(CXX)  [`$(CXX) --version $(NO_STDERR) | $(HEADN1)`]"
-	@echo "OBJC             : $(OBJC)"
-	@echo "GCJ              : $(GCJ)  [`$(GCJ) --version $(NO_STDERR) | $(HEADN1)`]"
-	@echo "GCJH             : $(GCJH)"
-	@echo "CPP              : $(CPP)"
-	@echo "CCLD             : $(CCLD)"
-	@echo "YACC             : $(YACC)  [`$(YACC) --version $(NO_STDERR) | $(HEADN1) || $(YACC) -V $(NO_STDERR) | $(HEADN1)`]"
-	@echo "BISON3           : $(BISON3)  [`$(BISON3) --version $(NO_STDERR) | $(HEADN1) || $(BISON3) -V $(NO_STDERR) | $(HEADN1)`]"
-	@echo "LEX              : $(LEX)  [`$(LEX) --version $(NO_STDERR) | $(HEADN1) || $(LEX) -V $(NO_STDERR) | $(HEADN1)`]"
-	@echo "CFLAGS           : $(CFLAGS)"
-	@echo "CXXFLAGS         : $(CXXFLAGS)"
-	@echo "OBJCFLAGS        : $(OBJCFLAGS)"
-	@echo "JFLAGS           : $(JFLAGS)"
-	@echo "CPPFLAGS         : $(CPPFLAGS)"
-	@echo "LDFLAGS          : $(LDFLAGS)"
-	@echo "YFLAGS           : $(YFLAGS)"
-	@echo "YCXXFLAGS        : $(YCXXFLAGS)"
-	@echo "YJFLAGS          : $(YJFLAGS)"
-	@echo "LFLAGS           : $(LFLAGS)"
-	@echo "LCXXFLAGS        : $(LCXXFLAGS)"
-	@echo "LJFLAGS          : $(LJFLAGS)"
-	@echo "SRCDIR           : $(SRCDIR)"
-	@echo "DISTDIR          : $(DISTDIR)"
-	@echo "BUILDDIR         : $(BUILDDIR)"
-	@echo "PREFIX           : $(PREFIX)"
-	@echo "BIN              : $(BIN)"
-	@echo "LIB              : $(LIB)"
-	@echo "METASRC          : $(METASRC)"
-	@echo "GENINC           : $(GENINC)"
-	@echo "GENSRC           : $(GENSRC)"
-	@echo "GENJAVA          : $(GENJAVA)"
-	@echo "INCLUDES         : $(INCLUDES)"
-	@echo "SRC              : $(SRC)"
-	@echo "JAVASRC          : $(JAVASRC)"
-	@echo "OBJ              : $(OBJ)"
-	@echo "CLASSES          : $(CLASSES)"
+	@$(PRINTF) "%s\n" \
+	  "NAME             : $(NAME)" \
+	  "UNAME_SYS        : $(UNAME_SYS)  [`uname -a`]" \
+	  "MAKE             : $(MAKE)  [`$(MAKE) --version $(NO_STDERR) | $(HEADN1) || $(MAKE) -V $(NO_STDERR) | $(HEADN1)`]" \
+	  "SHELL            : $(SHELL)" \
+	  "FIND             : $(FIND)  [`$(FIND) --version $(NO_STDERR) | $(HEADN1) || $(FIND) -V $(NO_STDERR) | $(HEADN1)`]" \
+	  "AWK              : $(AWK)  [`$(AWK) --version $(NO_STDERR) | $(HEADN1) || $(AWK) -V $(NO_STDERR) | $(HEADN1)`]" \
+	  "GREP             : $(GREP)  [`$(GREP) --version $(NO_STDERR) | $(HEADN1) || $(GREP) -V $(NO_STDERR) | $(HEADN1)`]" \
+	  "SED              : $(SED)  [`$(SED) --version $(NO_STDERR) | $(HEADN1) || $(SED) -V $(NO_STDERR) | $(HEADN1)`]" \
+	  "TAR              : $(TAR)  [`$(TAR) --version $(NO_STDERR) | $(HEADN1) || $(TAR) -V $(NO_STDERR) | $(HEADN1)`]" \
+	  "DATE             : $(DATE)  [`$(DATE) --version $(NO_STDERR) | $(HEADN1) || $(DATE) -V $(NO_STDERR) | $(HEADN1)`]" \
+	  "PKGCONFIG        : $(PKGCONFIG)" \
+	  "CC               : $(CC)  [`$(CC) --version $(NO_STDERR) | $(HEADN1)`]" \
+	  "CXX              : $(CXX)  [`$(CXX) --version $(NO_STDERR) | $(HEADN1)`]" \
+	  "OBJC             : $(OBJC)" \
+	  "GCJ              : $(GCJ)  [`$(GCJ) --version $(NO_STDERR) | $(HEADN1)`]" \
+	  "GCJH             : $(GCJH)" \
+	  "CPP              : $(CPP)" \
+	  "CCLD             : $(CCLD)" \
+	  "YACC             : $(YACC)  [`$(YACC) --version $(NO_STDERR) | $(HEADN1) || $(YACC) -V $(NO_STDERR) | $(HEADN1)`]" \
+	  "BISON3           : $(BISON3)  [`$(BISON3) --version $(NO_STDERR) | $(HEADN1) || $(BISON3) -V $(NO_STDERR) | $(HEADN1)`]" \
+	  "LEX              : $(LEX)  [`$(LEX) --version $(NO_STDERR) | $(HEADN1) || $(LEX) -V $(NO_STDERR) | $(HEADN1)`]" \
+	  "CFLAGS           : $(CFLAGS)" \
+	  "CXXFLAGS         : $(CXXFLAGS)" \
+	  "OBJCFLAGS        : $(OBJCFLAGS)" \
+	  "JFLAGS           : $(JFLAGS)" \
+	  "CPPFLAGS         : $(CPPFLAGS)" \
+	  "LDFLAGS          : $(LDFLAGS)" \
+	  "YFLAGS           : $(YFLAGS)" \
+	  "YCXXFLAGS        : $(YCXXFLAGS)" \
+	  "YJFLAGS          : $(YJFLAGS)" \
+	  "LFLAGS           : $(LFLAGS)" \
+	  "LCXXFLAGS        : $(LCXXFLAGS)" \
+	  "LJFLAGS          : $(LJFLAGS)" \
+	  "SRCDIR           : $(SRCDIR)" \
+	  "DISTDIR          : $(DISTDIR)" \
+	  "BUILDDIR         : $(BUILDDIR)" \
+	  "PREFIX           : $(PREFIX)" \
+	  "BIN              : $(BIN)" \
+	  "LIB              : $(LIB)" \
+	  "METASRC          : $(METASRC)" \
+	  "GENINC           : $(GENINC)" \
+	  "GENSRC           : $(GENSRC)" \
+	  "GENJAVA          : $(GENJAVA)" \
+	  "INCLUDES         : $(INCLUDES)" \
+	  "SRC              : $(SRC)" \
+	  "JAVASRC          : $(JAVASRC)" \
+	  "OBJ              : $(OBJ)" \
+	  "CLASSES          : $(CLASSES)"
 rinfo: info
 	old="$$PWD"; for d in $(SUBDIRS); do cd "$$d" && $(MAKE) rinfo; cd "$$old"; done
 
