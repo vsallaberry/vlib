@@ -136,7 +136,8 @@ SORT		= sort
 MKDIR		= mkdir
 RMDIR		= rmdir
 TOUCH		= touch
-CP		= CP
+CAT		= cat
+CP		= cp
 MV		= mv
 TR		= tr
 GIT		= git
@@ -170,6 +171,11 @@ tmp_SHELL	!= $(cmd_SHELL)
 tmp_SHELL	?= $(shell $(cmd_SHELL))
 SHELL		:= $(tmp_SHELL)
 
+# EXPERIMENTAL: Common commands to handle the bsd make .OBJDIR feature which
+# puts all outputs ib ./obj if existing
+cmd_TESTBSDOBJ	= $(TEST) "$(.OBJDIR)" != "$(.CURDIR)"
+cmd_FINDBSDOBJ	= $(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true
+
 # Do not prefix with ., to not disturb dependencies and exclusion from include search.
 BUILDINC	= build.h
 BUILDINCJAVA	= Build.java
@@ -180,7 +186,7 @@ SYSDEPDIR	= sysdeps
 SRCINCNAME	= _src_.c
 SRCINCDIR	= $(BUILDDIR)
 
-cmd_SRCINC	= ! $(TEST) -e $(VERSIONINC) \
+cmd_SRCINC	= $(cmd_FINDBSDOBJ); ! $(TEST) -e $(VERSIONINC) \
 		  || $(GREP) -Eq '^[[:space:]]*\#[[:space:]]*define APP_INCLUDE_SOURCE([[:space:]]|$$)' \
 	                                $(VERSIONINC) $(NO_STDERR) && echo $(SRCINCDIR)/$(SRCINCNAME) | $(SED) -e 's|^\./||' || true
 tmp_SRCINC	!= $(cmd_SRCINC)
@@ -269,7 +275,8 @@ find_AND_SYSDEP	= -and \( \! -path '$(SRCDIR)/$(SYSDEPDIR)/*' \
 		          -or \( -path '$(SRCDIR)/$(SYSDEPDIR)/*$(SYSDEP_SUF_DEF).*' \
 		                 -and \! \( -exec $(SHELL) -c "echo \"{}\" \
 		                   | $(SED) -e 's|$(SYSDEP_SUF_DEF)\(\.[^.]*\)$$|$(SYSDEP_SUF)\1|' \
-		                   | xargs $(TEST) -e " \; \) \) \)
+		                   | xargs $(TEST) -e " \; \) \) \) -and \! -path '$(SRCDIR)/obj/*'
+# !! FIXME !! hardcoded .OBJDIR
 
 # Search Meta sources (used to generate sources)
 # For yacc/bison and lex/flex:
@@ -279,11 +286,14 @@ find_AND_SYSDEP	= -and \( \! -path '$(SRCDIR)/$(SYSDEPDIR)/*' \
 #   - .l,.ll included if LEX is found, .y,.yy included if YACC is found, .yyj included
 #     if BISON3 AND ((GCJ and BIN are defined) OR (JAR defined)).
 #   - yacc generates by default headers for lexer, therefore lexer files depends on parser files.
-cmd_YACCSRC	= $(TEST) -n "$(YACC)" && $(FIND) $(SRCDIR) \( -name '*.y' -or -name '*.yy' \) \
+cmd_YACCSRC	= $(cmd_FINDBSDOBJ); \
+		  $(TEST) -n "$(YACC)" && $(FIND) $(SRCDIR) \( -name '*.y' -or -name '*.yy' \) \
 		                            $(find_AND_SYSDEP) -print $(NO_STDERR) | $(SED) -e 's|^\./||' || true
-cmd_LEXSRC	= $(TEST) -n "$(LEX)" && $(FIND) $(SRCDIR) \( -name '*.l' -or -name '*.ll' \) \
+cmd_LEXSRC	= $(cmd_FINDBSDOBJ); \
+		  $(TEST) -n "$(LEX)" && $(FIND) $(SRCDIR) \( -name '*.l' -or -name '*.ll' \) \
 		                           $(find_AND_SYSDEP) -print $(NO_STDERR) | $(SED) -e 's|^\./||' || true
-cmd_YACCJAVA	= $(TEST) \( \( -n "$(BIN)" -a -n "$(GCJ)" \) -o -n "$(JAR)" \) -a  -n "$(BISON3)" \
+cmd_YACCJAVA	= $(cmd_FINDBSDOBJ); \
+		  $(TEST) \( \( -n "$(BIN)" -a -n "$(GCJ)" \) -o -n "$(JAR)" \) -a  -n "$(BISON3)" \
 		  && $(FIND) $(SRCDIR) -name '*.yyj' \
 		             $(find_AND_SYSDEP) -print $(NO_STDERR) | $(SED) -e 's|^\./||' || true
 # METASRC variable, filled from the 'find' command (cmd_{YACC,LEX,..}SRC) defined above.
@@ -318,7 +328,8 @@ GENOBJ		:= $(YACCOBJ) $(LEXOBJ)
 GENCLASSES	:= $(YACCCLASSES)
 
 # Create find ignore pattern for generated sources and for folders containing a makefile
-cmd_FIND_NOGEN	= echo $(GENSRC) $(GENINC) $(GENJAVA) \
+cmd_FIND_NOGEN	= $(cmd_FINDBSDOBJ); \
+		  echo $(GENSRC) $(GENINC) $(GENJAVA) \
 		       "$$($(FIND) $(SRCDIR) -mindepth 2 -name 'Makefile' \
 		           | $(SED) -e 's|\([^[:space:]]*\)/[^[:space:]]*|\1/*|g')" \
 		  | $(SED) -e 's|\([^[:space:]]*\)|-and \! -path "\1" -and \! -path "./\1"|g' || true
@@ -328,7 +339,8 @@ find_AND_NOGEN	:= $(tmp_FIND_NOGEN)
 
 # Search non-generated sources and headers. Extensions must be in low-case.
 # Include java only if a JAR is defined as output or if BIN and GCJ are defined.
-cmd_JAVASRC	= $(TEST) \( -n "$(BIN)" -a -n "$(GCJ)" \) -o -n "$(JAR)" \
+cmd_JAVASRC	= $(cmd_FINDBSDOBJ); \
+		  $(TEST) \( -n "$(BIN)" -a -n "$(GCJ)" \) -o -n "$(JAR)" \
 		  && $(FIND) $(SRCDIR) \( -name '*.java' \) \
 		       -and \! -path $(BUILDINCJAVA) -and \! -path ./$(BUILDINCJAVA) \
 		       $(find_AND_NOGEN) $(find_AND_SYSDEP) -print $(NO_STDERR) | $(SED) -e 's|^\./||' || true
@@ -348,10 +360,12 @@ tmp_FIND_NOGEN2	!= $(cmd_FIND_NOGEN2)
 tmp_FIND_NOGEN2	?= $(shell $(cmd_FIND_NOGEN2))
 find_AND_NOGEN2	:= $(tmp_FIND_NOGEN2)
 # Other non-generated sources and headers. Extension must be in low-case.
-cmd_SRC		= $(FIND) $(SRCDIR) \( -name '*.c' -or -name '*.cc' -or -name '*.cpp' -or -name '*.m' -or -name '*.mm' \) \
+cmd_SRC		= $(cmd_FINDBSDOBJ); \
+		  $(FIND) $(SRCDIR) \( -name '*.c' -or -name '*.cc' -or -name '*.cpp' -or -name '*.m' -or -name '*.mm' \) \
  		    $(find_AND_NOGEN) -and \! -path '$(SRCINC)' -and \! -path './$(SRCINC)' \
 		    $(find_AND_SYSDEP) -print $(NO_STDERR) | $(SED) -e 's|^\./||'
-cmd_INCLUDES	= $(FIND) $(INCDIRS) $(SRCDIR) \( -name '*.h' -or -name '*.hh' -or -name '*.hpp' \) \
+cmd_INCLUDES	= $(cmd_FINDBSDOBJ); \
+		  $(FIND) $(INCDIRS) $(SRCDIR) \( -name '*.h' -or -name '*.hh' -or -name '*.hpp' \) \
 		    $(find_AND_NOGEN) $(find_AND_NOGEN2) \
 		    -and \! -path $(VERSIONINC) -and \! -path ./$(VERSIONINC) \
 		    -and \! \( -path $(FLEXLEXER_LNK) -and -type l \) \
@@ -432,15 +446,17 @@ sys_DEBUG	= $(DEBUG_$(SYSDEP_SUF))
 
 ############################################################################################
 # Generic Build Flags, taking care of system specific flags (sys_*)
-cmd_CPPFLAGS	= echo "-I."; $(TEST) "$(SRCDIR)" != "." && echo "-I$(SRCDIR)"; \
-		  $(TEST) "$(SRCDIR)" != "$(BUILDDIR)" && echo "-I$(BUILDDIR)"; \
-		  for dir in $(INCDIRS); do $(TEST) "$$dir" != "$(SRCDIR)" -a "$$dir" != "." && echo "-I$$dir"; done; true
+cmd_CPPFLAGS	= srcpref=; srcdirs=; $(cmd_TESTBSDOBJ) && srcpref="$(.CURDIR)/" && srcdirs="$$srcpref $${srcpref}$(SRCDIR)"; \
+		  sep=; incpref=; incs=; for dir in . $(SRCDIR) $(BUILDDIR) $${srcdirs} : $(INCDIRS); do \
+                      test -z "$$sep" -a -n "$$incs" && sep=" " || true; \
+		      test "$$dir" = ":" && incpref=$$srcpref && continue || true; \
+		      case " $${incs} " in *" -I$${incpref}$${dir} "*) ;; *) incs="$${incs}$${sep}-I$${incpref}$${dir}";; esac; \
+		  done; echo "$$incs"
 tmp_CPPFLAGS	!= $(cmd_CPPFLAGS)
 tmp_CPPFLAGS	?= $(shell $(cmd_CPPFLAGS))
 tmp_CPPFLAGS	:= $(tmp_CPPFLAGS)
-
-FLAGS_COMMON	= $(OPTI) $(WARN) $(ARCH)
 CPPFLAGS	:= $(tmp_CPPFLAGS) $(sys_INCS) $(INCS) $(MACROS) -DHAVE_VERSION_H
+FLAGS_COMMON	= $(OPTI) $(WARN) $(ARCH)
 CFLAGS		= -MMD $(FLAGS_C) $(FLAGS_COMMON)
 CXXFLAGS	= -MMD $(FLAGS_CXX) $(FLAGS_COMMON)
 OBJCFLAGS	= -MMD $(FLAGS_OBJC) $(FLAGS_COMMON)
@@ -477,13 +493,14 @@ INCLUDEDEPS	:= .alldeps.d
 cmd_SINCLUDEDEPS= inc=1; if $(TEST) -e $(INCLUDEDEPS); then echo "$(INCLUDEDEPS)"; \
 		  else inc=; echo version.h; fi; \
 		  for f in $(DEPS:.d=); do \
+		      $(TEST) -d "`dirname $$f`" || $(MKDIR) -p "`dirname $$f`"; \
 		      if $(TEST) -z "$$inc" -o ! -e "$$f.d"; then \
 		           $(TEST) "$$f.o" = "$(JAVAOBJ)" && echo "" > $$f.d \
 			                                  || echo "$$f.o: $(OBJDEPS_version.h)" > $$f.d; \
 		           echo "include $$f.d" >> $(INCLUDEDEPS); \
 	      	      fi; \
 		  done; \
-		  ret=true; $(TEST) -x "$(GIT)" && for d in $(SUBDIRS); do \
+		  $(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; ret=true; $(TEST) -x "$(GIT)" && for d in $(SUBDIRS); do \
 		      if ! $(TEST) -e "$$d/Makefile" && $(GIT) submodule status "$$d" $(NO_STDERR) | $(GREP) -Eq "^-.*$$d"; then \
 		          $(GIT) submodule update --init "$$d" $(STDOUT_TO_ERR) || ret=false; \
 		      fi; \
@@ -511,12 +528,13 @@ TESTDIRS	= $(SUBDIRS:=-test)
 DEBUGDIRS	= $(SUBDIRS:=-debug)
 DOCDIRS		= $(SUBDIRS:=-doc)
 
-# RECURSEMAKEARGS, see doc for SUBMODROOTDIR above.
-# If the submodule is fetched alone, it will use its own submodules, if it is fetched as a
+# RECURSEMAKEARGS, see doc for SUBMODROOTDIR above. When SUBMODROOTDIR is not empty,
+# if the submodule is fetched alone, it will use its own submodules, if it is fetched as a
 # submodule, it will use the root submodule directory, redefined when recursing in SUBDIRS.
 RECURSEMAKEARGS	= $(TEST) -n "$(SUBMODROOTDIR)" && recargs="SUBMODROOTDIR=\"`echo $${recdir} \
 				| $(SED) -e 's/[^/][^/]*/../g'`/$(SUBMODROOTDIR)\"" || recargs=; \
-		  echo "cd $${recdir} && $(MAKE) $${rectarget} $${recargs}"
+		  echo "cd $${recdir} && $(MAKE) $${rectarget} $${recargs}"; \
+		  $(cmd_TESTBSDOBJ) && cd $(.CURDIR) || true
 
 ############################################################################################
 # .POSIX: for bsd-like dependency management
@@ -544,8 +562,10 @@ $(CLEANDIRS):
 
 # --- distclean : remove objects, binaries and remove DEBUG flag in build.h
 distclean: cleanme $(DISTCLEANDIRS)
-	$(RM) $(BIN) $(LIB) $(BUILDINC) $(BUILDINCJAVA) valgrind_*.log `$(FIND) . -name '.*.swp' -or -name '.*.swo' -or -name '*~' -or -name '\#*' $(NO_STDERR)`
+	$(RM) $(BIN) $(LIB) $(BUILDINC) $(BUILDINCJAVA) valgrind_*.log
 	$(RM) -R $(BIN).dSYM || true
+	$(RM) `$(FIND) . -name '.*.swp' -or -name '.*.swo' -or -name '*~' -or -name '\#*' $(NO_STDERR)`
+	@$(cmd_TESTBSDOBJ) && $(RM) $(.CURDIR)/$(BIN) $(.CURDIR)/$(LIB) $(.OBJDIR)/$(VERSIONINC) $(.OBJDIR)/$(README) $(.OBJDIR)/$(LICENSE) $(NO_STDERR) || true
 	@$(TEST) "$(BUILDDIR)" != "$(SRCDIR)" && $(RMDIR) `$(FIND) $(BUILDDIR) -type d | $(SORT) -r` $(NO_STDERR) || true
 	@$(PRINTF) "$(NAME): distclean done, debug disabled.\n"
 $(DISTCLEANDIRS):
@@ -556,7 +576,8 @@ debug: update-$(BUILDINC) $(DEBUGDIRS)
 	@{ $(GREP) -Ev '^[[:space:]]*\#[[:space:]]*define[[:space:]]+(BUILD_DEBUG|BUILD_TEST)([[:space:]]|$$)' $(BUILDINC) $(NO_STDERR); \
 		$(PRINTF) "#define BUILD_DEBUG\n#define BUILD_TEST\n"; } > $(BUILDINC).tmp && $(MV) $(BUILDINC).tmp $(BUILDINC)
 	@$(PRINTF) "$(NAME): debug enabled ('make distclean' to disable it).\n"
-	@$(TEST) -n "$(SUBMODROOTDIR)" && $(MAKE) SUBMODROOTDIR="$(SUBMODROOTDIR)" || $(MAKE)
+	@$(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; \
+	 $(TEST) -n "$(SUBMODROOTDIR)" && $(MAKE) SUBMODROOTDIR="$(SUBMODROOTDIR)" || $(MAKE)
 $(DEBUGDIRS):
 	@recdir=$(@:-debug=); rectarget=debug; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs} debug
 # Code to disable debug without deleting BUILDINC:
@@ -599,10 +620,12 @@ $(TESTDIRS):
 
 # --- build bin&lib ---
 $(BIN): $(OBJ) $(SUBLIBS) $(JCNIINC)
+	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$@" "$(.CURDIR)"; else $(TEST) -L $@ && $(RM) $@ || true; fi
 	$(CCLD) $(OBJ:.class=*.class) $(LDFLAGS) -o $@
 	@$(PRINTF) "$@: build done.\n"
 
 $(LIB): $(OBJ) $(SUBLIBS) $(JCNIINC)
+	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$@" "$(.CURDIR)"; else $(TEST) -L $@ && $(RM) $@ || true; fi
 	$(AR) $(ARFLAGS) $@ $(OBJ:.class=*.class)
 	$(RANLIB) $@
 	@$(PRINTF) "$@: build done.\n"
@@ -613,7 +636,7 @@ $(CLASSES): $(JAVAOBJ)
 $(JAVAOBJ): $(JAVASRC)
 	@# All classes generated/overriten at once. Generate them in tmp dir then check changed ones.
 	@$(MKDIR) -p $(TMPCLASSESDIR)
-	$(GCJ) $(JFLAGS) -d $(TMPCLASSESDIR) -C $(JAVASRC)
+	$(GCJ) $(JFLAGS) -d $(TMPCLASSESDIR) -C `echo " $(tmp_JAVASRC) " | sed -e 's|[[:space:]]\([^[:space:]]*\.java\)| $(.CURDIR)/\1|g'` $(GENJAVA) # FIXME !!!
 	@#$(GCJ) $(JFLAGS) -d $(BUILDDIR) -C $(JAVASRC)
 	@for f in `$(FIND) "$(TMPCLASSESDIR)" -type f`; do \
 	     dir=`dirname $$f | $(SED) -e 's|$(TMPCLASSESDIR)||'`; \
@@ -713,7 +736,8 @@ $(CLASSES): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC)
 
 #@#cd "$(DISTDIR)" && ($(ZIP) -q -r "$${distname}.zip" "$${distname}" || true)
 dist:
-	@version=`$(GREP) -E '^[[:space:]]*\#define APP_VERSION[[:space:]][[:space:]]*"' $(VERSIONINC) | $(SED) -e 's/^.*"\([^"]*\)".*/\1/'` \
+	@$(cmd_TESTBSDOBJ) && cd $(.CURDIR) || true; \
+	 version=`$(GREP) -E '^[[:space:]]*\#define APP_VERSION[[:space:]][[:space:]]*"' $(VERSIONINC) | $(SED) -e 's/^.*"\([^"]*\)".*/\1/'` \
 	 && distname="$(NAME)_$${version}_`$(DATE) '+%Y-%m-%d_%Hh%M'`" \
 	 && topdir=`pwd` \
 	 && $(MKDIR) -p "$(DISTDIR)/$${distname}" \
@@ -734,7 +758,8 @@ $(SRCINC): $(SRCINC_CONTENT)
 	@# Generate $(SRCINC) containing all sources.
 	@$(PRINTF) "$(NAME): generate $@\n"
 	@$(MKDIR) -p $(@D)
-	@$(PRINTF) "/* generated content */\n" > $(SRCINC) ; \
+	@$(cmd_TESTBSDOBJ) && input="$>" || input="$(SRCINC_CONTENT)"; \
+	 $(PRINTF) "/* generated content */\n" > $@ ; \
 		$(AWK) 'BEGIN { dbl_bkslash="\\"; gsub(/\\/, "\\\\\\", dbl_bkslash); o="awk on ubuntu 12.04"; \
 	                        if (dbl_bkslash=="\\\\") dbl_bkslash="\\\\\\"; else dbl_bkslash="\\\\"; \
 				print "#include <stdlib.h>\n#include \"$(VERSIONINC)\"\n#ifdef APP_INCLUDE_SOURCE\n" \
@@ -753,7 +778,7 @@ $(SRCINC): $(SRCINC_CONTENT)
 		           blk=blk "\n" $$0; \
 		   } END { \
 		       printblk(); print "NULL };\nconst char *const* $(NAME)_get_source() { return s_program_source; }\n#endif"; \
-		   }' $(SRCINC_CONTENT) >> $@ ; \
+		   }' $$input >> $@ ; \
 	     $(CC) -I. -c $@ -o $(@).tmp.o $(NO_STDERR) \
 	         || $(PRINTF) "%s\n" "#include <stdlib.h>" "#include \"$(VERSIONINC)\"" "#ifdef APP_INCLUDE_SOURCE" \
 	                             "static const char * const s_program_source[] = {" \
@@ -762,20 +787,23 @@ $(SRCINC): $(SRCINC_CONTENT)
 	     $(RM) -f $(@).*
 
 $(LICENSE):
-	@echo "$(NAME): create $(LICENSE)"
-	@$(PRINTF) "GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007 - http://gnu.org/licenses/gpl.html\n" > $(LICENSE)
+	@$(cmd_TESTBSDOBJ) && $(TEST) -e "$(.CURDIR)/$@" || echo "$(NAME): create $@"
+	@$(PRINTF) "GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007 - http://gnu.org/licenses/gpl.html\n" > $@
+	@if $(cmd_TESTBSDOBJ); then $(TEST) -e $(.CURDIR)/$@ || mv $@ $(.CURDIR); ln -sf $(.CURDIR)/$@ .; fi
 
 $(README):
-	@echo "$(NAME): create $@"
+	@$(cmd_TESTBSDOBJ) && $(TEST) -e "$(.CURDIR)/$@" || echo "$(NAME): create $@"
 	@$(PRINTF) "%s\n" "## $(NAME)" "---------------" "" "* [Overview](#overview)" "* [License](#license)" "" \
 	                  "## Overview" "TODO !" "" "## License" "GPLv3 or later. See LICENSE file." >> $@
+	@if $(cmd_TESTBSDOBJ); then $(TEST) -e $(.CURDIR)/$@ || mv $@ $(.CURDIR); ln -sf $(.CURDIR)/$@ .; fi
 
 $(VERSIONINC):
-	@echo "$(NAME): create $@"
+	@$(cmd_TESTBSDOBJ) && $(TEST) -e "$(.CURDIR)/$@" || echo "$(NAME): create $@"
 	@$(PRINTF) "%s\n" "#ifndef APP_VERSION_H" "#define APP_VERSION_H" "#define APP_VERSION \"0.1\"" \
 			  "#define APP_INCLUDE_SOURCE" "#define APP_BUILD_NUMBER 1" "#define DIST_GITREV \"unknown\"" \
 			  "#define DIST_GITREVFULL \"unknown\"" "#define DIST_GITREMOTE \"unknown\"" \
 			  "#include \"build.h\"" "#endif" >> $@
+	@if $(cmd_TESTBSDOBJ); then $(TEST) -e $(.CURDIR)/$@ || mv $@ $(.CURDIR); ln -sf $(.CURDIR)/$@ .; fi
 
 # As defined above, everything depends on $(BUILDINC), and we want they wait for update-$(BUILDINC)
 # create-$(BUILDINC) and update-$(BUILDINC) have .EXEC so that some bsd-make don' taint to outdated
@@ -804,7 +832,7 @@ update-$(BUILDINC): create-build.h .EXEC
 	     done; if $(TEST) -n "$$gitstatus"; then gitrev="$${gitrev}-dirty"; fullgitrev="$${fullgitrev}-dirty"; fi; \
 	     gitremote="\"`$(GIT) remote get-url origin`\""; \
 	     gitrev="\"$${gitrev}\""; fullgitrev="\"$${fullgitrev}\""; \
-	     else gitrev="DIST_GITREV"; fullgitrev="DIST_GITREVFULL"; gitremote="DIST_GITREMOTE"; fi; \
+	 else gitrev="DIST_GITREV"; fullgitrev="DIST_GITREVFULL"; gitremote="DIST_GITREMOTE"; fi; \
  	 case " $(OBJ) " in *" $(JAVAOBJ) "*) javaobj=1;; *) javaobj=0;; esac; \
 	 $(TEST) -n "$(JAR)" && jar=1 || jar=0; \
 	 $(TEST) -n "$(BIN)" && bin=1 || bin=0; \
@@ -856,26 +884,31 @@ update-$(BUILDINC): create-build.h .EXEC
 	 fi
 
 .gitignore:
-	@{ cat .gitignore $(NO_STDERR); \
-	   for f in $(BIN) $(BIN).dSYM $(LIB) $(JAR) $(GENSRC) $(GENJAVA) $(GENINC) $(SRCINC) \
-	            $(BUILDINC) $(BUILDINCJAVA) $(CLANGCOMPLETE) \
-	            `$(TEST) -L $(FLEXLEXER_LNK) && echo $(FLEXLEXER_LNK) || true` \
-	            '*.o' '*.d' '*.class' '*.a' '*~' '.*.swo' '.*.swp' 'valgrind_*.log'; do \
-	       $(PRINTF) "$$f\n" | $(SED) -e 's|^./||'; done; \
+	@$(cmd_TESTBSDOBJ) && cd $(.CURDIR) && build=`echo $(.OBJDIR) | $(SED) -e 's|^$(.CURDIR)||'` || build=; \
+	 { cat .gitignore $(NO_STDERR); \
+	   for f in /$(LIB) /$(JAR) /$(GENSRC) /$(GENJAVA) /$(GENINC) /$(SRCINC) \
+	            /$(BUILDINC) /$(BUILDINCJAVA) /$(CLANGCOMPLETE) /obj/ $$build/ \
+	            `$(TEST) -n "$(BIN)" && echo "/$(BIN)" "/$(BIN).dSYM" "/$(BIN).core" /core "/core.[0-9]*[0-9]"` \
+	            `$(TEST) -L $(FLEXLEXER_LNK) && echo "/$(FLEXLEXER_LNK)" | $(SED) -e 's|^/./|/|' || true` \
+	            '*.o' '*.d' '*.class' '*~' '.*.swo' '.*.swp' '/valgrind_*.log'; do \
+	       $(TEST) -n "$$f" -a "$$f" != "/" && $(PRINTF) "$$f\n" | $(SED) -e 's|^\./||' || true; done; \
 	 } | $(SORT) | $(UNIQ) > .gitignore
 
 gentags: $(CLANGCOMPLETE)
-$(CLANGCOMPLETE): $(ALLMAKEFILES) $(BUILDINC)
-	@echo "$(NAME): update $(CLANGCOMPLETE)"
-	@src=`echo $(SRCDIR) | $(SED) -e 's|\.|\\\.|g'`; $(TEST) -e $(CLANGCOMPLETE) \
-		&& $(SED) -e "s%^[^#]*-I$$src[[:space:]].*%$(CPPFLAGS) %" -e "s%^[^#]*-I$$src$$%$(CPPFLAGS)%" \
-	             "$(CLANGCOMPLETE)" $(NO_STDERR)  > "$(CLANGCOMPLETE).tmp" \
-	        && mv "$(CLANGCOMPLETE).tmp" "$(CLANGCOMPLETE)" \
-	    || echo "$(CPPFLAGS)" > $(CLANGCOMPLETE)
+$(CLANGCOMPLETE): $(ALLMAKEFILES) $(BUILDINC) # !FIXME to be cleaned
+	@echo "$(NAME): update $@"
+	@moresed=; if $(cmd_TESTBSDOBJ); then $(TEST) -L $@ || ln -sf $(.CURDIR)/$@ .; \
+	     $(TEST) -e "$(.CURDIR)/$@" || echo "$(CPPFLAGS)" > $@; moresed="-e \"s|-I$(.CURDIR)|-I$(.CURDIR) -I$(.OBJDIR)|g\""; fi
+	@src=`echo $(SRCDIR) | $(SED) -e 's|\.|\\\.|g'`; \
+	 $(TEST) -e $(@) -a \! -L $@ \
+	        && $(SED) -e "s%^[^#]*-I$$src[[:space:]].*%$(CPPFLAGS) %" -e "s%^[^#]*-I$$src$$%$(CPPFLAGS)%" $${moresed} \
+	             "$(@)" $(NO_STDERR-) > "$(@).tmp" \
+	        && $(CAT) "$(@).tmp" > "$@" && $(RM) "$(@).tmp" \
+	    || echo "$(CPPFLAGS)" | $(SED) -e "s|-I$(.CURDIR)|-I$(.CURDIR) -I$(.OBJDIR)|g" > $(@)
 
 # to spread 'generic' makefile part to sub-directories
 merge-makefile:
-	@for makefile in `$(FIND) $(SUBDIRS) -name Makefile | $(SORT) | $(UNIQ)`; do \
+	@$(cmd_TESTBSDOBJ) && cd $(.CURDIR) || true; for makefile in `$(FIND) $(SUBDIRS) -name Makefile | $(SORT) | $(UNIQ)`; do \
 	     $(GREP) -E -i -B10000 '^[[:space:]]*#[[:space:]]*generic[[:space:]]part' "$${makefile}" > "$${makefile}.tmp" \
 	     && $(GREP) -E -i -A10000 '^[[:space:]]*#[[:space:]]*generic[[:space:]]part' Makefile | tail -n +2 >> "$${makefile}.tmp" \
 	     && mv "$${makefile}.tmp" "$${makefile}" && echo "merged $${makefile}" || echo "! cannot merge $${makefile}" && $(RM) -f "$${makefile}.tmp"; \
@@ -888,8 +921,9 @@ merge-makefile:
 
 #to generate makefile displaying shell command beeing run
 debug-makefile:
-	@sed -e 's/^\(cmd_[[:space:]0-9a-zA-Z_]*\)=/\1= ls $(NAME)\/\1 || time /' Makefile > Makefile.debug
-	@$(MAKE) -f Makefile.debug
+	@$(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; \
+	 sed -e 's/^\(cmd_[[:space:]0-9a-zA-Z_]*\)=/\1= ls $(NAME)\/\1 || time /' Makefile > Makefile.debug \
+	 && $(MAKE) -f Makefile.debug
 
 # Run Valgrind filter output
 valgrind: all
