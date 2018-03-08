@@ -177,6 +177,9 @@ SHELL		:= $(tmp_SHELL)
 cmd_TESTBSDOBJ	= $(TEST) "$(.OBJDIR)" != "$(.CURDIR)"
 cmd_FINDBSDOBJ	= $(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true
 RELOBJDIR	= $(.OBJDIR:S/$(.CURDIR)\///)
+OLDSUBLIBS	:= $(SUBLIBS)
+SUBLIBS		:= $(SUBLIBS:S/^/$(.CURDIR)\//)
+SUBLIBS$(.OBJDIR):= $(OLDSUBLIBS)
 
 # Do not prefix with ., to not disturb dependencies and exclusion from include search.
 BUILDINC	= build.h
@@ -623,12 +626,12 @@ $(TESTDIRS):
 
 # --- build bin&lib ---
 $(BIN): $(OBJ) $(SUBLIBS) $(JCNIINC)
-	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$@" "$(.CURDIR)"; else $(TEST) -L $@ && $(RM) $@ || true; fi
+	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$*" "$(.CURDIR)"; else $(TEST) -L $@ && $(RM) $@ || true; fi
 	$(CCLD) $(OBJ:.class=*.class) $(LDFLAGS) -o $@
 	@$(PRINTF) "$@: build done.\n"
 
 $(LIB): $(OBJ) $(SUBLIBS) $(JCNIINC)
-	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$@" "$(.CURDIR)"; else $(TEST) -L $@ && $(RM) $@ || true; fi
+	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$*" "$(.CURDIR)"; else $(TEST) -L $@ && $(RM) $@ || true; fi
 	$(AR) $(ARFLAGS) $@ $(OBJ:.class=*.class)
 	$(RANLIB) $@
 	@$(PRINTF) "$@: build done.\n"
@@ -876,6 +879,7 @@ $(BUILDINC): update-$(BUILDINC)
 	@true
 create-$(BUILDINC): $(VERSIONINC) $(ALLMAKEFILES) .EXEC
 	@if ! $(TEST) -e $(BUILDINC); then \
+	     $(cmd_TESTBSDOBJ) && ! $(TEST) -e "$(VERSIONINC)" && ln -sf "$(.CURDIR)/$(VERSIONINC)" .; \
 	     echo "$(NAME): create $(BUILDINC)"; \
 	     build=`$(SED) -n -e 's/^[[:space:]]*#define[[:space:]]APP_BUILD_NUMBER[[:space:]][[:space:]]*\([0-9][0-9]*\).*/\1/p' $(VERSIONINC)`; \
 	     $(PRINTF) "%s\n" "#define BUILD_APPNAME \"\"" "#define BUILD_NUMBER $$build" "#define BUILD_PREFIX \"\"" \
@@ -960,11 +964,12 @@ update-$(BUILDINC): create-build.h .EXEC
 	 } | $(SORT) | $(UNIQ) > .gitignore
 
 gentags: $(CLANGCOMPLETE)
-$(CLANGCOMPLETE): $(ALLMAKEFILES) $(BUILDINC) # !FIXME to be cleaned
+# CLANGCOMPLETE rule: !FIXME to be cleaned
+$(CLANGCOMPLETE): $(ALLMAKEFILES) $(BUILDINC)
 	@echo "$(NAME): update $@"
-	@moresed=; if $(cmd_TESTBSDOBJ); then $(TEST) -L $@ || ln -sf $(.CURDIR)/$@ .; \
-	     $(TEST) -e "$(.CURDIR)/$@" || echo "$(CPPFLAGS)" > $@; moresed="-e \"s|-I$(.CURDIR)|-I$(.CURDIR) -I$(.OBJDIR)|g\""; fi
-	@src=`echo $(SRCDIR) | $(SED) -e 's|\.|\\\.|g'`; \
+	@moresed=; if $(cmd_TESTBSDOBJ); then $(TEST) -L $(.OBJDIR)/$* || ln -sf $(.CURDIR)/$* $(.OBJDIR); \
+	     $(TEST) -e "$(.CURDIR)/$@" || echo "$(CPPFLAGS)" > $@; moresed="-e \"s|-I$(.CURDIR)|-I$(.CURDIR) -I$(.OBJDIR)|g\""; \
+	 fi; src=`echo $(SRCDIR) | $(SED) -e 's|\.|\\\.|g'`; \
 	 $(TEST) -e $(@) -a \! -L $@ \
 	        && $(SED) -e "s%^[^#]*-I$$src[[:space:]].*%$(CPPFLAGS) %" -e "s%^[^#]*-I$$src$$%$(CPPFLAGS)%" $${moresed} \
 	             "$(@)" $(NO_STDERR) > "$(@).tmp" \
