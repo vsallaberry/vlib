@@ -295,14 +295,14 @@ int opt_parse_options(const opt_config_t * opt_config) {
                 }
                 /* Check presence of mandatory option argument */
                 if (desc[i_opt].arg != NULL && *desc[i_opt].arg != '[' && opt_arg == NULL) {
-                    fprintf(stderr, "error missing argument '%s' for option '-%c%s'\n",
+                    fprintf(stderr, "error: missing argument '%s' for option '-%c%s'\n",
                             desc[i_opt].arg, long_opt_val ? '-' : *popt,
                                              long_opt_val ? desc[i_opt].long_opt : "");
                     return opt_usage(OPT_ERROR(4), opt_config);
                 }
                 /* Check presence of unexpected option argument */
                 if (opt_arg != NULL && desc[i_opt].arg == NULL) {
-                    fprintf(stderr, "error unexpected argument '%s' for option '-%c%s'\n",
+                    fprintf(stderr, "error: unexpected argument '%s' for option '-%c%s'\n",
                             opt_arg, long_opt_val ? '-' : *popt,
                                      long_opt_val ? desc[i_opt].long_opt : "");
                     return opt_usage(OPT_ERROR(5), opt_config);
