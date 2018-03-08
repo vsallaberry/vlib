@@ -37,6 +37,8 @@
 # include <limits.h>
 #endif
 
+#include "log.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -70,7 +70,7 @@ typedef enum {
     LOG_FLAG_DEFAULT    = LOG_FLAG_DATETIME | LOG_FLAG_MODULE | LOG_FLAG_LEVEL
                         | LOG_FLAG_LOC_ERR | LOG_FLAG_LOC_TAIL
                         | LOG_FLAG_FILE | LOG_FLAG_FUNC | LOG_FLAG_LINE
-                        | LOG_FLAG_CLOSEFILE,
+                        | LOG_FLAG_CLOSEFILE
 } log_flag_t;
 
 /** log context */
