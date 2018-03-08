@@ -5,6 +5,7 @@
 * [Overview](#overview)
 * [System Requirments](#systemrequirments)
 * [Compilation](#compilation)
+* [Integration](#integration)
 * [Contact](#contact)
 * [License](#license)
 
@@ -43,12 +44,30 @@ bsd make can stop. Just type again '$ make' and it will be fine.
 When you link **vlib** with a program, you need pthread (-lpthread), 
 and on linux, rt, dl (-lrt -ldl).
 
+## Integration
+This part describes the way to integrate and use **vlib** in another project.
+Simplest way is to add **vlib** as a git submodule of your project:  
+$ git submodule add -b master https://github.com/vsallaberry/vlib ext/vlib  
+
+where ext/vlib is the path where vlib will be fetched. It is a good idea to group
+submodules in a common folder, here, 'ext'.
+
+Then you will reference **vlib** in the main Makefile (can be a copy of **vlib** Makefile),
+so as make can be run on **vlib** (SUBDIRS), BIN dependencies and linking are right (SUBLIBS),
+and include dirs for 'gcc -I' are reconized(INCDIRS):  
+    LIBVLIBDIR      = ext/vlib
+    SUBDIRS         = $(LIBVLIBDIR)
+    SUBLIBS         = $(LIBVLIBDIR)/libvlib.a
+    INCDIRS         = $(LIBVLIBDIR)/include
+
+WORK-IN-PROGRESS...
+
 ## Contact
 [vsallaberry@gmail.com]  
 <https://github.com/vsallaberry/vlib>
 
 ## License
 GPLv3 or later. See LICENSE file.
-
-CopyRight: Copyright (C) 2017-2018 Vincent Sallaberry
+Copyright: Copyright (C) 2017-2018 Vincent Sallaberry
+**vlib** was first created and first published in 2017 by Vincent Sallaberry.
 
