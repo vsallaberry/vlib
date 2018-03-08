@@ -178,7 +178,8 @@ cmd_TESTBSDOBJ	= $(TEST) "$(.OBJDIR)" != "$(.CURDIR)"
 cmd_FINDBSDOBJ	= $(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true
 RELOBJDIR	= $(.OBJDIR:S/$(.CURDIR)\///)
 OLDSUBLIBS	:= $(SUBLIBS)
-SUBLIBS		:= $(SUBLIBS:S/^/$(.CURDIR)\//)
+SUBLIBS         := $(SUBLIBS:S/^/$(.CURDIR)\//)
+SUBLIBS         := $(SUBLIBS:S/$(.CURDIR)\/$//)
 SUBLIBS$(.OBJDIR):= $(OLDSUBLIBS)
 
 # Do not prefix with ., to not disturb dependencies and exclusion from include search.
@@ -626,12 +627,12 @@ $(TESTDIRS):
 
 # --- build bin&lib ---
 $(BIN): $(OBJ) $(SUBLIBS) $(JCNIINC)
-	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$*" "$(.CURDIR)"; else $(TEST) -L $@ && $(RM) $@ || true; fi
+	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/`basename $@`" "$(.CURDIR)"; else $(TEST) -L $@ && $(RM) $@ || true; fi
 	$(CCLD) $(OBJ:.class=*.class) $(LDFLAGS) -o $@
 	@$(PRINTF) "$@: build done.\n"
 
 $(LIB): $(OBJ) $(SUBLIBS) $(JCNIINC)
-	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$*" "$(.CURDIR)"; else $(TEST) -L $@ && $(RM) $@ || true; fi
+	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/`basename $@`" "$(.CURDIR)"; else $(TEST) -L $@ && $(RM) $@ || true; fi
 	$(AR) $(ARFLAGS) $@ $(OBJ:.class=*.class)
 	$(RANLIB) $@
 	@$(PRINTF) "$@: build done.\n"
@@ -967,14 +968,14 @@ gentags: $(CLANGCOMPLETE)
 # CLANGCOMPLETE rule: !FIXME to be cleaned
 $(CLANGCOMPLETE): $(ALLMAKEFILES) $(BUILDINC)
 	@echo "$(NAME): update $@"
-	@moresed=; if $(cmd_TESTBSDOBJ); then $(TEST) -L $(.OBJDIR)/$* || ln -sf $(.CURDIR)/$* $(.OBJDIR); \
-	     $(TEST) -e "$(.CURDIR)/$@" || echo "$(CPPFLAGS)" > $@; moresed="-e \"s|-I$(.CURDIR)|-I$(.CURDIR) -I$(.OBJDIR)|g\""; \
+	@moresed="s///"; if $(cmd_TESTBSDOBJ); then base=`basename $@`; $(TEST) -L $(.OBJDIR)/$$base || ln -sf $(.CURDIR)/$$base $(.OBJDIR); \
+	     $(TEST) -e "$(.CURDIR)/$$base" || echo "$(CPPFLAGS)" > $@; moresed="s|-I$(.CURDIR)|-I$(.CURDIR) -I$(.OBJDIR)|g"; \
 	 fi; src=`echo $(SRCDIR) | $(SED) -e 's|\.|\\\.|g'`; \
-	 $(TEST) -e $(@) -a \! -L $@ \
-	        && $(SED) -e "s%^[^#]*-I$$src[[:space:]].*%$(CPPFLAGS) %" -e "s%^[^#]*-I$$src$$%$(CPPFLAGS)%" $${moresed} \
-	             "$(@)" $(NO_STDERR) > "$(@).tmp" \
-	        && $(CAT) "$(@).tmp" > "$@" && $(RM) "$(@).tmp" \
-	    || echo "$(CPPFLAGS)" | $(SED) -e "s|-I$(.CURDIR)|-I$(.CURDIR) -I$(.OBJDIR)|g" > $(@)
+	 $(TEST) -e $@ -a \! -L $@ \
+	        && $(SED) -e "s%^[^#]*-I$$src[[:space:]].*%$(CPPFLAGS) %" -e "s%^[^#]*-I$$src$$%$(CPPFLAGS)%" -e "$${moresed}" \
+	             "$@" $(NO_STDERR) > "$@.tmp" \
+	        && $(CAT) "$@.tmp" > "$@" && $(RM) "$@.tmp" \
+	    || echo "$(CPPFLAGS)" | $(SED) -e "s|-I$(.CURDIR)|-I$(.CURDIR) -I$(.OBJDIR)|g" > $@
 
 # to spread 'generic' makefile part to sub-directories
 merge-makefile:
