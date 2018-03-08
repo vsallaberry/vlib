@@ -34,7 +34,7 @@ extern "C" {
 #define OPT_ID_USER_MAX         (OPT_OPTION_FLAG_MIN-1) /* last available USER id  */
 
 /**
- * Option description, User will create a 0,NULL,NULL,NULL terminated array.
+ * Option description, User will create a { 0,NULL,NULL,NULL } terminated array.
  * For a long option without corresponding char option, use for short_opt
  * a non printable character (man isgraph) except 0, in the
  * range OPT_ID_USER..OPT_ID_USER_MAX.
@@ -56,7 +56,8 @@ typedef struct opt_config_s opt_config_t;
  * @param opt * the option (short_opt) to be treated
  *            * or OPT_ID_ARG if it is a simple program argument
  *            * or (opt|OPT_DESCRIBE_OPTION) to give dynamic information
- *              about usage of this option (used for --help - opt_usage)
+ *              about usage of this option (used for --help - opt_usage())
+ *              In this case, arg is the buffer and i_argv the in/out buffer size.
  *
  * @param arg NULL or the option argument or simple program argument (opt=OPT_ID_ARG).
  *            the way arg is given depends on the 'arg' value in opt_options_desc_t.

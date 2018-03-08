@@ -132,10 +132,11 @@ int opt_usage(int exit_status, const opt_config_t * opt_config) {
         fprintf(stderr, "%s/%s(): opt_config or opt_desc or argv is NULL!\n", __FILE__, __func__);
         return OPT_ERROR(64);
     }
+    fflush(NULL);
     /* if this is an error: use stderr and put a blank between error message and usage */
     if (OPT_IS_ERROR(exit_status) != 0) {
-        fprintf(out, "\n");
         out = stderr;
+        fprintf(out, "\n");
     }
     /* get max columns usable for display */
     max_columns = get_max_columns(out, opt_config);
