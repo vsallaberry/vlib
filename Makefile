@@ -620,9 +620,9 @@ $(INSTALLDIRS):
 	@recdir=$(@:-install=); rectarget=install; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs} install
 
 # --- test ---
-test: $(TESTDIRS) all
+test: all $(TESTDIRS)
 	$(TEST_RUN_PROGRAM)
-$(TESTDIRS):
+$(TESTDIRS): all
 	@recdir=$(@:-test=); rectarget=test; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs} test
 
 # --- build bin&lib ---
