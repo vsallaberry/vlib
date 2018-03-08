@@ -38,6 +38,7 @@ extern "C" {
  * For a long option without corresponding char option, use for short_opt
  * a non printable character (man isgraph) except 0, in the
  * range OPT_ID_USER..OPT_ID_USER_MAX.
+ * For 'arg' : NULL if no argument, '[name]' if optional, 'name' if mandatory.
  */
 typedef struct {
     int             short_opt;
@@ -58,9 +59,13 @@ typedef struct opt_config_s opt_config_t;
  *              about usage of this option (used for --help - opt_usage)
  *
  * @param arg NULL or the option argument or simple program argument (opt=OPT_ID_ARG).
+ *            the way arg is given depends on the 'arg' value in opt_options_desc_t.
  *
- * @param i_argv the current argv index for 'opt'.
- *               this handler has reponsibility to shift i_argv if it uses arguments.
+ * @param i_argv the current argv index.
+ *               if the callback uses a non-given argument (arg==NULL) or does not
+ *               use the given argument(arg!=NULL), it has the reponsibility to
+ *               update i_argv accordinally, otherwise update of i_argv is automatic.
+ *               setting i_argv to argc will stop option parsing, without error.
  *
  * @param opt_config the option config data including argc,argc,user_data, ...
  *

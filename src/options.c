@@ -273,18 +273,41 @@ int opt_parse_options(const opt_config_t * opt_config) {
             /* Proceed each short option, or the long option once. */
             for (const char * popt = short_opts; *popt; popt++, opt_arg=NULL) {
                 /* Check if short option is reconized */
-                if (!long_opt_val && get_registered_short_opt(*popt, opt_config) < 0) {
+                if (!long_opt_val && (i_opt = get_registered_short_opt(*popt, opt_config)) < 0) {
                     fprintf(stderr, "error: unknown option '-%c'\n", *popt);
                     return opt_usage(OPT_ERROR(2), opt_config);
                 }
-
-                /* Pass the argument if any and if no option follows in the same word.
-                 * The handler will have responsibility to shift i_argv accordinally. */
-                if (opt_config->callback) {
-                    if (opt_arg == NULL) {
-                        opt_arg = i_argv + 1 < opt_config->argc && !popt[1]
-                                  ? argv[i_argv + 1] : NULL;
+                /* Detect option argument */
+                if (opt_arg == NULL) {
+                    if (
+                        /* not the last param. of argv, AND on last option of current param. */
+                        (i_argv + 1 < opt_config->argc && !popt[1])
+                        /* ignore if option parameter is optional and the next param is an option */
+                    &&  (desc[i_opt].arg != NULL && (*argv[i_argv+1] != '-'
+                                                     || *desc[i_opt].arg != '['))
+                    ) {
+                        opt_arg = argv[++i_argv];
+                        /* allow optional argument starting with '-' if prefixed with '\' */
+                        if (desc[i_opt].arg != NULL && *opt_arg == '\\' && opt_arg[1] == '-')
+                            opt_arg++;
                     }
+                }
+                /* Check presence of mandatory option argument */
+                if (desc[i_opt].arg != NULL && *desc[i_opt].arg != '[' && opt_arg == NULL) {
+                    fprintf(stderr, "error missing argument '%s' for option '-%c%s'\n",
+                            desc[i_opt].arg, long_opt_val ? '-' : *popt,
+                                             long_opt_val ? desc[i_opt].long_opt : "");
+                    return opt_usage(OPT_ERROR(4), opt_config);
+                }
+                /* Check presence of unexpected option argument */
+                if (opt_arg != NULL && desc[i_opt].arg == NULL) {
+                    fprintf(stderr, "error unexpected argument '%s' for option '-%c%s'\n",
+                            opt_arg, long_opt_val ? '-' : *popt,
+                                     long_opt_val ? desc[i_opt].long_opt : "");
+                    return opt_usage(OPT_ERROR(5), opt_config);
+                }
+                /* Call the callback if any */
+                if (opt_config->callback) {
                     result = opt_config->callback(long_opt_val ? long_opt_val : *popt,
                                                   opt_arg, &i_argv, opt_config);
                     if (OPT_IS_ERROR(result)) {
