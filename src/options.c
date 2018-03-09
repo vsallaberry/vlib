@@ -209,16 +209,17 @@ int opt_usage(int exit_status, const opt_config_t * opt_config) {
             }
             /* insert EOL if it does not fit in max_columns */
             if (*token != '\n' && len + n_printed > max_columns) {
+                fputc('\n', out);
                 n_printed = 0;
                 eol_shift = 2;
-                fputc('\n', out);
             }
             /* Align description if needed */
-            while (n_printed++ < OPT_USAGE_OPT_PAD + eol_shift) {
+            while (n_printed < OPT_USAGE_OPT_PAD + eol_shift) {
 	            fputc(' ', out);
+                n_printed++;
 	        }
-            if (!eol_shift)
-                fputs(": ", out);
+            if (!eol_shift && fputs(": ", out) != EOF)
+                n_printed += 2;
             eol_shift = 2;
             /* print description */
             n_printed += fwrite(token, 1, len, out);
