@@ -85,6 +85,7 @@ static int get_registered_long_opt(const char * long_opt, const char ** popt_arg
     return -1;
 }
 
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 static unsigned int get_max_columns(FILE * out, const opt_config_t * opt_config) {
     unsigned int max_columns = 80;
@@ -92,7 +93,7 @@ static unsigned int get_max_columns(FILE * out, const opt_config_t * opt_config)
 #if BUILD_CURSES
     if (isatty(fileno(out))) {
         int ret;
-        void * lib;
+        void * lib = NULL;
         int (*setup)(char*, int, int*);
         int (*getnum)(char*);
         char * libs[] = { "libncurses.so", "libcurses.so", "libncurses.dylib", "libcurses.dylib",
@@ -120,7 +121,7 @@ static unsigned int get_max_columns(FILE * out, const opt_config_t * opt_config)
 #endif
     return max_columns;
 }
-#pragma GCC diagnostic warning "-Wpedantic"
+#pragma GCC diagnostic pop
 
 int opt_usage(int exit_status, const opt_config_t * opt_config) {
     FILE *          out         = stdout;
