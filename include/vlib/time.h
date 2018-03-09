@@ -58,8 +58,8 @@ extern "C" {
 # define CLOCK_REALTIME         -132
 #endif
 
-/* timespecsub: similar to timersub but for 'struct timespec' */
-#define timespecsub(tsop1, tsop2, tsres) \
+/* vtimespecsub: similar to timersub but for 'struct timespec' */
+#define vtimespecsub(tsop1, tsop2, tsres) \
             do { \
                 (tsres)->tv_sec = (tsop1)->tv_sec - (tsop2)->tv_sec; \
                 (tsres)->tv_nsec = (tsop1)->tv_nsec - (tsop2)->tv_nsec; \
@@ -68,8 +68,8 @@ extern "C" {
                     (tsres)->tv_nsec += 1000000000; \
                 } \
             } while (0)
-/* timespeccmp: compare timespec, return 0 if =, <0 if op1<op2, >0 if op1>op2 */
-#define timespeccmp(tsop1, tsop2) \
+/* vtimespeccmp: compare timespec, return 0 if =, <0 if op1<op2, >0 if op1>op2 */
+#define vtimespeccmp(tsop1, tsop2) \
             ((tsop1)->tv_sec == (tsop2)->tv_sec ? (tsop1)->tv_nsec - (tsop2)->tv_nsec \
                                                 : (tsop1)->tv_sec - (tsop2)->tvsec)
 /*
@@ -165,7 +165,7 @@ int vclock_gettime(int id, struct timespec * ts);
 #define BENCH_TM_STOP(name) \
             do { \
                 vclock_gettime(CLOCK_MONOTONIC_RAW, &((name).t1)); \
-                timespecsub(&((name).t1), &((name).t0), &((name).t1)); \
+                vtimespecsub(&((name).t1), &((name).t0), &((name).t1)); \
             } while(0)
 
 /** Get Bench Time */
