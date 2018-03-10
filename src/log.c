@@ -38,7 +38,7 @@ log_t * g_vlib_log = NULL;
 
 /** global vlib log state structure */
 #define LOG_DATETIME_SZ 18
-struct {
+static struct {
     pthread_mutex_t mutex;
     time_t          last_timet;
     char            datetime[LOG_DATETIME_SZ];
