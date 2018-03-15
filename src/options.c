@@ -269,7 +269,10 @@ int opt_parse_options(const opt_config_t * opt_config) {
                     return opt_usage(OPT_ERROR(5), opt_config);
                 }
                 /* Long option is found, the matching short_opt is in opt_val. */
-	            long_opt_val = desc[i_opt].short_opt;
+                if ((long_opt_val = desc[i_opt].short_opt) == 0) {
+                    fprintf(stderr, "error: bad 'short_opt' value for option '%s'\n", argv[i_argv]);
+                    return opt_usage(OPT_ERROR(6), opt_config);
+                }
                 short_opts = short_fake;
             }
 
