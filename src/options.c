@@ -58,7 +58,8 @@ static int get_registered_short_opt(int c, const opt_config_t * opt_config) {
     if (!is_valid_short_opt(c)) {
         return -1;
     }
-    for (int i_opt = 0; opt_config->opt_desc[i_opt].short_opt; i_opt++) {
+    for (int i_opt = 0; opt_config->opt_desc[i_opt].short_opt
+                        || opt_config->opt_desc[i_opt].desc; i_opt++) {
         if (opt_config->opt_desc[i_opt].short_opt == c) {
             return i_opt;
         }
@@ -68,7 +69,8 @@ static int get_registered_short_opt(int c, const opt_config_t * opt_config) {
 
 static int get_registered_long_opt(const char * long_opt, const char ** popt_arg,
                                    const opt_config_t * opt_config) {
-    for (int i_opt = 0; opt_config->opt_desc[i_opt].short_opt; i_opt++) {
+    for (int i_opt = 0; opt_config->opt_desc[i_opt].short_opt
+                        || opt_config->opt_desc[i_opt].desc; i_opt++) {
         const char * cur_longopt = opt_config->opt_desc[i_opt].long_opt;
         size_t len;
 
@@ -152,7 +154,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config) {
     fprintf(out, "Usage: %s [<options>] [<arguments>]\nOptions:\n", start_name);
 
     /* print list of options with their descrption */
-    for (const opt_options_desc_t * opt = opt_config->opt_desc; opt->short_opt; opt++) {
+    for (const opt_options_desc_t * opt = opt_config->opt_desc; opt->short_opt || opt->desc; opt++) {
         int             n_printed = 0;
         const char *    token;
         const char *    next;
