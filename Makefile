@@ -38,7 +38,7 @@ NAME		= vlib
 
 # SRCDIR: Folder where sources are. Use '.' for current directory. MUST NEVER BE EMPTY !!
 # Folders which contains a Makefile are ignored, you have to add them in SUBDIRS and update SUBLIBS.
-# RESERVED FILES for internal use: ./build.h, ./version.h ./Makefile ./Build.java $(BUILDDIR)/_src_.c
+# RESERVED for internal use: ./obj/ ./build.h, ./version.h ./Makefile ./Build.java $(BUILDDIR)/_src_.c
 SRCDIR 		= src
 
 # SUBMODROOTDIR, allowing to group all submodules together instead of creating a complex tree
@@ -899,7 +899,7 @@ update-$(BUILDINC): create-build.h .EXEC
 	         case $$i in 0) gitrev="$$rev";; 1) fullgitrev="$$rev" ;; esac; \
 	         i=$$((i+1)); \
 	     done; if $(TEST) -n "$$gitstatus"; then gitrev="$${gitrev}-dirty"; fullgitrev="$${fullgitrev}-dirty"; fi; \
-	     gitremote="\"`$(GIT) remote get-url origin`\""; \
+	     gitremote="\"`$(GIT) remote get-url origin $(NO_STDERR)`\""; \
 	     gitrev="\"$${gitrev}\""; fullgitrev="\"$${fullgitrev}\""; \
 	 else gitrev="DIST_GITREV"; fullgitrev="DIST_GITREVFULL"; gitremote="DIST_GITREMOTE"; fi; \
  	 case " $(OBJ) " in *" $(JAVAOBJ) "*) javaobj=1;; *) javaobj=0;; esac; \
