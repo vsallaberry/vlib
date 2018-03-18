@@ -93,9 +93,9 @@ struct opt_config_s {
     const char *const*          argv;
     opt_option_callback_t       callback;
     const opt_options_desc_t *  opt_desc;
+    opt_config_flag_t           flags;
     const char *                version_string;
     void *                      user_data;
-    opt_config_flag_t           flags;
 };
 
 /**
