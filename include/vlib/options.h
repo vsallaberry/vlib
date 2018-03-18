@@ -79,6 +79,13 @@ typedef struct opt_config_s opt_config_t;
  */
 typedef int     (*opt_option_callback_t)(int opt, const char *arg, int *i_argv,
                                          const opt_config_t * opt_config);
+/** opt_config_flag_t */
+typedef enum {
+    OPT_FLAG_NONE = 0,
+    OPT_FLAG_SILENT = 1 << 0,   /* don' print error messages or usage */
+    /* end */
+    OPT_FLAG_DEFAULT = OPT_FLAG_NONE
+} opt_config_flag_t;
 
 /** Option configuration with argc,argv,callback,desc,user_data,... */
 struct opt_config_s {
@@ -88,6 +95,7 @@ struct opt_config_s {
     const opt_options_desc_t *  opt_desc;
     const char *                version_string;
     void *                      user_data;
+    opt_config_flag_t           flags;
 };
 
 /**
