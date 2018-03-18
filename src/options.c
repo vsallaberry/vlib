@@ -78,8 +78,8 @@ static int get_registered_long_opt(const char * long_opt, const char ** popt_arg
             continue ;
         len = strlen(cur_longopt);
         if (!strncmp(long_opt, cur_longopt, len) && (long_opt[len] == 0 || long_opt[len] == '=')) {
-            if (long_opt[len] == '=') {
-                *popt_arg = long_opt + len + 1;
+            if (popt_arg) {
+                *popt_arg = long_opt[len] == '=' ? long_opt + len + 1 : NULL;
             }
             return i_opt;
         }
@@ -287,15 +287,12 @@ int opt_parse_options(const opt_config_t * opt_config) {
                 }
                 /* Detect option argument */
                 if (opt_arg == NULL) {
-                    if (
-                        /* if not last_char_of_current OR not the last param. of argv */
+                    if (/* not last_char_of_current_param OR not the last param. of argv */
                         (popt[1] || (i_argv + 1 < opt_config->argc))
                         /* AND if option parameter is declared in opt_options_desc_t */
                         && desc[i_opt].arg != NULL
-                        /* AND (option is mandatory or (last_opt_of_current and next_not_opt)
-                         *      or (!last_opt_of_current and next opt is not an option)) */
-                        && (*desc[i_opt].arg != '[' || (!popt[1] && *argv[i_argv+1] != '-')
-                            || (popt[1] && get_registered_short_opt(popt[1], opt_config) < 0))
+                        /* AND (option is mandatory or (last_opt_of_current and next_not_opt) */
+                        && (*desc[i_opt].arg != '[' || popt[1] || *argv[i_argv+1] != '-')
                     ) {
                         if (popt[1]) {
                             opt_arg = ++popt;
