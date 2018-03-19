@@ -33,6 +33,18 @@ extern "C" {
 #define OPT_ID_USER             0x00010000      /* first id available for USER */
 #define OPT_ID_USER_MAX         (OPT_OPTION_FLAG_MIN-1) /* last available USER id  */
 
+/** options error codes, compare OPT_EXIT_CODE(status) with following values: */
+enum {
+    OPT_EFAULT      = 64,   /* bad opt_config input */
+    OPT_ESHORT      = 2,    /* unknown short option */
+    OPT_EBADOPT     = 3,    /* option rejected by callback */
+    OPT_EBADARG     = 4,    /* argument rejected by callback */
+    OPT_ELONG       = 5,    /* unknown long option */
+    OPT_ELONGID     = 6,    /* bad long option short_opt value */
+    OPT_EOPTNOARG   = 7,    /* argument missing for option */
+    OPT_EOPTARG     = 8     /* unexpected argument for option */
+};
+
 /**
  * Option description, User will create a { 0,NULL,NULL,NULL } terminated array.
  * For a long option without corresponding char option, use for short_opt

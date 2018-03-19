@@ -265,7 +265,7 @@ int opt_parse_options(const opt_config_t * opt_config) {
     /* sanity checks */
     if (opt_config == NULL || (desc = opt_config->opt_desc) == NULL
     ||  (argv = opt_config->argv) == NULL) {
-        return opt_error(OPT_ERROR(64), opt_config, 0,
+        return opt_error(OPT_ERROR(OPT_EFAULT), opt_config, 0,
                          "%s/%s(): opt_config or opt_desc or argv is NULL!\n", __FILE__, __func__);
     }
 
@@ -288,12 +288,12 @@ int opt_parse_options(const opt_config_t * opt_config) {
 		        }
                 /* Check if long option is registered (get index) */
                 if ((i_opt = get_registered_long_opt(argv[i_argv] + 2, &opt_arg, opt_config)) < 0) {
-                    return opt_error(OPT_ERROR(5), opt_config, 1,
+                    return opt_error(OPT_ERROR(OPT_ELONG), opt_config, 1,
                                      "error: unknown option '%s'\n", argv[i_argv]);
                 }
                 /* Long option is found, the matching short_opt is in opt_val. */
                 if ((long_opt_val = desc[i_opt].short_opt) == 0) {
-                    return opt_error(OPT_ERROR(6), opt_config, 1,
+                    return opt_error(OPT_ERROR(OPT_ELONGID), opt_config, 1,
                                      "error: bad 'short_opt' value for option '%s'\n", argv[i_argv]);
                 }
                 short_opts = short_fake;
@@ -303,7 +303,7 @@ int opt_parse_options(const opt_config_t * opt_config) {
             for (const char * popt = short_opts; *popt; popt++, opt_arg = NULL) {
                 /* Check if short option is reconized */
                 if (!long_opt_val && (i_opt = get_registered_short_opt(*popt, opt_config)) < 0) {
-                    return opt_error(OPT_ERROR(2), opt_config, 1,
+                    return opt_error(OPT_ERROR(OPT_ESHORT), opt_config, 1,
                                      "error: unknown option '-%c'\n", *popt);
                 }
                 /* Detect option argument */
@@ -329,14 +329,14 @@ int opt_parse_options(const opt_config_t * opt_config) {
                 }
                 /* Check presence of mandatory option argument */
                 if (desc[i_opt].arg != NULL && *desc[i_opt].arg != '[' && opt_arg == NULL) {
-                    return opt_error(OPT_ERROR(4), opt_config, 1,
+                    return opt_error(OPT_ERROR(OPT_EOPTNOARG), opt_config, 1,
                                      "error: missing argument '%s' for option '-%c%s'\n",
                                      desc[i_opt].arg, long_opt_val ? '-' : desc[i_opt].short_opt,
                                      long_opt_val ? desc[i_opt].long_opt : "");
                 }
                 /* Check presence of unexpected option argument */
                 if (opt_arg != NULL && desc[i_opt].arg == NULL) {
-                    return opt_error(OPT_ERROR(5), opt_config, 1,
+                    return opt_error(OPT_ERROR(OPT_EOPTARG), opt_config, 1,
                                      "error: unexpected argument '%s' for option '-%c%s'\n",
                                      opt_arg, long_opt_val ? '-' : desc[i_opt].short_opt,
                                      long_opt_val ? desc[i_opt].long_opt : "");
@@ -346,11 +346,10 @@ int opt_parse_options(const opt_config_t * opt_config) {
                     result = opt_config->callback(long_opt_val ? long_opt_val : desc[i_opt].short_opt,
                                                   opt_arg, &i_argv, opt_config);
                     if (OPT_IS_ERROR(result)) {
-                        return opt_error(OPT_ERROR(3), opt_config, 1,
+                        return opt_error(OPT_ERROR(OPT_EBADOPT), opt_config, 1,
                                          "error: incorrect option '-%c%s'\n",
                                          long_opt_val ? '-' : desc[i_opt].short_opt,
                                          long_opt_val ? desc[i_opt].long_opt : "");
-
                     }
                     if (OPT_IS_EXIT_OK(result)) {
                         return OPT_EXIT_OK(result);
@@ -363,7 +362,7 @@ int opt_parse_options(const opt_config_t * opt_config) {
                 const char * arg = argv[i_argv];
                 result = opt_config->callback(OPT_ID_ARG, arg, &i_argv, opt_config);
                 if (OPT_IS_ERROR(result)) {
-                    return opt_error(OPT_ERROR(4), opt_config, 1,
+                    return opt_error(OPT_ERROR(OPT_EBADARG), opt_config, 1,
                                      "error: incorrect argument %s\n", arg);
                 }
 	            if (OPT_IS_EXIT_OK(result)) {
