@@ -120,19 +120,21 @@ static unsigned int get_max_columns(FILE * out, const opt_config_t * opt_config)
                           "libncurses.so.5", "libcurses.so.5", "libtinfo.so.5", NULL };
         for (char ** path = libs; *path && (lib = dlopen(*path, RTLD_LAZY)) == NULL; path++)
             ; /* loop */
-        if (lib && (setup = (int(*)(char*,int,int*)) dlsym(lib, "setupterm"))
-                && (getnum = (int(*)(char*)) dlsym(lib, "tigetnum"))) {
-            if (setup(NULL, fileno(out), &ret) < 0) {
-                /* maybe not needed to printf error, could use column=80 silently */
-                if      (ret == 1)  fprintf(out, "setupterm(): term is hardcopy.\n");
-                else if (ret == 0)  fprintf(out, "setupterm(): term not found.\n");
-                else if (ret == -1) fprintf(out, "setupterm(): term db not found.\n");
-                else                fprintf(out, "setupterm(): unknown error.\n");
-            } else if (((ret = getnum("cols")) > 0
-                        || (ret = getnum("columns")) > 0
-                        || (ret = getnum("COLUMNS")) > 0)
-                       && ret > OPT_USAGE_OPT_PAD + 10) {
-                max_columns = ret;
+        if (lib) {
+            if ((setup = (int(*)(char*,int,int*)) dlsym(lib, "setupterm"))
+            &&  (getnum = (int(*)(char*)) dlsym(lib, "tigetnum"))) {
+                if (setup(NULL, fileno(out), &ret) < 0) {
+                    /* maybe not needed to printf error, could use column=80 silently */
+                    if      (ret == 1)  fprintf(out, "setupterm(): term is hardcopy.\n");
+                    else if (ret == 0)  fprintf(out, "setupterm(): term not found.\n");
+                    else if (ret == -1) fprintf(out, "setupterm(): term db not found.\n");
+                    else                fprintf(out, "setupterm(): unknown error.\n");
+                } else if (((ret = getnum("cols")) > 0
+                            || (ret = getnum("columns")) > 0
+                            || (ret = getnum("COLUMNS")) > 0)
+                           && ret > OPT_USAGE_OPT_PAD + 10) {
+                    max_columns = ret;
+                }
             }
             dlclose(lib);
         }
@@ -143,25 +145,29 @@ static unsigned int get_max_columns(FILE * out, const opt_config_t * opt_config)
 #pragma GCC diagnostic pop
 
 int opt_usage(int exit_status, const opt_config_t * opt_config) {
-    FILE *          out         = stdout;
+    char            desc_buffer[4096];
+    FILE *          out = stdout;
     const char *    start_name;
     unsigned int    max_columns;
 
     /* sanity checks */
+    fflush(NULL);
     if (opt_config == NULL || opt_config->argv == NULL || opt_config->opt_desc == NULL) {
         fprintf(stderr, "%s/%s(): opt_config or opt_desc or argv is NULL!\n", __FILE__, __func__);
         return OPT_ERROR(64);
     }
+
     /* exit if OPT_FLAG_SILENT */
     if ((opt_config->flags & OPT_FLAG_SILENT) != 0) {
         return exit_status;
     }
-    fflush(NULL);
+
     /* if this is an error: use stderr and put a blank between error message and usage */
     if (OPT_IS_ERROR(exit_status) != 0) {
         out = stderr;
         fprintf(out, "\n");
     }
+
     /* get max columns usable for display */
     max_columns = get_max_columns(out, opt_config);
 
@@ -181,27 +187,23 @@ int opt_usage(int exit_status, const opt_config_t * opt_config) {
         const char *    next;
         size_t          len;
         int             eol_shift = 0;
-        char            desc_buffer[4096] = { 0, };
-        size_t          desc_size, * psize = NULL;
+        size_t          desc_size = 0, * psize = NULL;
 
         /* short options */
         n_printed += fprintf(out, "  ");
         if (is_valid_short_opt(opt->short_opt)) {
-    	    n_printed += fprintf(out, "-%c%s", opt->short_opt,
+            n_printed += fprintf(out, "-%c%s", opt->short_opt,
                                       opt->long_opt != NULL ? ", " : "");
         }
         /* long options */
         if (opt->long_opt != NULL) {
-	        n_printed += fprintf(out, "--%s", opt->long_opt);
+            n_printed += fprintf(out, "--%s", opt->long_opt);
         }
         /* option argument name */
-	    if (opt->arg) {
-	        n_printed += fprintf(out, " %s", opt->arg);
-	    }
-        /* padding before printing description */
-        if (n_printed > OPT_USAGE_OPT_PAD) {
-            fputc('\n', out);
-            n_printed = 0;
+        if (opt->arg) {
+            if (n_printed > 2 && fputc(' ', out) != EOF)
+                n_printed++;
+            n_printed += fputs(opt->arg, out);
         }
         /* getting dynamic option description */
         if (opt_config->callback && is_valid_opt(opt->short_opt)) {
@@ -218,6 +220,11 @@ int opt_usage(int exit_status, const opt_config_t * opt_config) {
         if ((!next || !*next) && desc_size <= 0) {
             fputc('\n', out);
             continue ;
+        }
+        /* print EOL if characters printed exceed padding */
+        if (n_printed > OPT_USAGE_OPT_PAD) {
+            fputc('\n', out);
+            n_printed = 0;
         }
         /* parsing option descriptions, splitting them with '\n' and fix alignment */
         while (1) {
