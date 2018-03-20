@@ -26,12 +26,18 @@
 extern "C" {
 #endif
 
-#define OPT_DESCRIBE_OPTION     0x40000000      /* mask for option dynamic description */
-#define OPT_OPTION_FLAG_MIN     0x00020000      /* internal: first bit used for flags */
-#define OPT_ID_ARG              0               /* id of an argument without option */
+#define OPT_DESCRIBE_OPTION     0x40000000              /* mask for option dynamic description */
+#define OPT_OPTION_FLAG_MIN     0x00020000              /* internal: first bit used for flags */
+#define OPT_OPTION_FLAG_MASK    (OPT_OPTION_FLAG_MIN - 1)/* mask to get OPT value without flags */
 
-#define OPT_ID_USER             0x00010000      /* first id available for USER */
-#define OPT_ID_USER_MAX         (OPT_OPTION_FLAG_MIN-1) /* last available USER id  */
+#define OPT_ID_USER             0x00010000              /* first id available for USER */
+#define OPT_ID_USER_MAX         (OPT_ID_USER + 0xfff)   /* last USER id - 4096 IDs */
+
+#define OPT_ID_SECTION          (OPT_ID_USER_MAX + 1)   /* id for usage section */
+#define OPT_ID_SECTION_MAX      (OPT_ID_SECTION + 0xfff)/* last id for usage section - 4096 IDs */
+
+#define OPT_ID_ARG              (OPT_ID_SECTION_MAX + 1)/* id of an argument without option */
+#define OPT_ID_ARG_MAX          (OPT_ID_ARG + 0xfff)    /* last id for simple argument - 4096 IDs */
 
 /** options error codes, compare OPT_EXIT_CODE(status) with following values: */
 enum {
@@ -46,11 +52,27 @@ enum {
 };
 
 /**
- * Option description, User will create a { 0,NULL,NULL,NULL } terminated array.
- * For a long option without corresponding char option, use for short_opt
- * a non printable character (man isgraph) except 0, in the
- * range OPT_ID_USER..OPT_ID_USER_MAX.
- * For 'arg' : NULL if no argument, '[name]' if optional, 'name' if mandatory.
+ * Option description, User will create a { 0,NULL,NULL,NULL } terminated array,
+ * eg: opt_option_desc_t desc[] = {{'h',"help",NULL,"show help"},{0,NULL,NULL,NULL}};
+ * short_opt:
+ *   - a character for the short option (isascii() && isgraph())
+ *   - OPT_ID_USER...OPT_ID_USER_MAX for for a long option without corresponding
+ *     short option.
+ *   - OPT_ID_ARG...OPT_ID_ARG_MAX for a simple argument description (for opt_usage only)
+ *   - OPT_ID_SECTION...OPT_ID_SECTION_MAX for a section description, used to split usage
+ *     into sections and for the --help=<filter>, can be used with opt_config.flag
+ *     OPT_FLAG_SHORTUSAGE.
+ *   - it is not mandatory to use unique IDs for OPT_ID_SECTION*, OPT_ID_ARG*, but this
+ *     allows support of dynamic option usage description (OPT_DESCRIBE_OPTION).
+ * long_opt:
+ *   the long option (without heading '--') or NULL if none
+ *   It is possible to define long-option aliases by repeating a line with same short_opt (id)
+ *   with another long-option and NULL arg and NULL desc.
+ * arg:
+ *   NULL if no argument, '[name]' if optional, 'name' if mandatory.
+ *   for a section (OPT_ID_SECTION*), it is the section filter string (--help=<filter>)
+ * desc:
+ *   the description of option, argument, or the title of section
  */
 typedef struct {
     int             short_opt;
@@ -93,8 +115,9 @@ typedef int     (*opt_option_callback_t)(int opt, const char *arg, int *i_argv,
                                          const opt_config_t * opt_config);
 /** opt_config_flag_t */
 typedef enum {
-    OPT_FLAG_NONE = 0,
-    OPT_FLAG_SILENT = 1 << 0,   /* don' print error messages or usage */
+    OPT_FLAG_NONE       = 0,
+    OPT_FLAG_SILENT     = 1 << 0,   /* don' print error messages or usage */
+    OPT_FLAG_SHORTUSAGE = 1 << 1,   /* show only main usage section by default */
     /* end */
     OPT_FLAG_DEFAULT = OPT_FLAG_NONE
 } opt_config_flag_t;
@@ -114,7 +137,8 @@ struct opt_config_s {
  * print program usage.
  * The user can print additionnal information after calling this function.
  */
-int             opt_usage(int exit_status, const opt_config_t * opt_config);
+int             opt_usage(int exit_status, const opt_config_t * opt_config,
+                          const char * filter);
 
 /**
  * opt_parse_options() : Main entry point for generic options parsing
