@@ -32,6 +32,7 @@
 
 #include "vlib/log.h"
 #include "vlib/util.h"
+#include "vlib/options.h"
 
 /** global internal vlib log instance, shared between vlib components */
 log_t * g_vlib_log = NULL;
@@ -56,11 +57,48 @@ static const char * s_log_levels_str[] = {
     "+++"
 };
 
+const char * log_level_name(log_level_t level) {
+    return s_log_levels_str[level > LOG_LVL_NB ? LOG_LVL_NB : level];
+}
+
+log_level_t log_level_from_name(const char * name) {
+    for (int i = 0; i < LOG_LVL_NB; ++i) {
+        if (!strcmp(name, s_log_levels_str[i]))
+            return i;
+    }
+    return LOG_LVL_NONE;
+}
+
+int log_describe_option(char * buffer, int * size, const char *const* modules) {
+    int     n = 0, ret;
+    char    sep[3] = { 0, ' ' , 0 };
+
+    n += (ret = snprintf(buffer + n, *size - n, "\nlevels: '")) > 0 ? ret : 0;
+    for (int lvl = LOG_LVL_NONE + 1; lvl < LOG_LVL_NB; ++lvl, *sep = ',') {
+        n += (ret = snprintf(buffer + n, *size - n, "%s%d|%s",
+                    sep, lvl, s_log_levels_str[lvl])) > 0 ? ret : 0;
+    }
+    n += (ret = snprintf((buffer) + n, *size - n, "'")) > 0 ? ret : 0;
+    n += (ret = snprintf(buffer + n, *size - n, "\nmodules: '")) > 0 ? ret : 0;
+
+    *sep = 0; sep[1] = 0;
+    for (const char *const* mod = modules; *mod; mod++, *sep = ',') {
+        n += (ret = snprintf(buffer + n, *size - n, "%s%s", sep, *mod)) > 0
+            ? ret : 0;
+    }
+    n += (ret = snprintf((buffer) + n, *size - n, "'")) > 0 ? ret : 0;
+    *size = n;
+
+    return OPT_CONTINUE(1);
+}
+
 void log_set_vlib_instance(log_t * log) {
     FILE * out = g_vlib_log ? g_vlib_log->out : NULL;
 
-    if (out)
+    if (out) {
         flockfile(out);
+        fflush(out);
+    }
     g_vlib_log = log;
     if (out)
         funlockfile(out);

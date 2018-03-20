@@ -66,7 +66,7 @@ typedef enum {
     LOG_FLAG_LOC_ERR    = 1 << 9,   /* print file,func,line only on levels err,wrn,>=debug */
     LOG_FLAG_ABS_TIME   = 1 << 10,  /* insert absolute monotonic timestamp */
     LOG_FLAG_CLOSEFILE  = 1 << 29,  /* the file will be closed by destroy/close if not std* */
-    LOG_FLAG_FREEPREFIX = 1 << 30,  /* log_t is considered allocated and freed on destroy */
+    LOG_FLAG_FREEPREFIX = 1 << 30,  /* log_t.prefix is considered allocated and freed on destroy */
     LOG_FLAG_DEFAULT    = LOG_FLAG_DATETIME | LOG_FLAG_MODULE | LOG_FLAG_LEVEL
                         | LOG_FLAG_LOC_ERR | LOG_FLAG_LOC_TAIL
                         | LOG_FLAG_FILE | LOG_FLAG_FUNC | LOG_FLAG_LINE
@@ -153,6 +153,17 @@ int	        log_buffer(log_level_t  level,
                        size_t       len,
                        const char * file, const char * func, int line,
                        const char * fmt_header, ...);
+
+/** get name of a given level */
+const char *log_level_name(log_level_t level);
+
+/** get log level from name */
+log_level_t log_level_from_name(const char * name);
+
+/** default function describing the log-level command-line option
+ *  to be called from opt_callback_t option handler -
+ *  see vlib/log.h/OPT_DESCRIBE_OPTION */
+int         log_describe_option(char * buffer, int * size, const char *const* modules);
 
 log_t *     log_create(log_t * from);
 slist_t *   log_create_from_cmdline(slist_t * logs,

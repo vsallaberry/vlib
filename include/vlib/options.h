@@ -39,16 +39,22 @@ extern "C" {
 #define OPT_ID_ARG              (OPT_ID_SECTION_MAX + 1)/* id of an argument without option */
 #define OPT_ID_ARG_MAX          (OPT_ID_ARG + 0xfff)    /* last id for simple argument - 4096 IDs */
 
+#if OPT_ID_ARG_MAX >= OPT_OPTION_FLAG_MIN \
+ || OPT_ID_USER_MAX >= OPT_OPTION_FLAG_MIN \
+ || OPT_ID_SECTION_MAX >= OPT_OPTION_FLAG_MIN
+# error "OPT_ID_{ARG|USER|SECTION}_MAX >= OPT_OPTION_FLAG_MIN"
+#endif
+
 /** options error codes, compare OPT_EXIT_CODE(status) with following values: */
 enum {
-    OPT_EFAULT      = 64,   /* bad opt_config input */
-    OPT_ESHORT      = 2,    /* unknown short option */
-    OPT_EBADOPT     = 3,    /* option rejected by callback */
-    OPT_EBADARG     = 4,    /* argument rejected by callback */
-    OPT_ELONG       = 5,    /* unknown long option */
-    OPT_ELONGID     = 6,    /* bad long option short_opt value */
-    OPT_EOPTNOARG   = 7,    /* argument missing for option */
-    OPT_EOPTARG     = 8     /* unexpected argument for option */
+    OPT_EFAULT      = 101,  /* bad opt_config input */
+    OPT_ESHORT      = 102,  /* unknown short option */
+    OPT_EBADOPT     = 103,  /* option rejected by callback */
+    OPT_EBADARG     = 104,  /* argument rejected by callback */
+    OPT_ELONG       = 105,  /* unknown long option */
+    OPT_ELONGID     = 106,  /* bad long option short_opt value */
+    OPT_EOPTNOARG   = 107,  /* argument missing for option */
+    OPT_EOPTARG     = 108   /* unexpected argument for option */
 };
 
 /**
