@@ -46,21 +46,27 @@
 
 #define OPT_USAGE_OPT_PAD 30
 
-static int is_valid_short_opt(int c) {
+inline static int is_valid_short_opt(int c) {
     return c && isascii(c) && isgraph(c);
 }
 
-static int is_valid_opt(int c) {
-    return (c >= OPT_ID_USER && c <= OPT_ID_USER_MAX)
-            || is_valid_short_opt(c);
-}
-
-static int is_opt_section(int c) {
+inline static int is_opt_section(int c) {
     return (c >= OPT_ID_SECTION && c <= OPT_ID_SECTION_MAX);
 }
 
-static int is_opt_arg(int c) {
+inline static int is_opt_arg(int c) {
     return (c >= OPT_ID_ARG && c <= OPT_ID_ARG_MAX);
+}
+
+inline static int is_opt_user(int c) {
+    return (c >= OPT_ID_USER && c <= OPT_ID_USER_MAX);
+}
+
+inline static int is_valid_opt(int c) {
+    return is_opt_user(c)
+        || is_opt_arg(c)
+        || is_opt_section(c)
+        || is_valid_short_opt(c);
 }
 
 static int get_registered_opt(int c, const opt_config_t * opt_config) {
@@ -156,12 +162,19 @@ static unsigned int get_max_columns(FILE * out, const opt_config_t * opt_config)
 }
 #pragma GCC diagnostic pop
 
+static int opt_usage_filter(const char * filter, int i_opt, int current_section,
+                            const opt_config_t * opt_config) {
+    (void) opt_config;
+
+    return 1;
+}
+
 int opt_usage(int exit_status, const opt_config_t * opt_config, const char * filter) {
     char            desc_buffer[4096];
     FILE *          out = stdout;
     const char *    start_name;
     unsigned int    max_columns;
-    int             current_section = 0;
+    int             current_section = -1, i_opt = 0;
 
     /* sanity checks */
     fflush(NULL);
@@ -194,21 +207,27 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
     fprintf(out, "Usage: %s [<options>] [<arguments>]\n", start_name);
 
     /* print list of options with their descrption */
-    for (const opt_options_desc_t * opt = opt_config->opt_desc; opt->short_opt || opt->desc; ++opt) {
+    for (const opt_options_desc_t * opt = opt_config->opt_desc;
+         opt->short_opt || opt->desc; ++opt, ++i_opt) {
         int             n_printed = 0;
         const char *    token;
         const char *    next;
         size_t          len;
         int             eol_shift = 0;
         size_t          desc_size = 0, * psize = NULL;
-        int tmp;
+        int             tmp;
+        int             is_section;
 
-        if (is_opt_section(opt->short_opt)) {
-            if ((current_section != 0 || opt != opt_config->opt_desc)
+        if ((is_section = is_opt_section(opt->short_opt))) {
+            if ((current_section >= 0 || opt != opt_config->opt_desc)
             &&  (opt_config->flags & OPT_FLAG_SHORTUSAGE) != 0)
                 break ;
-            current_section = opt->short_opt;
-        } else {
+            current_section = i_opt;
+        }
+        if (!opt_usage_filter(filter, i_opt, current_section, opt_config)) {
+            continue ;
+        }
+        if (!is_section) {
             /* skip option if this is an alias */
             if (opt->arg == NULL && opt->desc == NULL && opt->long_opt != NULL
             &&  (tmp = get_registered_opt(opt->short_opt, opt_config)) >= 0
@@ -238,8 +257,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
             }
         }
         /* getting dynamic option description */
-        if (opt_config->callback && (is_valid_opt(opt->short_opt) || is_opt_arg(opt->short_opt)
-                                     || is_opt_section(opt->short_opt))) {
+        if (opt_config->callback && is_valid_opt(opt->short_opt)) {
             int i_desc_size = sizeof(desc_buffer);
             if (!OPT_IS_CONTINUE(
                   opt_config->callback(OPT_DESCRIBE_OPTION | opt->short_opt,
