@@ -292,7 +292,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
             if (opt->arg) {
                 if (n_printed > 2 && fputc(' ', out) != EOF)
                     n_printed++;
-                n_printed += fputs(opt->arg, out);
+                n_printed += fprintf(out, "%s", opt->arg);
             }
         }
         /* getting dynamic option description */
