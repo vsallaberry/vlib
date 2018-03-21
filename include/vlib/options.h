@@ -73,7 +73,7 @@ enum {
  * long_opt:
  *   the long option (without heading '--') or NULL if none
  *   It is possible to define long-option aliases by repeating a line with same short_opt (id)
- *   with another long-option and NULL arg and NULL desc.
+ *   with another long-option, a NULL desc and same arg type (NULL, "[*", "*").
  * arg:
  *   NULL if no argument, '[name]' if optional, 'name' if mandatory.
  *   for a section (OPT_ID_SECTION*), it is the section filter string (--help=<filter>)
@@ -162,6 +162,11 @@ int             opt_usage(int exit_status, const opt_config_t * opt_config,
  *  if (OPT_IS_ERROR(status))    => on ERROR, exit(OPT_EXIT_CODE(status)) required.
  */
 int             opt_parse_options(const opt_config_t * opt_config);
+
+/** opt_describe_usage() : default function describing the filter of --help command-line
+ * option to be called from opt_callback_t option handler - see OPT_DESCRIBE_OPTION */
+int             opt_describe_filter(int short_opt, const char * arg, int * i_argv,
+                                    const opt_config_t * opt_config);
 
 /**
  * Get vlib version

@@ -18,6 +18,11 @@
  */
 /* ------------------------------------------------------------------------
  * Simple command line options management.
+ *
+ * TODO
+ *   * --help=unknown_filter should give an error
+ *   * optimization of long option aliases management in opt_usage() ?
+ *   * check if we can reuse the arg of a longopt alias instead of duplucating arg.
  */
 #include <stdio.h>
 #include <string.h>
@@ -88,6 +93,8 @@ static int get_registered_short_opt(int c, const opt_config_t * opt_config) {
 
 static int get_registered_long_opt(const char * long_opt, const char ** popt_arg,
                                    const opt_config_t * opt_config) {
+    if (long_opt == NULL)
+        return -1;
     for (int i_opt = 0; opt_config->opt_desc[i_opt].short_opt
                         || opt_config->opt_desc[i_opt].desc; i_opt++) {
         const char * cur_longopt = opt_config->opt_desc[i_opt].long_opt;
@@ -162,11 +169,44 @@ static unsigned int get_max_columns(FILE * out, const opt_config_t * opt_config)
 }
 #pragma GCC diagnostic pop
 
-static int opt_usage_filter(const char * filter, int i_opt, int current_section,
+static int opt_usage_filter(const char * filter, int i_opt, int i_section,
                             const opt_config_t * opt_config) {
-    (void) opt_config;
+    const opt_options_desc_t * opt = &opt_config->opt_desc[i_opt];
+    const char * next = filter, * token, * longopt;
+    const char * section = i_section >= 0 ? opt_config->opt_desc[i_section].arg : NULL;
+    size_t len;
+    char short_opt = (char) opt->short_opt;
 
-    return 1;
+    if (filter == NULL)
+        return 1;
+
+    longopt = is_opt_section(opt->short_opt) ? NULL : opt->long_opt;
+
+    while ((len = strtok_ro_r(&token, ",:|;&", &next, NULL, 0)) > 0 || *next) {
+        if (!len)
+            continue ;
+
+        /* check long-option alias */
+        if (longopt && (strncasecmp(longopt, token, len) || longopt[len] != 0)) {
+            for (const opt_options_desc_t * opt2 = opt + 1; opt2->short_opt || opt2->desc; ++opt2) {
+                if (opt2->short_opt == opt->short_opt && opt2->long_opt
+                && !strncasecmp(opt2->long_opt, token, len) && opt2->long_opt[len] == 0) {
+                    token = opt->long_opt;
+                    len = strlen(token);
+                }
+            }
+        }
+
+        /* there is a match if short_opt, or long_opt, or 'all' or current section is given */
+        if ((len == 1 && !strncasecmp(token, &short_opt, 1))
+        ||  (len == 3 && !strncasecmp(token, "all", 3))
+        ||  (longopt && !strncasecmp(token, longopt, len) && longopt[len] == 0)
+        ||  (section && !strncasecmp(token, section, len) && section[len] == 0)) {
+            return 1;
+        }
+    }
+
+    return 0;
 }
 
 int opt_usage(int exit_status, const opt_config_t * opt_config, const char * filter) {
@@ -219,7 +259,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
         int             is_section;
 
         if ((is_section = is_opt_section(opt->short_opt))) {
-            if ((current_section >= 0 || opt != opt_config->opt_desc)
+            if (filter == NULL && (current_section >= 0 || opt != opt_config->opt_desc)
             &&  (opt_config->flags & OPT_FLAG_SHORTUSAGE) != 0)
                 break ;
             current_section = i_opt;
@@ -229,7 +269,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
         }
         if (!is_section) {
             /* skip option if this is an alias */
-            if (opt->arg == NULL && opt->desc == NULL && opt->long_opt != NULL
+            if (opt->desc == NULL && opt->long_opt != NULL
             &&  (tmp = get_registered_opt(opt->short_opt, opt_config)) >= 0
             &&  &opt_config->opt_desc[tmp] != opt)
                 continue;
@@ -245,7 +285,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
             /* look for long option aliases */
             for (const opt_options_desc_t *opt2 = opt + 1; opt2->short_opt || opt2->desc; ++opt2) {
                 if (opt2->short_opt == opt->short_opt && opt2->long_opt != NULL
-                &&  opt2->arg == NULL && opt2->desc == NULL) {
+                && opt2->desc == NULL) {
                     n_printed += fprintf(out, "%s--%s", n_printed > 2 ? ", " : "", opt2->long_opt);
                 }
             }
@@ -296,7 +336,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
                 eol_shift = 2;
             }
             /* Align description if needed */
-            if (!is_opt_section(opt->short_opt)) {
+            if (!is_section) {
                 while (n_printed < OPT_USAGE_OPT_PAD + eol_shift) {
                     fputc(' ', out);
                     n_printed++;
@@ -431,6 +471,22 @@ int opt_parse_options(const opt_config_t * opt_config) {
             }
         }
     }
+    return OPT_CONTINUE(1);
+}
+
+int opt_describe_filter(int short_opt, const char * arg, int * i_argv,
+                        const opt_config_t * opt_config) {
+    int n = 0, ret;
+    (void) short_opt;
+
+    n += (ret = snprintf((char *)arg, *i_argv - n, "filter:'all")) > 0 ? ret : 0;
+    for (const opt_options_desc_t * opt = opt_config->opt_desc; opt->short_opt || opt->desc; ++opt) {
+        if (is_opt_section(opt->short_opt)) {
+            n += (ret = snprintf((char *)arg + n, *i_argv - n, ",%s", opt->arg)) > 0 ? ret : 0;
+        }
+    }
+    n += (ret = snprintf((char *)arg + n, *i_argv - n, ",<shortopt>,<longopt>'")) > 0 ? ret : 0;
+    *i_argv = n;
     return OPT_CONTINUE(1);
 }
 
