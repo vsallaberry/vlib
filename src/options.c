@@ -175,7 +175,6 @@ static int opt_usage_filter(const char * filter, int i_opt, int i_section,
     const char * next = filter, * token, * longopt;
     const char * section = i_section >= 0 ? opt_config->opt_desc[i_section].arg : NULL;
     size_t len;
-    char short_opt = (char) opt->short_opt;
 
     if (filter == NULL)
         return 1;
@@ -198,7 +197,7 @@ static int opt_usage_filter(const char * filter, int i_opt, int i_section,
         }
 
         /* there is a match if short_opt, or long_opt, or 'all' or current section is given */
-        if ((len == 1 && !strncasecmp(token, &short_opt, 1))
+        if ((len == 1 && *token == opt->short_opt)
         ||  (len == 3 && !strncasecmp(token, "all", 3))
         ||  (longopt && !strncasecmp(token, longopt, len) && longopt[len] == 0)
         ||  (section && !strncasecmp(token, section, len) && section[len] == 0)) {
