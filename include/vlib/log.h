@@ -163,7 +163,8 @@ log_level_t log_level_from_name(const char * name);
 /** default function describing the log-level command-line option
  *  to be called from opt_callback_t option handler -
  *  see vlib/log.h/OPT_DESCRIBE_OPTION */
-int         log_describe_option(char * buffer, int * size, const char *const* modules);
+int         log_describe_option(char * buffer, int * size, const char *const* modules,
+                                slist_t * modules_list, const char *(module_get)(const void *));
 
 log_t *     log_create(log_t * from);
 slist_t *   log_create_from_cmdline(slist_t * logs,
