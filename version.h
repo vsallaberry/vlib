@@ -1,6 +1,6 @@
 #ifndef APP_VERSION_H
 #define APP_VERSION_H
-#define APP_VERSION "0.7.8"
+#define APP_VERSION "0.7.9"
 #define APP_INCLUDE_SOURCE
 #define APP_BUILD_NUMBER 1
 #define DIST_GITREV "unknown"
