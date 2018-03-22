@@ -22,7 +22,6 @@
  * TODO
  *   * --help=unknown_filter should give an error
  *   * optimization of long option aliases management in opt_usage() ?
- *   * check if we can reuse the arg of a longopt alias instead of duplucating arg.
  */
 #include <stdio.h>
 #include <string.h>
@@ -116,17 +115,17 @@ static int get_registered_long_opt(const char * long_opt, const char ** popt_arg
     return -1;
 }
 
-static int is_opt_alias(int i_opt, const opt_config_t * opt_config) {
+static int opt_alias(int i_opt, const opt_config_t * opt_config) {
     const opt_options_desc_t * opt = &opt_config->opt_desc[i_opt];
     /* look for same short_opt defined before index i_opt in desc array */
-    if (opt->desc == NULL && opt->long_opt != NULL) {
+    if (opt->desc == NULL && opt->long_opt != NULL && opt->arg == NULL) {
         for (int i = 0; i < i_opt; i++) {
             if (opt_config->opt_desc[i].short_opt == opt->short_opt) {
-                return 1;
+                return i;
             }
         }
     }
-    return 0;
+    return -1;
 }
 
 static int opt_error(int exit_code, const opt_config_t * opt_config, int show_usage,
@@ -224,12 +223,102 @@ static int opt_usage_filter(const char * filter, int i_opt, int i_section,
     return 0;
 }
 
+static void opt_print_usage_summary(const opt_config_t * opt_config,
+                                    FILE * out, unsigned int max_columns) {
+    const char *    start_name;
+    unsigned int    n_printed, pad;
+    int             i_opt, i_firstarg = -1;
+
+    /* don't print anything if requested */
+    if ((opt_config->flags & OPT_FLAG_NOUSAGE) != 0)
+        return ;
+
+    /* print program name, version and usage summary */
+    if ((start_name = strrchr(*opt_config->argv, '/')) == NULL) {
+        start_name = *opt_config->argv;
+    } else {
+        start_name++;
+    }
+    if (opt_config->version_string && *opt_config->version_string)
+        fprintf(out, "%s\n\n", opt_config->version_string);
+    n_printed = pad = fprintf(out, "Usage: %s ", start_name);
+
+    /* print only simple usage summary if requested */
+    if ((opt_config->flags & OPT_FLAG_SIMPLEUSAGE) != 0) {
+        fprintf(out, "[options] [arguments]\n");
+        return ;
+    }
+
+    /* first pass to print short options without arguments */
+    i_opt = 0;
+    for (const opt_options_desc_t * opt = opt_config->opt_desc; !is_opt_end(opt); ++opt, ++i_opt) {
+        if (opt->arg == NULL && is_valid_short_opt(opt->short_opt)
+        &&  opt_alias(i_opt, opt_config) < 0) {
+            if (n_printed + 2 > max_columns) {
+                fputc(']', out);
+                for (n_printed = 0; n_printed < pad; n_printed++)
+                    fputc(' ', out);
+            }
+            if (n_printed == pad)
+                n_printed += fprintf(out, "[-");
+            if (fputc(opt->short_opt, out) != EOF)
+                n_printed++;
+        }
+    }
+    if (n_printed > pad)
+        n_printed += fprintf(out, "]");
+
+    /* second pass to print simple arguments or short options with arguments */
+    i_opt = 0;
+    for (const opt_options_desc_t * opt = opt_config->opt_desc; !is_opt_end(opt); ++opt, ++i_opt) {
+        int isarg = 0;
+        if (opt->arg != NULL && (is_valid_short_opt(opt->short_opt)
+                                 || (isarg = is_opt_arg(opt->short_opt)))
+        &&  opt_alias(i_opt, opt_config) < 0) {
+            /* compute length of next item */
+            unsigned int len = strlen(opt->arg) + 1; /* will print at least " arg" */
+            if (!isarg) {
+               len += 4 + (*opt->arg != '[' ? 2 : 0); /* will print "[-Xarg]" or "[-X<arg>]" */
+            } else if (i_firstarg < 0) {
+                len += 5; /* will printf additional " [--]" string */
+            }
+            /* check columns limit */
+            if (n_printed + len > max_columns) {
+                fputc('\n', out);
+                for (n_printed = 1; n_printed < pad; n_printed++)
+                    fputc(' ', out);
+            }
+            /* display it */
+            if (isarg) {
+                if (i_firstarg < 0) {
+                    n_printed += fprintf(out, " [--]");
+                }
+                i_firstarg = i_opt;
+                n_printed += fprintf(out, " %s", opt->arg);
+            } else if (*opt->arg != '[') {
+                n_printed += fprintf(out, " [-%c<%s>]", opt->short_opt, opt->arg);
+            } else {
+                n_printed += fprintf(out, " [-%c%s]", opt->short_opt, opt->arg);
+            }
+        }
+    }
+    /* print " [--]" if not already done */
+    if (i_firstarg < 0) {
+        if (n_printed + 5 > max_columns) {
+            fputc('\n', out);
+            for (n_printed = 1; n_printed < pad; n_printed++)
+                fputc(' ', out);
+        }
+        n_printed += fprintf(out, " [--]");
+    }
+    fprintf(out, "\n");
+}
+
 int opt_usage(int exit_status, const opt_config_t * opt_config, const char * filter) {
     char            desc_buffer[4096];
     FILE *          out = stdout;
-    const char *    start_name;
     unsigned int    max_columns;
-    int             current_section = -1, i_opt = 0;
+    int             i_opt, i_current_section = -1;
 
     /* sanity checks */
     fflush(NULL);
@@ -253,15 +342,10 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
     max_columns = get_max_columns(out, opt_config);
 
     /* print program name, version and usage summary */
-    if ((start_name = strrchr(*opt_config->argv, '/')) == NULL) {
-    	start_name = *opt_config->argv;
-    } else {
-	    start_name++;
-    }
-    fprintf(out, "%s\n\n", opt_config->version_string);
-    fprintf(out, "Usage: %s [<options>] [<arguments>]\n", start_name);
+    opt_print_usage_summary(opt_config, out, max_columns);
 
     /* print list of options with their descrption */
+    i_opt = 0;
     for (const opt_options_desc_t * opt = opt_config->opt_desc; !is_opt_end(opt); ++opt, ++i_opt) {
         int             n_printed = 0;
         const char *    token;
@@ -271,18 +355,20 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
         size_t          desc_size = 0, * psize = NULL;
         int             is_section;
 
+        /* keep current section index, and stop if we should only print main section */
         if ((is_section = is_opt_section(opt->short_opt))) {
-            if (filter == NULL && (current_section >= 0 || opt != opt_config->opt_desc)
-            &&  (opt_config->flags & OPT_FLAG_SHORTUSAGE) != 0)
+            if (filter == NULL && (i_current_section >= 0 || opt != opt_config->opt_desc)
+            &&  (opt_config->flags & OPT_FLAG_MAINSECTION) != 0)
                 break ;
-            current_section = i_opt;
+            i_current_section = i_opt;
         }
-        if (!opt_usage_filter(filter, i_opt, current_section, opt_config)) {
+        /* handle the usage filter, and ignore current option if no match */
+        if (!opt_usage_filter(filter, i_opt, i_current_section, opt_config)) {
             continue ;
         }
         if (!is_section) {
             /* skip option if this is an alias */
-            if (is_opt_alias(i_opt, opt_config))
+            if (opt_alias(i_opt, opt_config) >= 0)
                 continue;
             /* short options */
             n_printed += fprintf(out, "  ");
@@ -371,7 +457,6 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
 int opt_parse_options(const opt_config_t * opt_config) {
     const char *const*          argv;
     const opt_options_desc_t *  desc;
-    int                         result;
 
     /* sanity checks */
     if (opt_config == NULL || (desc = opt_config->opt_desc) == NULL
@@ -382,12 +467,13 @@ int opt_parse_options(const opt_config_t * opt_config) {
 
     /* Analysing each argument of commandline. */
     for(int i_argv = 1, stop_options = 0; i_argv < opt_config->argc; i_argv++) {
+        int result;
         /* Check Options (starting with '-') */
         if (!stop_options && *argv[i_argv] == '-' && argv[i_argv][1]) {
             const char      short_fake[2]   = { 'a', 0 };
             const char *    short_opts      = argv[i_argv] + 1;
             const char *    opt_arg         = NULL;
-            int             long_opt_val    = 0;
+            const char *    long_opt        = NULL;
             int             i_opt;
 
             /* Check for a second '-' : long option. */
@@ -402,10 +488,14 @@ int opt_parse_options(const opt_config_t * opt_config) {
                     return opt_error(OPT_ERROR(OPT_ELONG), opt_config, 1,
                                      "error: unknown option '%s'\n", argv[i_argv]);
                 }
+                long_opt = desc[i_opt].long_opt;
+                /* Check alias */
+                if ((result = opt_alias(i_opt, opt_config)) >= 0)
+                    i_opt = result;
                 /* Long option is found, the matching short_opt is in opt_val. */
-                if ((long_opt_val = desc[i_opt].short_opt) == 0) {
+                if (desc[i_opt].short_opt == 0) {
                     return opt_error(OPT_ERROR(OPT_ELONGID), opt_config, 1,
-                                     "error: bad 'short_opt' value for option '%s'\n", argv[i_argv]);
+                                     "error: bad 'short_opt' value for option '%s'\n", long_opt);
                 }
                 short_opts = short_fake;
             }
@@ -413,7 +503,7 @@ int opt_parse_options(const opt_config_t * opt_config) {
             /* Proceed each short option, or the long option once. */
             for (const char * popt = short_opts; *popt; popt++, opt_arg = NULL) {
                 /* Check if short option is reconized */
-                if (!long_opt_val && (i_opt = get_registered_short_opt(*popt, opt_config)) < 0) {
+                if (long_opt == NULL && (i_opt = get_registered_short_opt(*popt, opt_config)) < 0) {
                     return opt_error(OPT_ERROR(OPT_ESHORT), opt_config, 1,
                                      "error: unknown option '-%c'\n", *popt);
                 }
@@ -442,25 +532,25 @@ int opt_parse_options(const opt_config_t * opt_config) {
                 if (desc[i_opt].arg != NULL && *desc[i_opt].arg != '[' && opt_arg == NULL) {
                     return opt_error(OPT_ERROR(OPT_EOPTNOARG), opt_config, 1,
                                      "error: missing argument '%s' for option '-%c%s'\n",
-                                     desc[i_opt].arg, long_opt_val ? '-' : desc[i_opt].short_opt,
-                                     long_opt_val ? desc[i_opt].long_opt : "");
+                                     desc[i_opt].arg, long_opt != NULL ? '-' : desc[i_opt].short_opt,
+                                     long_opt != NULL ? long_opt : "");
                 }
                 /* Check presence of unexpected option argument */
                 if (opt_arg != NULL && desc[i_opt].arg == NULL) {
                     return opt_error(OPT_ERROR(OPT_EOPTARG), opt_config, 1,
                                      "error: unexpected argument '%s' for option '-%c%s'\n",
-                                     opt_arg, long_opt_val ? '-' : desc[i_opt].short_opt,
-                                     long_opt_val ? desc[i_opt].long_opt : "");
+                                     opt_arg, long_opt != NULL ? '-' : desc[i_opt].short_opt,
+                                     long_opt != NULL ? long_opt : "");
                 }
                 /* Call the callback if any */
                 if (opt_config->callback) {
-                    result = opt_config->callback(long_opt_val ? long_opt_val : desc[i_opt].short_opt,
+                    result = opt_config->callback(desc[i_opt].short_opt,
                                                   opt_arg, &i_argv, opt_config);
                     if (OPT_IS_ERROR(result)) {
                         return opt_error(OPT_ERROR(OPT_EBADOPT), opt_config, 1,
                                          "error: incorrect option '-%c%s'\n",
-                                         long_opt_val ? '-' : desc[i_opt].short_opt,
-                                         long_opt_val ? desc[i_opt].long_opt : "");
+                                         long_opt != NULL ? '-' : desc[i_opt].short_opt,
+                                         long_opt != NULL ? long_opt : "");
                     }
                     if (OPT_IS_EXIT_OK(result)) {
                         return OPT_EXIT_OK(result);

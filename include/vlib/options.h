@@ -73,7 +73,7 @@ enum {
  * long_opt:
  *   the long option (without heading '--') or NULL if none
  *   It is possible to define long-option aliases by repeating a line with same short_opt (id)
- *   with another long-option, a NULL desc and same arg type (NULL, "[*", "*").
+ *   with another long-option, a NULL desc and a NULL arg.
  * arg:
  *   NULL if no argument, '[name]' if optional, 'name' if mandatory.
  *   for a section (OPT_ID_SECTION*), it is the section filter string (--help=<filter>)
@@ -121,9 +121,11 @@ typedef int     (*opt_option_callback_t)(int opt, const char *arg, int *i_argv,
                                          const opt_config_t * opt_config);
 /** opt_config_flag_t */
 typedef enum {
-    OPT_FLAG_NONE       = 0,
-    OPT_FLAG_SILENT     = 1 << 0,   /* don' print error messages or usage */
-    OPT_FLAG_SHORTUSAGE = 1 << 1,   /* show only main usage section by default */
+    OPT_FLAG_NONE           = 0,
+    OPT_FLAG_SILENT         = 1 << 0,   /* don' print error messages or usage */
+    OPT_FLAG_MAINSECTION    = 1 << 1,   /* show only main usage section by default */
+    OPT_FLAG_SIMPLEUSAGE    = 1 << 2,   /* print simple usage summury */
+    OPT_FLAG_NOUSAGE        = 1 << 3,   /* don't print usage summary */
     /* end */
     OPT_FLAG_DEFAULT = OPT_FLAG_NONE
 } opt_config_flag_t;
