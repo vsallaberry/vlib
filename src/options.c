@@ -223,6 +223,13 @@ static int opt_usage_filter(const char * filter, int i_opt, int i_section,
     return 0;
 }
 
+static size_t opt_newline(FILE * out, const opt_config_t * opt_config, int print_header) {
+    (void) opt_config;
+    (void) print_header;
+    fputc('\n', out);
+    return 0;
+}
+
 static void opt_print_usage_summary(const opt_config_t * opt_config,
                                     FILE * out, unsigned int max_columns) {
     const char *    start_name;
@@ -284,7 +291,7 @@ static void opt_print_usage_summary(const opt_config_t * opt_config,
             }
             /* check columns limit */
             if (n_printed + len > max_columns) {
-                fputc('\n', out);
+                opt_newline(out, opt_config, 1);
                 for (n_printed = 1; n_printed < pad; n_printed++)
                     fputc(' ', out);
             }
@@ -305,13 +312,13 @@ static void opt_print_usage_summary(const opt_config_t * opt_config,
     /* print " [--]" if not already done */
     if (i_firstarg < 0) {
         if (n_printed + 5 > max_columns) {
-            fputc('\n', out);
+            opt_newline(out, opt_config, 1);
             for (n_printed = 1; n_printed < pad; n_printed++)
                 fputc(' ', out);
         }
         n_printed += fprintf(out, " [--]");
     }
-    fprintf(out, "\n");
+    opt_newline(out, opt_config, 0);
 }
 
 int opt_usage(int exit_status, const opt_config_t * opt_config, const char * filter) {
@@ -335,7 +342,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
     /* if this is an error: use stderr and put a blank between error message and usage */
     if (OPT_IS_ERROR(exit_status) != 0) {
         out = stderr;
-        fprintf(out, "\n");
+        opt_newline(out, opt_config, 1);
     }
 
     /* get max columns usable for display */
@@ -406,13 +413,12 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
         /* skip option description and process next option if no description */
         next = opt->desc;
         if ((!next || !*next) && desc_size <= 0) {
-            fputc('\n', out);
+            opt_newline(out, opt_config, 1);
             continue ;
         }
         /* print EOL if characters printed exceed padding */
         if (n_printed > OPT_USAGE_OPT_PAD) {
-            fputc('\n', out);
-            n_printed = 0;
+            n_printed = opt_newline(out, opt_config, 1);
         }
         /* parsing option descriptions, splitting them into words and fix alignment */
         while (1) {
@@ -428,8 +434,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
             }
             /* insert EOL if it does not fit in max_columns */
             if (*token != '\n' && len + n_printed > max_columns) {
-                fputc('\n', out);
-                n_printed = 0;
+                n_printed = opt_newline(out, opt_config, 1);
                 eol_shift = 2;
             }
             /* Align description if needed */
@@ -448,9 +453,9 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
                 n_printed = 0;
         }
         /* EOL before processing next option */
-        fputc('\n', out);
+        opt_newline(out, opt_config, 1);
     }
-    fputc('\n', out);
+    opt_newline(out, opt_config, 0);
     return exit_status;
 }
 
