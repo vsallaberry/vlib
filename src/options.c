@@ -116,6 +116,19 @@ static int get_registered_long_opt(const char * long_opt, const char ** popt_arg
     return -1;
 }
 
+static int is_opt_alias(int i_opt, const opt_config_t * opt_config) {
+    const opt_options_desc_t * opt = &opt_config->opt_desc[i_opt];
+    /* look for same short_opt defined before index i_opt in desc array */
+    if (opt->desc == NULL && opt->long_opt != NULL) {
+        for (int i = 0; i < i_opt; i++) {
+            if (opt_config->opt_desc[i].short_opt == opt->short_opt) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 static int opt_error(int exit_code, const opt_config_t * opt_config, int show_usage,
                      const char * fmt, ...) {
     if (opt_config && (opt_config->flags & OPT_FLAG_SILENT) == 0) {
@@ -256,7 +269,6 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
         size_t          len;
         int             eol_shift = 0;
         size_t          desc_size = 0, * psize = NULL;
-        int             tmp;
         int             is_section;
 
         if ((is_section = is_opt_section(opt->short_opt))) {
@@ -270,9 +282,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
         }
         if (!is_section) {
             /* skip option if this is an alias */
-            if (opt->desc == NULL && opt->long_opt != NULL
-            &&  (tmp = get_registered_opt(opt->short_opt, opt_config)) >= 0
-            &&  &opt_config->opt_desc[tmp] != opt)
+            if (is_opt_alias(i_opt, opt_config))
                 continue;
             /* short options */
             n_printed += fprintf(out, "  ");
@@ -284,7 +294,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
                 n_printed += fprintf(out, "%s--%s", n_printed > 2 ? ", " : "", opt->long_opt);
             }
             /* look for long option aliases */
-            for (const opt_options_desc_t *opt2 = opt + 1; opt2->short_opt || opt2->desc; ++opt2) {
+            for (const opt_options_desc_t *opt2 = opt + 1; !is_opt_end(opt2); ++opt2) {
                 if (opt2->short_opt == opt->short_opt && opt2->long_opt != NULL
                 && opt2->desc == NULL) {
                     n_printed += fprintf(out, "%s--%s", n_printed > 2 ? ", " : "", opt2->long_opt);
