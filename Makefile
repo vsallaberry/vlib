@@ -172,14 +172,24 @@ tmp_SHELL	?= $(shell $(cmd_SHELL))
 SHELL		:= $(tmp_SHELL)
 
 # EXPERIMENTAL: Common commands to handle the bsd make .OBJDIR feature which
-# puts all outputs ib ./obj if existing.
+# puts all outputs in ./obj if existing.
 # As this is for BSD make, we can use specific BSD variable replacement ($x:S/...)
+#test whether ouputs are in other folder
 cmd_TESTBSDOBJ	= $(TEST) "$(.OBJDIR)" != "$(.CURDIR)"
 cmd_FINDBSDOBJ	= $(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true
-RELOBJDIR	= $(.OBJDIR:S/$(.CURDIR)\///)
+#keep quote-safe version of CURDIR and OBJDIR
+tmp_CURDIR	:= $(.CURDIR:Q)
+tmp_OBJDIR	:= $(.OBJDIR:Q)
+#from OBJDIR, remove heading CURDIR to have relative path
+RELOBJDIR	= $(tmp_OBJDIR:S/$(tmp_CURDIR)\///)
+#save SUBLIBS
 OLDSUBLIBS	:= $(SUBLIBS)
-SUBLIBS         := $(SUBLIBS:S/^/$(.CURDIR)\//)
-SUBLIBS         := $(SUBLIBS:S/$(.CURDIR)\/$//)
+#add CURDIR to SUBLIBS (to have absolute path)
+SUBLIBS         := $(SUBLIBS:S/^/$(tmp_CURDIR)\//)
+SUBLIBS         := $(SUBLIBS:S/$(tmp_CURDIR)\/$//)
+#from SUBLIBS, remove heading OBJDIR (if matching, CURDIR=OBJDIR)
+SUBLIBS         := $(SUBLIBS:S/^$(tmp_OBJDIR)\///)
+#restore updates on SUBLIBS if OBJDIR is not set
 SUBLIBS$(.OBJDIR):= $(OLDSUBLIBS)
 
 # Do not prefix with ., to not disturb dependencies and exclusion from include search.
@@ -255,12 +265,12 @@ cmd_LEX		= lex=`$(WHICH) $(LEX) flex lex $(NO_STDERR) | $(HEADN1)`; \
 		  && flexinc="`dirname $$lex`/../include/$(FLEXLEXER_INC)" \
 		  && $(TEST) -e "$$flexinc" \
 		  || { $(TEST) "$(UNAME_SYS)" = "darwin" \
-		       && otool -L $$lex | $(GREP) -Eq 'libxcselect[^ ]*dylib' $(NO_STDERR) \
+		       && otool -L "$$lex" | $(GREP) -Eq 'libxcselect[^ ]*dylib' $(NO_STDERR) \
 		       && flexinc="`xcode-select -p $(NO_STDERR)`/Toolchains/Xcodedefault.xctoolchain/usr/include/$(FLEXLEXER_INC)" \
 		       && $(TEST) -e "$$flexinc"; } \
-		  && ! $(TEST) $(FLEXLEXER_LNK) -ef "$$flexinc" && echo 1>&2 "$(NAME): create link $(FLEXLEXER_LNK) -> $$flexinc" \
+		  && ! $(TEST) "$(FLEXLEXER_LNK)" -ef "$$flexinc" && echo 1>&2 "$(NAME): create link $(FLEXLEXER_LNK) -> $$flexinc" \
 		  && ln -sf "$$flexinc" "$(FLEXLEXER_LNK)" $(NO_STDERR) && $(TEST) -e $(BUILDINC) && $(TOUCH) $(BUILDINC); \
-		  echo $$lex
+		  echo "$$lex"
 tmp_LEX		!= $(cmd_LEX)
 tmp_LEX		?= $(shell $(cmd_LEX))
 LEX		:= $(tmp_LEX)
@@ -452,7 +462,7 @@ sys_DEBUG	= $(DEBUG_$(SYSDEP_SUF))
 
 ############################################################################################
 # Generic Build Flags, taking care of system specific flags (sys_*)
-cmd_CPPFLAGS	= srcpref=; srcdirs=; $(cmd_TESTBSDOBJ) && srcpref="$(.CURDIR)/" && srcdirs="$$srcpref $${srcpref}$(SRCDIR)"; \
+cmd_CPPFLAGS	= srcpref=; srcdirs=; $(cmd_TESTBSDOBJ) && srcpref="$(.CURDIR:Q)/" && srcdirs="$$srcpref $${srcpref}$(SRCDIR)"; \
 		  sep=; incpref=; incs=; for dir in . $(SRCDIR) $(BUILDDIR) $${srcdirs} : $(INCDIRS); do \
                       test -z "$$sep" -a -n "$$incs" && sep=" " || true; \
 		      test "$$dir" = ":" && incpref=$$srcpref && continue || true; \
@@ -537,10 +547,10 @@ DOCDIRS		= $(SUBDIRS:=-doc)
 # RECURSEMAKEARGS, see doc for SUBMODROOTDIR above. When SUBMODROOTDIR is not empty,
 # if the submodule is fetched alone, it will use its own submodules, if it is fetched as a
 # submodule, it will use the root submodule directory, redefined when recursing in SUBDIRS.
-RECURSEMAKEARGS	= $(TEST) -n "$(SUBMODROOTDIR)" && recargs="SUBMODROOTDIR=\"`echo $${recdir} \
+RECURSEMAKEARGS	= $(TEST) -n "$(SUBMODROOTDIR)" && recargs="SUBMODROOTDIR=\"`echo \"$${recdir}\" \
 				| $(SED) -e 's/[^/][^/]*/../g'`/$(SUBMODROOTDIR)\"" || recargs=; \
-		  echo "cd $${recdir} && $(MAKE) $${rectarget} $${recargs}"; \
-		  $(cmd_TESTBSDOBJ) && cd $(.CURDIR) || true
+		  echo "cd \"$${recdir}\" && \"$(MAKE)\" \"$${rectarget}\" $${recargs}"; \
+		  $(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true
 
 ############################################################################################
 # .POSIX: for bsd-like dependency management
@@ -556,7 +566,7 @@ $(SUBDIRS): $(BUILDDIRS)
 $(SUBLIBS): $(BUILDDIRS)
 	@true
 $(BUILDDIRS): .EXEC
-	@recdir=$(@:-build=); rectarget=; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs}
+	@recdir=$(@:-build=); rectarget=; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs}
 
 # --- clean : remove objects and generated files
 clean: cleanme $(CLEANDIRS)
@@ -564,7 +574,7 @@ cleanme:
 	$(RM) $(OBJ:.class=*.class) $(SRCINC) $(GENSRC) $(GENINC) $(GENJAVA) $(CLASSES:.class=*.class) $(DEPS) $(INCLUDEDEPS)
 	@$(TEST) -L "$(FLEXLEXER_LNK)" && { cmd="$(RM) $(FLEXLEXER_LNK)"; echo "$$cmd"; $$cmd ; } || true
 $(CLEANDIRS):
-	@recdir=$(@:-clean=); rectarget=clean; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs} clean
+	@recdir=$(@:-clean=); rectarget=clean; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} clean
 
 # --- distclean : remove objects, binaries and remove DEBUG flag in build.h
 distclean: cleanme $(DISTCLEANDIRS)
@@ -576,7 +586,7 @@ distclean: cleanme $(DISTCLEANDIRS)
 	@$(TEST) "$(BUILDDIR)" != "$(SRCDIR)" && $(RMDIR) `$(FIND) $(BUILDDIR) -type d | $(SORT) -r` $(NO_STDERR) || true
 	@$(PRINTF) "$(NAME): distclean done, debug disabled.\n"
 $(DISTCLEANDIRS):
-	@recdir=$(@:-distclean=); rectarget=distclean; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs} distclean
+	@recdir=$(@:-distclean=); rectarget=distclean; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} distclean
 
 # --- debug : set DEBUG flag in build.h and rebuild
 debug: update-$(BUILDINC) $(DEBUGDIRS)
@@ -584,9 +594,9 @@ debug: update-$(BUILDINC) $(DEBUGDIRS)
 		$(PRINTF) "#define BUILD_DEBUG\n#define BUILD_TEST\n"; } > $(BUILDINC).tmp && $(MV) $(BUILDINC).tmp $(BUILDINC)
 	@$(PRINTF) "$(NAME): debug enabled ('make distclean' to disable it).\n"
 	@$(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; \
-	 $(TEST) -n "$(SUBMODROOTDIR)" && $(MAKE) SUBMODROOTDIR="$(SUBMODROOTDIR)" || $(MAKE)
+	 $(TEST) -n "$(SUBMODROOTDIR)" && "$(MAKE)" SUBMODROOTDIR="$(SUBMODROOTDIR)" || "$(MAKE)"
 $(DEBUGDIRS):
-	@recdir=$(@:-debug=); rectarget=debug; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs} debug
+	@recdir=$(@:-debug=); rectarget=debug; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} debug
 # Code to disable debug without deleting BUILDINC:
 # @$(GREP) -Ev '^[[:space:]]*\#[[:space:]]*define[[:space:]]+(BUILD_DEBUG|BUILD_TEST)([[:space:]]|$$)' $(BUILDINC) \
 #	    > $(BUILDINC).tmp && $(MV) $(BUILDINC).tmp $(BUILDINC)
@@ -594,7 +604,7 @@ $(DEBUGDIRS):
 # --- doc : generate doc
 doc: $(DOCDIRS)
 $(DOCDIRS):
-	@recdir=$(@:-doc=); rectarget=doc; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs} doc
+	@recdir=$(@:-doc=); rectarget=doc; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} doc
 
 # --- install ---
 installme: all
@@ -617,13 +627,13 @@ installme: all
 	 done
 install: installme $(INSTALLDIRS)
 $(INSTALLDIRS):
-	@recdir=$(@:-install=); rectarget=install; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs} install
+	@recdir=$(@:-install=); rectarget=install; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} install
 
 # --- test ---
 test: all $(TESTDIRS)
 	$(TEST_RUN_PROGRAM)
 $(TESTDIRS): all
-	@recdir=$(@:-test=); rectarget=test; $(RECURSEMAKEARGS); cd $${recdir} && $(MAKE) $${recargs} test
+	@recdir=$(@:-test=); rectarget=test; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} test
 
 # --- build bin&lib ---
 $(BIN): $(OBJ) $(SUBLIBS) $(JCNIINC)
@@ -811,12 +821,12 @@ dist:
 	 && $(MKDIR) -p "$(DISTDIR)/$${distname}" \
 	 && cp -Rf . "$(DISTDIR)/$${distname}" \
 	 && $(RM) -R `$(FIND) "$(DISTDIR)/$${distname}" -type d -and \( -name '.git' -or -name 'CVS' -or -name '.hg' -or -name '.svn' \) $(NO_STDERR)` \
-	 && { for d in . $(SUBDIRS); do ver="$(DISTDIR)/$${distname}/$$d/$(VERSIONINC)"; cd "$$d" && $(MAKE) update-$(BUILDINC); cd "$${topdir}"; \
+	 && { for d in . $(SUBDIRS); do ver="$(DISTDIR)/$${distname}/$$d/$(VERSIONINC)"; cd "$$d" && "$(MAKE)" update-$(BUILDINC); cd "$${topdir}"; \
 	      pat=`$(SED) -n -e "s|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*BUILD_\(GIT[^[:space:]]*\)[[:space:]]*\"\(.*\)|-e 's,DIST_\1 .*,DIST_\1 \"?-from:\2,'|p" \
 	           "$$d/$(BUILDINC)" | $(TR) '\n' ' '`; \
 	      mv "$${ver}" "$${ver}.tmp" && eval "$(SED) $$pat $${ver}.tmp" > "$${ver}" && $(RM) "$${ver}.tmp"; done; } \
 	 && $(PRINTF) "$(NAME): building dist...\n" \
-	 && cd "$(DISTDIR)/$${distname}" && $(MAKE) distclean && $(MAKE) && $(MAKE) distclean && cd "$$topdir" \
+	 && cd "$(DISTDIR)/$${distname}" && "$(MAKE)" distclean && "$(MAKE)" && "$(MAKE)" distclean && cd "$$topdir" \
 	 && cd "$(DISTDIR)" && { $(TAR) czf "$${distname}.tar.gz" "$${distname}" && targz=true || targz=false; \
      			         $(TAR) cJf "$${distname}.tar.xz" "$${distname}" || $${targz}; } && cd "$$topdir" \
 	 && $(RM) -R "$(DISTDIR)/$${distname}" \
@@ -857,13 +867,13 @@ $(SRCINC): $(SRCINC_CONTENT)
 $(LICENSE):
 	@$(cmd_TESTBSDOBJ) && $(TEST) -e "$(.CURDIR)/$@" || echo "$(NAME): create $@"
 	@$(PRINTF) "GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007 - http://gnu.org/licenses/gpl.html\n" > $@
-	@if $(cmd_TESTBSDOBJ); then $(TEST) -e $(.CURDIR)/$@ || mv $@ $(.CURDIR); ln -sf $(.CURDIR)/$@ .; fi
+	@if $(cmd_TESTBSDOBJ); then $(TEST) -e "$(.CURDIR)/$@" || mv $@ "$(.CURDIR)"; ln -sf "$(.CURDIR)/$@" .; fi
 
 $(README):
 	@$(cmd_TESTBSDOBJ) && $(TEST) -e "$(.CURDIR)/$@" || echo "$(NAME): create $@"
 	@$(PRINTF) "%s\n" "## $(NAME)" "---------------" "" "* [Overview](#overview)" "* [License](#license)" "" \
 	                  "## Overview" "TODO !" "" "## License" "GPLv3 or later. See LICENSE file." >> $@
-	@if $(cmd_TESTBSDOBJ); then $(TEST) -e $(.CURDIR)/$@ || mv $@ $(.CURDIR); ln -sf $(.CURDIR)/$@ .; fi
+	@if $(cmd_TESTBSDOBJ); then $(TEST) -e "$(.CURDIR)/$@" || mv "$@" "$(.CURDIR)"; ln -sf "$(.CURDIR)/$@" .; fi
 
 $(VERSIONINC):
 	@$(cmd_TESTBSDOBJ) && $(TEST) -e "$(.CURDIR)/$@" || echo "$(NAME): create $@"
@@ -871,7 +881,7 @@ $(VERSIONINC):
 			  "#define APP_INCLUDE_SOURCE" "#define APP_BUILD_NUMBER 1" "#define DIST_GITREV \"unknown\"" \
 			  "#define DIST_GITREVFULL \"unknown\"" "#define DIST_GITREMOTE \"unknown\"" \
 			  "#include \"build.h\"" "#endif" >> $@
-	@if $(cmd_TESTBSDOBJ); then $(TEST) -e $(.CURDIR)/$@ || mv $@ $(.CURDIR); ln -sf $(.CURDIR)/$@ .; fi
+	@if $(cmd_TESTBSDOBJ); then $(TEST) -e "$(.CURDIR)/$@" || mv "$@" "$(.CURDIR)"; ln -sf "$(.CURDIR)/$@" .; fi
 
 # As defined above, everything depends on $(BUILDINC), and we want they wait for update-$(BUILDINC)
 # create-$(BUILDINC) and update-$(BUILDINC) have .EXEC so that some bsd-make don' taint to outdated
@@ -961,7 +971,7 @@ update-$(BUILDINC): create-build.h .EXEC
 	            `$(TEST) -n "$(BIN)" && echo "$(BIN)" "$(BIN).dSYM" "$(BIN).core" "core" "core.[0-9]*[0-9]" || true` \
 	            `echo "$(FLEXLEXER_LNK)" | $(SED) -e 's|^\./||' || true`; do \
 	       $(TEST) -n "$$f" && $(PRINTF) "/$$f\n" | $(SED) -e 's|^/\./|/|' || true; done; \
-	       for f in $$build '*.o' '*.d' '*.class' '*~' '.*.swo' '.*.swp' '/valgrind_*.log'; do $(PRINTF) "$$f\n"; done; \
+	       for f in $$build '*.o' '*.d' '*.class' '*~' '.*.sw?' '/valgrind_*.log'; do $(PRINTF) "$$f\n"; done; \
 	 } | $(SORT) | $(UNIQ) > .gitignore
 
 gentags: $(CLANGCOMPLETE)
@@ -979,7 +989,7 @@ $(CLANGCOMPLETE): $(ALLMAKEFILES) $(BUILDINC)
 
 # to spread 'generic' makefile part to sub-directories
 merge-makefile:
-	@$(cmd_TESTBSDOBJ) && cd $(.CURDIR) || true; for makefile in `$(FIND) $(SUBDIRS) -name Makefile | $(SORT) | $(UNIQ)`; do \
+	@$(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; for makefile in `$(FIND) $(SUBDIRS) -name Makefile | $(SORT) | $(UNIQ)`; do \
 	     $(GREP) -E -i -B10000 '^[[:space:]]*#[[:space:]]*generic[[:space:]]part' "$${makefile}" > "$${makefile}.tmp" \
 	     && $(GREP) -E -i -A10000 '^[[:space:]]*#[[:space:]]*generic[[:space:]]part' Makefile | tail -n +2 >> "$${makefile}.tmp" \
 	     && mv "$${makefile}.tmp" "$${makefile}" && echo "merged $${makefile}" || echo "! cannot merge $${makefile}" && $(RM) -f "$${makefile}.tmp"; \
@@ -994,7 +1004,7 @@ merge-makefile:
 debug-makefile:
 	@$(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; \
 	 sed -e 's/^\(cmd_[[:space:]0-9a-zA-Z_]*\)=/\1= ls $(NAME)\/\1 || time /' Makefile > Makefile.debug \
-	 && $(MAKE) -f Makefile.debug
+	 && "$(MAKE)" -f Makefile.debug
 
 # Run Valgrind filter output
 valgrind: all
@@ -1020,7 +1030,7 @@ info:
 	@$(PRINTF) "%s\n" \
 	  "NAME             : $(NAME)" \
 	  "UNAME_SYS        : $(UNAME_SYS)  [`uname -a`]" \
-	  "MAKE             : $(MAKE)  [`$(MAKE) --version $(NO_STDERR) | $(HEADN1) || $(MAKE) -V $(NO_STDERR) | $(HEADN1)`]" \
+	  "MAKE             : $(MAKE)  [`\"$(MAKE)\" --version $(NO_STDERR) | $(HEADN1) || "$(MAKE)" -V $(NO_STDERR) | $(HEADN1)`]" \
 	  "SHELL            : $(SHELL)" \
 	  "FIND             : $(FIND)  [`$(FIND) --version $(NO_STDERR) | $(HEADN1) || $(FIND) -V $(NO_STDERR) | $(HEADN1)`]" \
 	  "AWK              : $(AWK)  [`$(AWK) --version $(NO_STDERR) | $(HEADN1) || $(AWK) -V $(NO_STDERR) | $(HEADN1)`]" \
@@ -1067,7 +1077,7 @@ info:
 	  "OBJ              : $(OBJ)" \
 	  "CLASSES          : $(CLASSES)"
 rinfo: info
-	old="$$PWD"; for d in $(SUBDIRS); do cd "$$d" && $(MAKE) rinfo; cd "$$old"; done
+	old="$$PWD"; for d in $(SUBDIRS); do cd "$$d" && "$(MAKE)" rinfo; cd "$$old"; done
 
 .PHONY: subdirs $(SUBDIRS)
 .PHONY: subdirs $(BUILDDIRS)

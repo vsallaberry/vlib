@@ -2,8 +2,7 @@
 *.d
 *.o
 *~
-.*.swo
-.*.swp
+.*.sw?
 /.clang_complete
 /Build.java
 /build.h

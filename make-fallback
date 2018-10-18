@@ -32,8 +32,8 @@
 # By default this wraps 'make', use '$ mymake=gmake ./make-fallback' to use an alternate one.
 #
 ############################################################################################
-mydir=$(dirname $0); curpwd="`pwd`"; cd "${mydir}"; mydir="`pwd`"; cd "${curpwd}"
-mypath="${mydir}/$(basename $0)"
+mydir=$(dirname "$0"); curpwd="`pwd`"; cd "${mydir}"; mydir="`pwd`"; cd "${curpwd}"
+mypath="${mydir}/"$(basename "$0")
 test -z "${mymake}" && mymake="make"
 mytest=uname
 
@@ -41,7 +41,7 @@ mytest=uname
 # -C options are concatenated, eg: make -C / -C etc is equivalent to make -C /etc.
 mymakefile=
 changedir=
-for arg in $@; do
+for arg in "$@"; do
     [ -n "${changedir}" ] && mymakefile="${mymakefile}${arg}" && changedir=
     [ "${arg}" = "-C" ] && changedir=yes
 done
@@ -61,9 +61,9 @@ if tmp=`mktemp /tmp/Makefile.XXXXXXXX` && mv "${mymakefile}" "${tmp}"; then
     touch -r "${tmp}" "${mymakefile}"
 
     # create empty .alldeps.d as some old bsd make do not see it when created by a makefile shell command.
-    deps="`dirname ${mymakefile}`/.alldeps.d"; [ -e "$deps" ] || echo '# alldeps.d' > "$deps"
+    deps=$(dirname "${mymakefile}")/.alldeps.d; [ -e "$deps" ] || echo '# alldeps.d' > "$deps"
 
-    "${mymake}" MAKE="${mypath}" $@; status=$?
+    "${mymake}" MAKE="${mypath}" "$@"; status=$?
 
     mv "${tmp}" "${mymakefile}"
     exit $status
