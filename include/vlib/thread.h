@@ -25,6 +25,8 @@
 #include <signal.h>
 #include <pthread.h>
 
+#include "vlib/log.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -35,65 +37,100 @@ struct vlib_thread_priv_s;
 /** vlib_thread_t */
 typedef struct {
     pthread_t                   tid;
+    log_t *                     log;
     struct vlib_thread_priv_s * priv;
 } vlib_thread_t;
 
 /** vlib_thread_action */
 typedef enum {
-    VTA_NONE            = 0,
-    VTA_SIG             = 1 << 0, /* action_data is SIG id */
-    VTA_INIT            = 1 << 1, /* action_data is NULL */
-    VTA_CLEAN           = 1 << 2, /* action_data is NULL */
-    VTA_PROCESS_START   = 1 << 3, /* action_data is NULL */
-    VTA_PROCESS_END     = 1 << 4, /* action_data is NULL */
-    VTA_FD_READ         = 1 << 5, /* action_data is fd */
-    VTA_FD_WRITE        = 1 << 6, /* action_data is fd */
-    VTA_FD_ERR          = 1 << 7, /* action_data is fd */
-} vlib_thread_action_t;
+    VTE_NONE            = 0,
+    VTE_SIG             = 1 << 0, /* action_data is SIG id */
+    VTE_INIT            = 1 << 1, /* action_data is NULL */
+    VTE_CLEAN           = 1 << 2, /* action_data is NULL */
+    VTE_PROCESS_START   = 1 << 3, /* action_data is NULL */
+    VTE_PROCESS_END     = 1 << 4, /* action_data is NULL */
+    VTE_FD_READ         = 1 << 5, /* action_data is fd */
+    VTE_FD_WRITE        = 1 << 6, /* action_data is fd */
+    VTE_FD_ERR          = 1 << 7, /* action_data is fd */
+} vlib_thread_event_t;
 
+/** vlib thread callback : see vlib_thread_register_event() */
 typedef int         (*vlib_thread_callback_t)(
                             vlib_thread_t *             vthread,
-                            vlib_thread_action_t        action,
-                            void *                      action_data,
-                            void *                      user_data);
-
-/** initialize a select thread
- * @return the vlib_thread context, or NULL on error. */
-vlib_thread_t *     vlib_thread_create(
-                            vlib_thread_callback_t      init_callback,
-                            vlib_thread_callback_t      clean_callback,
-                            vlib_thread_callback_t      process_start_callback,
-                            vlib_thread_callback_t      process_end_callback,
-                            struct timespec *           process_timeout,
+                            vlib_thread_event_t         event,
+                            void *                      event_data,
                             void *                      callback_user_data);
 
-/** register a flag for modification on signal reception */
+#define VLIB_THREAD_EXIT_SIG_DEFAULT    SIGUSR2
+
+/** initialize a select thread which will be waiting for
+ * vlib_thread_start() call.
+ * @param exit_signal, the signal used to finish the thread
+ *        use default VLIB_THREAD_EXIT_SIG
+ * @param timeout the select timeout in milli seconds, 0 to wait forever.
+ * @param log the log instance to use in this thread, can be NULL.
+ * @return the vlib_thread context, or NULL on error. */
+vlib_thread_t *     vlib_thread_create(
+                            int                         exit_signal,
+                            unsigned long               timeout,
+                            log_t *                     log);
+
+/** start the thread */
+int                 vlib_thread_start(
+                            vlib_thread_t *             vthread);
+
+/** stop and clean the thread: mandatory to clean resources
+ * even if the thread exited before calling this function */
+void *               vlib_thread_stop(
+                            vlib_thread_t *             vthread);
+
+/** register an action on the vlib thread
+ * @param vthread the vlib thread context
+ * @param event the type of event
+ *   VTE_{INIT,CLEAN,PROCESS*}: event_data is ignored. This flags can be combined together.
+ *   VTE_FD_{READ,WRITE,ERR}: event_data is fd. This flags can be combined together.
+ *   VTE_SIG: event_data is signal value, callback is flag pointer,
+ *            callback_user_data is flag value. This flag cannot be combined.
+ * @param event_data see parameter 'action'
+ * @param callback the callback to be called on this event (or flag ptr for VTE_SIG)
+ * @param callback_user_data the pointer to be passed to callback (or flag val for VTE_SIG)
+ * @return 0 on SUCCESS, other value on error
+ */
+int                 vlib_thread_register_event(
+                            vlib_thread_t *             vthread,
+                            vlib_thread_event_t         event,
+                            void *                      event_data,
+                            vlib_thread_callback_t      callback,
+                            void *                      callback_user_data);
+
+/*
+/ ** register a flag for modification on signal reception * /
 int                 vlib_thread_sig_register_flag(
                             vlib_thread_t *             vthread,
                             int                         sig,
                             sig_atomic_t *              flag_ptr,
                             unsigned int                value);
 
-/** unregister a flag for modification on signal reception */
+/ ** unregister a flag for modification on signal reception * /
 int                 vlib_thread_sig_unregister_flag(
                             vlib_thread_t *             vthread,
                             int                         sig,
                             sig_atomic_t *              flag_ptr);
 
-/** register a function on a signal reception */
+/ ** register a function on a signal reception * /
 int                 vlib_thread_sig_register_func(
                             vlib_thread_t *             vthread,
                             int                         sig,
                             vlib_thread_callback_t      callback,
                             void *                      callback_data);
 
-/** unregister a function on a signal reception */
+/ ** unregister a function on a signal reception * /
 int                 vlib_thread_sig_unregister_func(
                             vlib_thread_t *             vthread,
                             int                         sig,
                             vlib_thread_callback_t      callback);
 
-/** register a fd for the select call */
+/ ** register a fd for the select call * /
 int                 vlib_thread_fd_register(
                             vlib_thread_t *             vthread,
                             int                         fd,
@@ -101,13 +138,13 @@ int                 vlib_thread_fd_register(
                             vlib_thread_callback_t      callback,
                             void *                      callback_user_data);
 
-/** unregister a fd for the select call */
+/ ** unregister a fd for the select call * /
 int                 vlib_thread_fd_unregister(
                             vlib_thread_t *             vthread,
                             int                         fd,
                             vlib_thread_action_t        action,
                             vlib_thread_callback_t      callback);
-
+*/
 
 #ifdef __cplusplus
 }
