@@ -61,17 +61,16 @@ typedef int         (*vlib_thread_callback_t)(
                             void *                      event_data,
                             void *                      callback_user_data);
 
-#define VLIB_THREAD_EXIT_SIG_DEFAULT    SIGUSR2
+#define VLIB_THREAD_EXIT_SIG    SIGUSR1
 
 /** initialize a select thread which will be waiting for
  * vlib_thread_start() call.
- * @param exit_signal, the signal used to finish the thread
- *        use default VLIB_THREAD_EXIT_SIG
+ * by default the thread will use VLIB_THREAD_EXIT_SIG to exit.
  * @param timeout the select timeout in milli seconds, 0 to wait forever.
+ * if not 0, events VTE_PROCESS* will run if any on each timeout.
  * @param log the log instance to use in this thread, can be NULL.
  * @return the vlib_thread context, or NULL on error. */
 vlib_thread_t *     vlib_thread_create(
-                            int                         exit_signal,
                             unsigned long               timeout,
                             log_t *                     log);
 
@@ -102,6 +101,16 @@ int                 vlib_thread_register_event(
                             void *                      event_data,
                             vlib_thread_callback_t      callback,
                             void *                      callback_user_data);
+
+/** setup a custom signal to stop the thread
+ * @param vthread the vlib thread context
+ * @param exit_signal, the signal used to finish the thread
+ *        use default VLIB_THREAD_EXIT_SIG
+ * @return 0 on SUCCESS, other value on error
+ */
+int                 vlib_thread_set_exit_signal(
+                            vlib_thread_t *             vthread,
+                            int                         exit_signal);
 
 /*
 / ** register a flag for modification on signal reception * /
