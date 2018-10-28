@@ -82,7 +82,7 @@ LIBS_RELEASE	= $(SUBLIBS) -lpthread
 MACROS_RELEASE	=
 WARN_DEBUG	= $(WARN_RELEASE) # -Werror
 ARCH_DEBUG	= $(ARCH_RELEASE)
-OPTI_DEBUG	= -O0 -g $(OPTI_COMMON)
+OPTI_DEBUG	= -O0 -g3 $(OPTI_COMMON) # -gdwarf -g3
 INCS_DEBUG	= $(INCS_RELEASE)
 LIBS_DEBUG	= $(LIBS_RELEASE)
 MACROS_DEBUG	= -D_DEBUG -D_TEST
@@ -109,7 +109,7 @@ LIBS_darwin	= -framework IOKit -framework Foundation $(LIBS_GNUCXX_XTRA_$(UNAME_
 #   (eg: './$(BIN) arguments', '--trace-children=no ./$(BIN) arguments')
 VALGRIND_RUN_PROGRAM = ./$(BIN)
 # VALGRIND_MEM_IGNORE_PATTERN: awk regexp to ignore keyworks in LEAKS reports
-VALGRIND_MEM_IGNORE_PATTERN = __CFInitialize|_objc_init|objc_msgSend|_NSInitializePlatform
+VALGRIND_MEM_IGNORE_PATTERN = ImageLoader::recursiveInitialization|ImageLoaderMachO::doInitialization|ImageLoaderMachO::instantiateFromFile|_objc_init|_NSInitializePlatform
 # TEST_RUN_PROGRAM: what to run with 'make test' (eg: 'true', './test.sh $(BIN)', './$(BIN) --test'
 TEST_RUN_PROGRAM = true
 
@@ -147,6 +147,7 @@ INSTALL		= install -c -m 0644
 INSTALLBIN	= install -c -m 0755
 INSTALLDIR	= install -c -d -m 0755
 VALGRIND	= valgrind
+VALGRIND_ARGS	= --leak-check=full --track-origins=yes # --show-leak-kinds=all
 MKTEMP		= mktemp
 NO_STDERR	= 2> /dev/null
 NO_STDOUT	= > /dev/null
@@ -635,14 +636,18 @@ test: all $(TESTDIRS)
 $(TESTDIRS): all
 	@recdir=$(@:-test=); rectarget=test; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} test
 
-# --- build bin&lib ---
+# --- build BIN ---
 $(BIN): $(OBJ) $(SUBLIBS) $(JCNIINC)
 	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/`basename $@`" "$(.CURDIR)"; else $(TEST) -L $@ && $(RM) $@ || true; fi
 	$(CCLD) $(OBJ:.class=*.class) $(LDFLAGS) -o $@
 	@$(PRINTF) "$@: build done.\n"
 
+# --- build LIB ---
 $(LIB): $(OBJ) $(SUBLIBS) $(JCNIINC)
 	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/`basename $@`" "$(.CURDIR)"; else $(TEST) -L $@ && $(RM) $@ || true; fi
+	@# Workaround for issue on osx 10.11 where object names are changed when replaced,
+	@# which disturbs dsymutil. This allows also to remove objects that are not part anymore of lib.
+	@$(RM) $@
 	$(AR) $(ARFLAGS) $@ $(OBJ:.class=*.class)
 	$(RANLIB) $@
 	@$(PRINTF) "$@: build done.\n"
@@ -1008,24 +1013,74 @@ debug-makefile:
 
 # Run Valgrind filter output
 valgrind: all
+	@$(RM) -R $(BIN).dSYM
 	@logfile=`$(MKTEMP) ./valgrind_XXXXXX` && $(MV) "$${logfile}" "$${logfile}.log"; logfile="$${logfile}.log"; \
-	 $(VALGRIND) --leak-check=full --log-file="$${logfile}" $(VALGRIND_RUN_PROGRAM) || true; \
-	 $(AWK) '/[0-9]+[[:space:]]+bytes[[:space:]]+/ { block=1; blockignore=0; blockstr=$$0; } \
+	 $(VALGRIND) $(VALGRIND_ARGS) --log-file="$${logfile}" $(VALGRIND_RUN_PROGRAM) || true; \
+	 $(AWK) '/([0-9]+[[:space:]]+bytes|[cC]onditional jump|uninitialised value)[[:space:]]+/ { if (block == 0) {block=1; blockignore=0;} } \
 	         //{ \
 	             if (block) { \
-	                 blockstr=blockstr "\n" $$0; \
-	                 if (/$(VALGRIND_MEM_IGNORE_PATTERN)/) blockignore=1; \
+			 if (/$(VALGRIND_MEM_IGNORE_PATTERN)/) {blockignore=1;} else {blockstr=blockstr "\n" $$0}; \
 	             } else { print $$0; } \
 	         } \
-	         /=+[0-9]+=+[[:space:]]*$$/ { \
+		 /^[[:space:]]*=+[0-9]+=+[[:space:]]*$$/ { \
 	             if (block) { \
 	                 if (!blockignore) print blockstr; \
+			 blockstr=""; \
 	                 block=0; \
 	             } \
 	         } \
 	         ' $${logfile} > $${logfile%.log}_filtered.log && cat $${logfile%.log}_filtered.log \
 	 && echo "* valgrind output in $${logfile} and $${logfile%.log}_filtered.log (will be deleted by 'make distclean')"
 
+help:
+	@$(PRINTF) "%s\n" \
+	  "make <target>" \
+	  "  target: all, file (main.o, bison.c), ...:" \
+	  "  CC           [$(CC)]" \
+	  "  CXX          [$(CXX)]" \
+	  "  OBJC         [$(OBJC)]" \
+	  "  GCJ          [$(GCJ)]" \
+	  "  MACROS       [$(MACROS)]" \
+	  "  OPTI         [$(OPTI)]" \
+	  "  WARN         [$(WARN)]" \
+	  "  ARCH         [$(ARCH)]" \
+	  "  INCS         [$(INCS)]" \
+	  "  INCDIRS      [$(INCDIRS)]" \
+	  "  LIBS         [$(LIBS)]" \
+	  "  FLAGS_C      [$(FLAGS_C)]" \
+	  "  FLAGS_CXX    [$(FLAGS_CXX)]" \
+	  "  FLAGS_OBJC   [$(FLAGS_OBJC)]" \
+	  "  FLAGS_GCJ    [$(FLAGS_GCJ)]" \
+	  "  ..." \
+	  "" \
+  	  "make info" \
+	  "  display makefile variables" \
+	  "" \
+	  "make valgrind" \
+	  "  run valgrind with:" \
+	  "   VALGRIND                    [$(VALGRIND)]" \
+	  "   VALGRIND_ARGS               [$(VALGRIND_ARGS)]" \
+	  "   VALGRIND_RUN_PROGRAM        [$(VALGRIND_RUN_PROGRAM)]" \
+	  "   VALGRIND_MEM_IGNORE_PATTERN [$(VALGRIND_MEM_IGNORE_PATTERN)]" \
+	  "" \
+	  "make merge-makefile" \
+	  "  merge the common part of Makefile with SUBDIRS:" \
+	  "   SUBDIRS [$(SUBDIRS)]" \
+	  "" \
+	  "make install" \
+	  "  PREFIX         [$(PREFIX)]" \
+	  "  INSTALL_FILES  [$(INSTALL_FILES)]" \
+	  "" \
+	  "make test" \
+	  "  TEST_RUN_PROGRAM [`echo "$(TEST_RUN_PROGRAM)"`]" \
+	  "" \
+	  "make .gitignore" \
+	  "" \
+	  "make dist" \
+	  "  DISTDIR          [ $(DISTDIR) ]" \
+	  ""
+
+#
 info:
 	@$(PRINTF) "%s\n" \
 	  "NAME             : $(NAME)" \
@@ -1089,5 +1144,5 @@ rinfo: info
 .PHONY: subdirs $(DOCDIRS)
 .PHONY: default_rule all build_all cleanme clean distclean dist test info rinfo \
 	doc installme install debug gentags update-$(BUILDINC) create-$(BUILDINC) \
-	.gitignore merge-makefile debug-makefile valgrind
+	.gitignore merge-makefile debug-makefile valgrind help
 
