@@ -100,6 +100,7 @@ vlib_thread_t *     vlib_thread_create(
     vlib_thread_priv_t *    priv = NULL;
     sigset_t                sigset, sigsetsave;
 
+    /* vlib_thread_t allocation and initialization */
     if ((vthread = calloc(1, sizeof(vlib_thread_t))) == NULL) {
         LOG_ERROR(g_vlib_log, "cannot malloc vlib_thread_t: %s", strerror(errno));
         return NULL;
@@ -116,28 +117,33 @@ vlib_thread_t *     vlib_thread_create(
     vthread->priv = priv;
     priv->process_timeout = process_timeout;
     priv->exit_signal = VLIB_THREAD_EXIT_SIG;
-    /* set the signal mask to nothing but the exit_signal
-     * so that the thread is created with it already blocked */
-    sigemptyset(&sigset);
-    sigaddset(&sigset, priv->exit_signal);
-    sigaddset(&sigset, SIGINT);
-    pthread_sigmask(SIG_SETMASK, &sigset, &sigsetsave);
-
     pthread_mutex_init(&priv->mutex, NULL);
     pthread_cond_init(&priv->cond, NULL);
     pthread_mutex_lock(&priv->mutex);
 
+    /* set the signal mask to nothing but the exit_signal
+     * so that the thread is created with it already blocked */
+    sigemptyset(&sigset);
+    sigemptyset(&sigsetsave);
+    sigaddset(&sigset, priv->exit_signal);
+    sigaddset(&sigset, SIGINT);
+    pthread_sigmask(SIG_SETMASK, &sigset, &sigsetsave);
+
+    /* create and run the thread */
     if (pthread_create(&vthread->tid, NULL, vlib_thread, vthread) != 0) {
-        LOG_ERROR(vthread->log, "%s(): pthread_create error: %s", strerror(errno));
+        LOG_ERROR(vthread->log, "pthread_create error: %s", strerror(errno));
         pthread_mutex_unlock(&priv->mutex);
         vlib_thread_ctx_destroy(vthread);
         pthread_sigmask(SIG_SETMASK, &sigsetsave, NULL);
         return NULL;
     }
-    /* wait for the thread blocking exit_signal */
+
+    /* wait for the thread beiing ready to be stopped by vlib_thread_stop,
+     * restore signal handler and give hand back */
     pthread_cond_wait(&priv->cond, &priv->mutex);
     pthread_mutex_unlock(&priv->mutex);
     pthread_sigmask(SIG_SETMASK, &sigsetsave, NULL);
+
     LOG_VERBOSE(vthread->log, "thread: created");
     return vthread;
 }
@@ -161,6 +167,88 @@ int                 vlib_thread_start(
 
     return ret;
 }
+
+#if defined(_DEBUG) && (defined(__APPLE__) || defined(BUILD_SYS_darwin))
+/* This is workaround to SIGSEGV occuring during pthread_join when
+ * valgrind is running the program
+ * I am not sure yet if it is a problem on my side, on valgrind side or
+ * on apple side, but some posts on the net are assuming that this is
+ * valgrind or apple:
+ * see:
+ *  + https://bugs.kde.org/show_bug.cgi?id=349128
+ *  + https://web.archive.org/web/20160304041047/https://bytecoin.org/blog/pthread-bug-osx
+ *  + https://stackoverflow.com/questions/36576251/stdthread-join-sigsegv-on-mac-os-under-valgrind#37920222
+ */
+#include <sys/types.h>
+#include <sys/param.h>
+#include <sys/sysctl.h>
+
+static int is_valgrind(int argc, const char *const* argv) {
+    static int valgrind = -1;
+    if (valgrind != -1)
+        return valgrind;
+
+    /*
+    int mib2[] = {
+	    CTL_KERN,
+	    KERN_PROC,
+        KERN_PROC_PID,
+        getpid()
+    };
+    struct kinfo_proc proc;
+    size_t len = sizeof(proc);
+    if (sysctl(mib2, sizeof(mib2) / sizeof(*mib2), &proc, &len, NULL, 0) < 0) {
+	    LOG_ERROR(NULL, "sysctl(buf): %s", strerror(errno));
+	    return -1;
+    }
+    */
+
+    int mib[] = {
+	    CTL_KERN,
+	    KERN_PROCARGS,
+        getpid()
+    };
+    int kargv_len = 0;
+    char * kargv;
+
+    if (sysctl(mib, sizeof(mib) / sizeof(*mib), NULL, &kargv_len, NULL, 0) < 0) {
+	    LOG_ERROR(NULL, "sysctl(NULL): %s", strerror(errno));
+	    return -1;
+    }
+    if ((kargv = malloc(kargv_len * sizeof(char))) == NULL) {
+        LOG_ERROR(NULL, "malloc argv: %s", strerror(errno));
+	    return -1;
+    }
+    if (sysctl(mib, sizeof(mib) / sizeof(*mib), kargv, &kargv_len, NULL, 0) < 0) {
+        LOG_ERROR(NULL, "sysctl(buf): %s", strerror(errno));
+        free(argv);
+	    return -1;
+    }
+    valgrind = 0;
+    flockfile(stderr);
+    fprintf(stderr, "*** ARGV(%d):\n", kargv_len);
+    for (int i = 0; i < kargv_len; ) {
+        fprintf(stderr, "%d.%d><", kargv[i], kargv[i+1]);
+        if (strncmp(kargv + i, "./vsensorsdemo", strlen("./vsensorsdemo")+1) == 0)
+            break ;
+        if (strstr(kargv + i, "valgrind") != NULL
+        || strstr(kargv + i, "memcheck") != NULL) {
+            valgrind = 1;
+            break ;
+        }
+        i += fprintf(stderr, "%s>", kargv + i);
+        fputc('\n', stderr);
+    }
+    //fwrite(argv, sizeof(char), argv_len, stderr);
+    fputc('\n', stderr);
+    fprintf(stderr, "*** VALGRIND: %d\n", valgrind);
+    funlockfile(stderr);
+    free(kargv);
+    return valgrind;
+}
+#else
+# define is_valgrind(argc, argv) 0
+#endif
 
 /** stop and clean the thread
  * @param vthread will be freed by this function
@@ -188,11 +276,23 @@ void *                  vlib_thread_stop(
     ret = pthread_cond_signal(&priv->cond);
     LOG_DEBUG(vthread->log, "pthread_cond_signal ret %d", ret);
 
+    int valgrind = is_valgrind(0, NULL);
+    if (valgrind) {
+        LOG_DEBUG(vthread->log, "VALGRIND: pthread_cond_wait...");
+        pthread_cond_wait(&priv->cond, &priv->mutex);
+        ret_val = NULL;
+    }
     pthread_mutex_unlock(&priv->mutex);
+    sched_yield();
+    sched_yield();
 
-    LOG_DEBUG(vthread->log, "pthread_join...");
-    pthread_join(vthread->tid, &ret_val);
+    if (!valgrind) {
+        LOG_DEBUG(vthread->log, "pthread_join...");
+        pthread_join(vthread->tid, &ret_val);
+    }
+
     pthread_mutex_unlock(&flag_mutex);
+
     LOG_DEBUG(vthread->log, "destroy vthread and return...");
     vlib_thread_ctx_destroy(vthread);
 
@@ -288,6 +388,7 @@ static void * vlib_thread(void * data) {
 
     LOG_VERBOSE(vthread->log, "thread: initializing");
     pthread_mutex_lock(&priv->mutex);
+
     /* let know the creator (vlib_thread_create) that we are running, to avoid
      * vlib_thread_{start,stop} executing before the thread is ready to handle it. */
     pthread_cond_signal(&priv->cond);
@@ -308,12 +409,19 @@ static void * vlib_thread(void * data) {
         return (void*) -1;
     }
     flag_sig_handler(SIG_SPECIAL_VALUE, NULL, (void *) &thread_running);
+
+    /* install signal handlers on exit_signal and SIGPIPE */
     sigemptyset(&sa.sa_mask);
     if (sigaction(priv->exit_signal, &sa, NULL) < 0) {
         LOG_ERROR(vthread->log, "error sigaction(%d): %s", priv->exit_signal, strerror(errno));
         pthread_cond_signal(&priv->cond);
         pthread_mutex_unlock(&priv->mutex);
         return (void*) -1;
+    }
+    sa.sa_flags &= (~SA_SIGINFO);
+    sa.sa_handler = SIG_IGN;
+    if (sigaction(SIGPIPE, &sa, NULL) < 0) {
+        LOG_WARN(vthread->log, "error sigaction(SIGPIPE)");
     }
 
     /* wait for vlib_thread_start() and signal back just before loop starts
@@ -439,8 +547,9 @@ static void * vlib_thread(void * data) {
     /*pthread_mutex_lock(&flag_mutex);
     flag_sig_handler(priv->exit_signal,
     pthread_mutex_unlock(&flag_mutex);*/
-
+    pthread_cond_signal(&priv->cond);
     pthread_mutex_unlock(&priv->mutex);
+    //pthread_exit((void*)0);
 
     return (void*) 0;
 }
@@ -456,9 +565,9 @@ static void flag_sig_handler(int sig, siginfo_t * sig_info,  void * context) {
               sig, sig_info, sig_info? sig_info->si_pid : -1, context, tself);
 
     if (sig != SIG_SPECIAL_VALUE) {
-        if (sig_info
+        if (1
 #       ifndef _DEBUG /* when run with gdb, the sender of signal is not getpid() */
-        && sig_info->si_pid == getpid()
+        && sig_info && sig_info->si_pid == getpid()
 #       endif
         ) {
             /* looking for tid in threadlist and update running if found, then delete entry */

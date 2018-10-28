@@ -41,7 +41,7 @@ typedef struct {
     struct vlib_thread_priv_s * priv;
 } vlib_thread_t;
 
-/** vlib_thread_action */
+/** vlib_thread_event */
 typedef enum {
     VTE_NONE            = 0,
     VTE_SIG             = 1 << 0, /* action_data is SIG id */
@@ -61,15 +61,19 @@ typedef int         (*vlib_thread_callback_t)(
                             void *                      event_data,
                             void *                      callback_user_data);
 
+/** the default signal used to kill the thread,
+ * can be changed with vlib_thread_set_exit_signal() */
 #define VLIB_THREAD_EXIT_SIG    SIGUSR1
 
 /** initialize a select thread which will be waiting for
- * vlib_thread_start() call.
- * by default the thread will use VLIB_THREAD_EXIT_SIG to exit.
+ * vlib_thread_start() call, allowing customizations before start.
+ * By default the thread will use VLIB_THREAD_EXIT_SIG to exit.
+ *
  * @param timeout the select timeout in milli seconds, 0 to wait forever.
- * if not 0, events VTE_PROCESS* will run if any on each timeout.
- * @param log the log instance to use in this thread, can be NULL.
- * @return the vlib_thread context, or NULL on error. */
+ *        if not 0, events VTE_PROCESS* will run if any on each timeout.
+ * @param log the log instance to use in this thread. g_vlib_log is used if log is NULL.
+ * @return the vlib_thread context, or NULL on error.
+ */
 vlib_thread_t *     vlib_thread_create(
                             unsigned long               timeout,
                             log_t *                     log);
