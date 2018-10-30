@@ -37,6 +37,7 @@ typedef int     (*slist_cmp_fun_t)(const void *, const void *);
 
 slist_t *       slist_prepend(slist_t * list, void * data);
 slist_t *       slist_append(slist_t * list, void * data);
+slist_t *       slist_insert_sorted(slist_t * list, void * data, slist_cmp_fun_t cmpfun);
 
 slist_t *       slist_concat(slist_t * list1, slist_t * list2);
 

@@ -53,6 +53,25 @@ slist_t * slist_append(slist_t * list, void * data) {
     return list;
 }
 
+slist_t * slist_insert_sorted(slist_t * list, void * data, slist_cmp_fun_t cmpfun) {
+    slist_t * new = slist_alloc();
+    if (new) {
+        slist_t * tail;
+
+        new->data = data;
+        if (!list || (cmpfun && cmpfun(data, list->data) < 0)) {
+            new->next = list;
+            return new;
+        }
+        for (tail = list; tail->next; tail = tail->next)
+            if (cmpfun && cmpfun(data, tail->next->data) < 0)
+               break; /* go to list tail, unless the new element is lower */
+        new->next = tail->next;
+        tail->next = new;
+    }
+    return list;
+}
+
 slist_t * slist_concat(slist_t * list1, slist_t * list2) {
     slist_t * tail;
 
