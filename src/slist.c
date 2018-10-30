@@ -130,9 +130,12 @@ slist_t * slist_remove(slist_t * list, const void * data,
     return head;
 }
 
+static int ptrcmp(const void * p1, const void * p2) {
+    return (unsigned long) p1 - (unsigned long) p2;
+}
+
 slist_t * slist_remove_ptr(slist_t * list, const void * data) {
-    (void)data;
-    return list;
+    return slist_remove(list, data, ptrcmp, NULL);
 }
 
 unsigned int    slist_length(slist_t * list) {
