@@ -80,11 +80,12 @@ static int btree_visit_insert(btree_t * tree, btree_node_t * node, void * data) 
 
 static int btree_visit_free(btree_t * tree, btree_node_t * node, void * data) {
     (void) data;
-    btree_free_node(tree, node);
+    btree_node_free(tree, node);
     return BVS_CONT;
 }
 
 btree_t *       btree_create(
+                    btree_flags_t       flags,
                     btree_cmpfun_t      cmpfun,
                     btree_freefun_t     freefun) {
     btree_t * tree;
@@ -97,6 +98,7 @@ btree_t *       btree_create(
         return NULL;
     }
     tree->root = NULL;
+    tree->flags = flags;
     tree->cmp = cmpfun;
     tree->free = freefun;
     return tree;
@@ -111,7 +113,7 @@ btree_node_t *  btree_insert(
         return NULL;
     }
     insert_data.data = data;
-    if (btree_visit(tree, btree_visit_insert, &insert_data) == BVS_FINISHED) {
+    if (btree_visit(tree, btree_visit_insert, &insert_data, BVH_DEFAULT) == BVS_FINISHED) {
         return insert_data.node;
     }
     return NULL;
@@ -122,7 +124,7 @@ void            btree_free(
     if (tree == NULL) {
         return ;
     }
-    btree_visit(tree, btree_visit_free, NULL);
+    btree_visit(tree, btree_visit_free, NULL, BVH_DEFAULT);
 }
 
 void *          btree_find(
@@ -134,7 +136,8 @@ void *          btree_find(
 int             btree_visit(
                     btree_t *           tree,
                     btree_visitfun_t    visit,
-                    void *              visit_data) {
+                    void *              visit_data,
+                    btree_visit_how_t   how) {
     slist_t *   stack = NULL;
     int         ret = BVS_FINISHED;
 

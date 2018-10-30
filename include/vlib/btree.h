@@ -38,9 +38,16 @@ typedef struct btree_node_s {
     struct btree_node_s *       right;
 } btree_node_t;
 
+/** how to visit the tree (direction) */
+typedef enum {
+    BF_DEFAULT,
+} btree_flags_t;
+
+
 /** btree_t */
 typedef struct {
     struct btree_node_t *       root;
+    btree_flags_t               flags;
     btree_cmpfun_t              cmp;
     btree_freefun_t             free;
 } btree_t;
@@ -63,8 +70,18 @@ enum {
  */
 typedef int     (*btree_visitfun_t) (btree_t * tree, btree_node_t * node, void * data);
 
+/** how to visit the tree (direction) */
+typedef enum {
+    BVH_LEFT_LEAF   = 0,
+    BVH_RIGHT_LEAF,
+    BVH_LEFT_RIGHT,
+    BVH_RIGHT_LEFT,
+    BVH_DEFAULT = BVH_LEFT_RIGHT,
+} btree_visit_how_t;
+
 /** btree_create() */
 btree_t *       btree_create(
+                    btree_flags_t       flags,
                     btree_cmpfun_t      cmpfun,
                     btree_freefun_t     freefun);
 
@@ -86,7 +103,8 @@ void *          btree_find(
 int             btree_visit(
                     btree_t *           tree,
                     btree_visitfun_t    visit,
-                    void *              visit_data);
+                    void *              visit_data,
+                    btree_visit_how_t   how);
 
 #ifdef __cplusplus
 }
