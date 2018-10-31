@@ -17,26 +17,31 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 /* ------------------------------------------------------------------------
- * Simple bintree utilities.
+ * Simple avl tree utilities.
+ * AVL: 1962, Georgii Adelson-Velsky & Evguenii Landis.
  */
 #include <stdlib.h>
 
-#include "vlib/btree.h"
+#include "vlib/avltree.h"
 #include "vlib/slist.h"
 
+/*****************************************************************************/
 typedef struct {
-    btree_node_t *  node;
-    void *          data;
-} btree_visit_insert_t;
+    avltree_node_t *    node;
+    void *              data;
+} avltree_visit_insert_t;
 
-static void btree_avl_rotate(btree_t * tree);
+/*****************************************************************************/
+static void avltree_avl_rotate(avltree_t * tree);
 
-static btree_node_t * btree_node_alloc(btree_t * tree) {
+/*****************************************************************************/
+static avltree_node_t * avltree_node_alloc(avltree_t * tree) {
     (void)tree;
-    return malloc(sizeof(btree_node_t));
+    return malloc(sizeof(avltree_node_t));
 }
 
-static void btree_node_free(btree_t * tree, btree_node_t * node) {
+/*****************************************************************************/
+static void avltree_node_free(avltree_t * tree, avltree_node_t * node) {
     if (tree && node) {
         if (tree->free) {
             tree->free(node->data);
@@ -45,16 +50,17 @@ static void btree_node_free(btree_t * tree, btree_node_t * node) {
     }
 }
 
-static int btree_visit_insert(btree_t * tree, btree_node_t * node, void * data) {
-    btree_visit_insert_t *      insert_data = (btree_visit_insert_t *) data;
-    btree_node_t *              new;
-    btree_node_t **             parent;
+/*****************************************************************************/
+static int avltree_visit_insert(avltree_t * tree, avltree_node_t * node, void * data) {
+    avltree_visit_insert_t *      insert_data = (avltree_visit_insert_t *) data;
+    avltree_node_t *              new;
+    avltree_node_t **             parent;
 
     if (tree->cmp(data, node->data) <= 0) {
         /* go left */
         if (node->left != NULL && tree->cmp(data, node->left->data) <= 0) { // FIXME
             /* need to visit left node because its value is greater than data */
-            return BVS_GO_LEFT;
+            return AVS_GO_LEFT;
         }
         /* left is null, we insert on node->left */
         parent = &node->left;
@@ -62,38 +68,40 @@ static int btree_visit_insert(btree_t * tree, btree_node_t * node, void * data) 
         /* go right */
         if (node->right != NULL && tree->cmp(data, node->right->data) > 0) { // FIXME
             /* need to visit right node because its value is smaller than data */
-            return BVS_GO_RIGHT;
+            return AVS_GO_RIGHT;
         }
         /* right is null, we insert on node->right */
         parent = &node->right;
     }
-    new = btree_node_alloc(tree);
+    new = avltree_node_alloc(tree);
     if (node == NULL)
-        return BVS_ERROR;
+        return AVS_ERROR;
     new->left = NULL; //FIXME
     new->right = NULL; //FIXME
     new->data = insert_data->data;
     (*parent) = new;
     insert_data->node = new;
-    return BVS_FINISHED;
+    return AVS_FINISHED;
 }
 
-static int btree_visit_free(btree_t * tree, btree_node_t * node, void * data) {
+/*****************************************************************************/
+static int avltree_visit_free(avltree_t * tree, avltree_node_t * node, void * data) {
     (void) data;
-    btree_node_free(tree, node);
-    return BVS_CONT;
+    avltree_node_free(tree, node);
+    return AVS_CONT;
 }
 
-btree_t *       btree_create(
-                    btree_flags_t       flags,
-                    btree_cmpfun_t      cmpfun,
-                    btree_freefun_t     freefun) {
-    btree_t * tree;
+/*****************************************************************************/
+avltree_t *       avltree_create(
+                    avltree_flags_t     flags,
+                    avltree_cmpfun_t    cmpfun,
+                    avltree_freefun_t   freefun) {
+    avltree_t * tree;
 
     if (cmpfun == NULL) {
         return NULL; // bin tree is based on node comparisons.
     }
-    tree = malloc(sizeof(btree_t));
+    tree = malloc(sizeof(avltree_t));
     if (tree == NULL) {
         return NULL;
     }
@@ -104,73 +112,88 @@ btree_t *       btree_create(
     return tree;
 }
 
-btree_node_t *  btree_insert(
-                    btree_t *           tree,
+/*****************************************************************************/
+avltree_node_t *  avltree_insert(
+                    avltree_t *         tree,
                     void *              data) {
-    btree_visit_insert_t    insert_data;
+    avltree_visit_insert_t    insert_data;
 
     if (tree == NULL) {
         return NULL;
     }
     insert_data.data = data;
-    if (btree_visit(tree, btree_visit_insert, &insert_data, BVH_DEFAULT) == BVS_FINISHED) {
+    if (avltree_visit(tree, avltree_visit_insert, &insert_data, AVH_DEFAULT) == AVS_FINISHED) {
         return insert_data.node;
     }
     return NULL;
 }
 
-void            btree_free(
-                    btree_t *           tree) {
+/*****************************************************************************/
+void            avltree_free(
+                    avltree_t *         tree) {
     if (tree == NULL) {
         return ;
     }
-    btree_visit(tree, btree_visit_free, NULL, BVH_DEFAULT);
+    avltree_visit(tree, avltree_visit_free, NULL, AVH_DEFAULT);
 }
 
-void *          btree_find(
-                    btree_t *           tree,
+/*****************************************************************************/
+void *          avltree_find(
+                    avltree_t *         tree,
                     const void *        data) {
+    //TODO
     return NULL;
 }
 
-int             btree_visit(
-                    btree_t *           tree,
-                    btree_visitfun_t    visit,
+/*****************************************************************************/
+int             avltree_visit(
+                    avltree_t *         tree,
+                    avltree_visitfun_t  visit,
                     void *              visit_data,
-                    btree_visit_how_t   how) {
+                    avltree_visit_how_t how) {
     slist_t *   stack = NULL;
-    int         ret = BVS_FINISHED;
+    int         ret = AVS_FINISHED;
 
     if (tree == NULL || visit == NULL) {
-        return BVS_ERROR;
+        return AVS_ERROR;
     }
     stack = slist_prepend(stack, tree->root);
     while (stack != NULL) {
-        btree_node_t *      node = (btree_node_t *) stack->data;
-        btree_node_t *      right = node->right;
-        btree_node_t *      left = node->left;
+        avltree_node_t *      node = (avltree_node_t *) stack->data;
+        avltree_node_t *      right = node->right;
+        avltree_node_t *      left = node->left;
         /* visit the current node */
-        ret = visit(tree, node, visit_data);
+        ret = visit(tree, node, visit_data); // FIXME: must take care of how
         /* pop current node from the stack */
         stack = slist_remove_ptr(stack->data, NULL);
         /* stop on error or when visit goal is accomplished */
-        if (ret == BVS_ERROR || ret == BVS_FINISHED) {
+        if (ret == AVS_ERROR || ret == AVS_FINISHED) {
             break ;
         }
         /* push node->left if required */
-        if (ret == BVS_GO_LEFT || ret == BVS_CONT) {
+        if (ret == AVS_GO_LEFT || ret == AVS_CONT) {
             stack = slist_prepend(stack, left);
         }
         /* push node->right if required */
-        if (ret == BVS_GO_RIGHT || ret == BVS_CONT) {
+        if (ret == AVS_GO_RIGHT || ret == AVS_CONT) {
             stack = slist_prepend(stack, right);
         }
     }
     slist_free(stack, NULL);
-    return ret != BVS_ERROR ? BVS_FINISHED : BVS_ERROR;
+    return ret != AVS_ERROR ? AVS_FINISHED : AVS_ERROR;
 }
 
-static void btree_avl_rotate(btree_t * tree) {
-
+/*****************************************************************************/
+void *          avltree_remove(
+                    avltree_t *         tree,
+                    const void *        data) {
+    //TODO
+    return NULL;
 }
+
+/*****************************************************************************/
+static void avltree_avl_rotate(avltree_t * tree) {
+    //TODO
+}
+
 
