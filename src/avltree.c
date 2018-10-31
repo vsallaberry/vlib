@@ -23,7 +23,10 @@
 #include <stdlib.h>
 
 #include "vlib/avltree.h"
+#include "vlib/log.h"
 #include "vlib/slist.h"
+
+#include "vlib_private.h"
 
 /*****************************************************************************/
 typedef struct {
@@ -56,31 +59,50 @@ static int avltree_visit_insert(avltree_t * tree, avltree_node_t * node, void * 
     avltree_node_t *              new;
     avltree_node_t **             parent;
 
-    if (tree->cmp(data, node->data) <= 0) {
+    LOG_DEBUG(g_vlib_log, "visiting node 0x%lx data %ld left:0x%lx right:0x%lx "
+                          "left_data:0x%ld right_data:0x%ld\n",
+              (unsigned long)node, (long) node->data,
+              (unsigned long)node->left, (unsigned long)node->right,
+              node->left?(long)node->left->data:-1, node->right?(long)node->right->data:-1);
+
+    if (tree->cmp(insert_data->data, node->data) <= 0) {
         /* go left */
-        if (node->left != NULL && tree->cmp(data, node->left->data) <= 0) { // FIXME
+        if (node->left != NULL && tree->cmp(insert_data->data, node->left->data) <= 0) { // FIXME
             /* need to visit left node because its value is greater than data */
             return AVS_GO_LEFT;
         }
         /* left is null, we insert on node->left */
-        parent = &node->left;
+        parent = &(node->left);
     } else {
         /* go right */
-        if (node->right != NULL && tree->cmp(data, node->right->data) > 0) { // FIXME
+        if (node->right != NULL && tree->cmp(insert_data->data, node->right->data) > 0) { // FIXME
             /* need to visit right node because its value is smaller than data */
             return AVS_GO_RIGHT;
         }
         /* right is null, we insert on node->right */
-        parent = &node->right;
+        parent = &(node->right);
     }
     new = avltree_node_alloc(tree);
-    if (node == NULL)
+    if (new == NULL)
         return AVS_ERROR;
-    new->left = NULL; //FIXME
-    new->right = NULL; //FIXME
+    if (parent == &node->right) {   //FIXME
+        new->left = (*parent);
+        new->right = NULL;
+    } else {                        //FIXME
+        new->right = (*parent);
+        new->left = NULL;
+    }
     new->data = insert_data->data;
     (*parent) = new;
     insert_data->node = new;
+
+    LOG_DEBUG(g_vlib_log, "inserted node 0x%lx data %ld left:0x%lx right:0x%lx "
+                          "node:0x%lx node->left:0x%lx node->right:0x%lx\n parent 0x%lx",
+              (unsigned long)new, (long)new->data, (unsigned long)new->left,
+              (unsigned long)new->right, (unsigned long)node,
+              (unsigned long)node->left, (unsigned long)node->right,
+              (unsigned long)*parent);
+
     return AVS_FINISHED;
 }
 
@@ -121,6 +143,17 @@ avltree_node_t *  avltree_insert(
     if (tree == NULL) {
         return NULL;
     }
+    if (tree->root == NULL) {
+        /* particular case when root is NULL : allocate it here without visiting */
+        tree->root = avltree_node_alloc(tree);
+        tree->root->left = NULL;
+        tree->root->right = NULL;
+        tree->root->data = data;
+        LOG_DEBUG(g_vlib_log, "created root 0x%lx data 0x%ld left:0x%lx right:0x%lx\n",
+                  (unsigned long)tree->root, (long)tree->root->data,
+                  (unsigned long)tree->root->left, (unsigned long)tree->root->right);
+        return tree->root;
+    }
     insert_data.data = data;
     if (avltree_visit(tree, avltree_visit_insert, &insert_data, AVH_DEFAULT) == AVS_FINISHED) {
         return insert_data.node;
@@ -157,7 +190,9 @@ int             avltree_visit(
     if (tree == NULL || visit == NULL) {
         return AVS_ERROR;
     }
-    stack = slist_prepend(stack, tree->root);
+    if (tree->root != NULL) {
+        stack = slist_prepend(stack, tree->root);
+    }
     while (stack != NULL) {
         avltree_node_t *      node = (avltree_node_t *) stack->data;
         avltree_node_t *      right = node->right;
@@ -165,17 +200,17 @@ int             avltree_visit(
         /* visit the current node */
         ret = visit(tree, node, visit_data); // FIXME: must take care of how
         /* pop current node from the stack */
-        stack = slist_remove_ptr(stack->data, NULL);
+        stack = slist_remove_ptr(stack, stack->data);
         /* stop on error or when visit goal is accomplished */
         if (ret == AVS_ERROR || ret == AVS_FINISHED) {
             break ;
         }
         /* push node->left if required */
-        if (ret == AVS_GO_LEFT || ret == AVS_CONT) {
+        if (left != NULL && (ret == AVS_GO_LEFT || ret == AVS_CONT)) {
             stack = slist_prepend(stack, left);
         }
         /* push node->right if required */
-        if (ret == AVS_GO_RIGHT || ret == AVS_CONT) {
+        if (right != NULL && (ret == AVS_GO_RIGHT || ret == AVS_CONT)) {
             stack = slist_prepend(stack, right);
         }
     }
