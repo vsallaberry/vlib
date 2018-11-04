@@ -34,8 +34,16 @@
 #include "vlib/util.h"
 #include "vlib/options.h"
 
+/** internal vlib log instance */
+static log_t s_vlib_log_default = {
+    .level = LOG_LVL_INFO,
+    .out = NULL,
+    .flags = LOG_FLAG_DEFAULT,
+    .prefix = "vlib"
+};
+
 /** global internal vlib log instance, shared between vlib components */
-log_t * g_vlib_log = NULL;
+log_t * g_vlib_log = &s_vlib_log_default;
 
 /** global vlib log state structure */
 #define LOG_DATETIME_SZ 18
@@ -102,7 +110,8 @@ int log_describe_option(char * buffer, int * size, const char *const* modules,
     return OPT_CONTINUE(1);
 }
 
-void log_set_vlib_instance(log_t * log) {
+log_t * log_set_vlib_instance(log_t * log) {
+    log_t * old_log = g_vlib_log;
     FILE * out = g_vlib_log ? g_vlib_log->out : NULL;
 
     if (out) {
@@ -112,6 +121,7 @@ void log_set_vlib_instance(log_t * log) {
     g_vlib_log = log;
     if (out)
         funlockfile(out);
+    return old_log;
 }
 
 static int log_location(FILE * out, log_flag_t flags, log_level_t level,

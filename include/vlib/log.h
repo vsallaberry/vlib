@@ -178,8 +178,11 @@ int         log_list_prefixfind(const void * vvalue, const void *vlist_data);
 void        log_close(log_t * log);
 void        log_destroy(void * vlog);
 
-/** set internal vlib log instance, shared between vlib components */
-void        log_set_vlib_instance(log_t * log);
+/** set internal vlib log instance, shared between vlib components
+ * @param log the new vlib log instance
+ * @return the previous vlib log instance
+ */
+log_t *     log_set_vlib_instance(log_t * log);
 
 #ifdef __cplusplus
 }
