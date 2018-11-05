@@ -75,7 +75,7 @@ void            rbuf_free(
  * @param rbuf the buffer
  * @return number of elements in the buffer */
 size_t          rbuf_size(
-                    rbuf_t *        rbuf);
+                    const rbuf_t *  rbuf);
 
 /** push an element at end of the buffer: compatible with lifo(stack)/fifo(queue)
  * @param rbuf the buffer
@@ -88,7 +88,7 @@ int             rbuf_push(
 /** Last element. This one would be returned by rbuf_pop()
  * @return the last element or NULL on error with errno set (errno is NOT changed on success). */
 void *          rbuf_top(
-                    rbuf_t *        rbuf);
+                    const rbuf_t *  rbuf);
 
 /** remove and return last element of the buffer : LIFO(stack) mode.
  * @return the popped element or NULL with errno set (errno is NOT changed on success). */
@@ -98,7 +98,7 @@ void *          rbuf_pop(
 /** First element. This one would be returned by rbuf_dequeue()
  * @return the first element or NULL with errno set (errno is NOT changed on success). */
 void *          rbuf_bottom(
-                    rbuf_t *        rbuf);
+                    const rbuf_t *  rbuf);
 
 /** remove and return first element of the buffer : FIFO(queue) mode.
  * @return the dequeued element or NULL with errno set (errno is NOT changed on success). */
@@ -108,7 +108,7 @@ void *          rbuf_dequeue(
 /** get the index-th element of the buffer
  * @return the index-th element or NULL with errno set (errno is NOT changed on success). */
 void *          rbuf_get(
-                    rbuf_t *        rbuf,
+                    const rbuf_t *  rbuf,
                     size_t          index);
 
 /** set the index-th element in the buffer.

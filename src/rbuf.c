@@ -99,7 +99,7 @@ void            rbuf_free(
 }
 /*****************************************************************************/
 size_t          rbuf_size(
-                    rbuf_t *        rbuf) {
+                    const rbuf_t *  rbuf) {
     ssize_t size;
 
     if (rbuf == NULL || RBUF_IS_EMPTY(rbuf) || rbuf->start >= rbuf->max_size) {
@@ -163,7 +163,7 @@ int             rbuf_push(
 }
 /*****************************************************************************/
 void *          rbuf_top(
-                    rbuf_t *        rbuf) {
+                    const rbuf_t *  rbuf) {
     if (rbuf == NULL || rbuf->start >= rbuf->max_size) {
         errno = EINVAL;
         return NULL;
@@ -200,7 +200,7 @@ void *          rbuf_pop(
 }
 /*****************************************************************************/
 void *          rbuf_bottom(
-                    rbuf_t *        rbuf) {
+                    const rbuf_t *  rbuf) {
     if (rbuf == NULL || rbuf->start >= rbuf->max_size) {
         errno = EINVAL;
         return NULL;
@@ -241,7 +241,7 @@ void *          rbuf_dequeue(
 }
 /*****************************************************************************/
 void *          rbuf_get(
-                    rbuf_t *        rbuf,
+                    const rbuf_t *  rbuf,
                     size_t          index) {
     if (rbuf == NULL || rbuf->start >= rbuf->max_size) {
         errno = EINVAL;
