@@ -71,9 +71,9 @@ typedef enum {
 
 /** how to visit the tree (direction) */
 typedef enum {
-    AVH_PREFIX  = 1 << 0,   /* prefix (first visit, before the two childs) */
-    AVH_INFIX   = 1 << 1,   /* infix (second visit between the two childs) */
-    AVH_SUFFIX  = 1 << 2,   /* suffix (third visit, after the two childs */
+    AVH_PREFIX  = 1 << 0,   /* prefix, pre-order (first visit, before the two childs) */
+    AVH_INFIX   = 1 << 1,   /* infix, in-order (second visit between the two childs) */
+    AVH_SUFFIX  = 1 << 2,   /* suffix, post-order (third visit, after the two childs) */
     AVH_BREADTH = 1 << 3,   /* breadth-first (width visit) */
     AVH_RIGHT   = 1 << 7,   /* visit modifier: visit right child before left child */
     AVH_DEFAULT = AVH_PREFIX,
