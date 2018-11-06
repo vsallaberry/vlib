@@ -42,6 +42,21 @@ typedef struct {
 /*****************************************************************************/
 static avltree_node_t * avltree_rotate_left(avltree_t * tree, avltree_node_t * node);
 static avltree_node_t * avltree_rotate_right(avltree_t * tree, avltree_node_t * node);
+static int              avltree_visit_rebalance(
+                            avltree_t *                 tree,
+                            avltree_node_t *            node,
+                            avltree_visit_context_t *   context,
+                            void *                      user_data);
+static int              avltree_visit_insert(
+                            avltree_t *                 tree,
+                            avltree_node_t *            node,
+                            avltree_visit_context_t *   context,
+                            void *                      user_data);
+static int              avltree_visit_free(
+                            avltree_t *                 tree,
+                            avltree_node_t *            node,
+                            avltree_visit_context_t *   context,
+                            void *                      user_data);
 
 /*****************************************************************************/
 static avltree_node_t * avltree_node_alloc(avltree_t * tree) {
@@ -57,6 +72,197 @@ static void avltree_node_free(avltree_t * tree, avltree_node_t * node) {
         }
         free(node);
     }
+}
+
+/*****************************************************************************/
+avltree_t *         avltree_create(
+                        avltree_flags_t             flags,
+                        avltree_cmpfun_t            cmpfun,
+                        avltree_freefun_t           freefun) {
+    avltree_t * tree;
+
+    if (cmpfun == NULL) {
+        return NULL; /* avl tree is based on node comparisons. */
+    }
+    tree = malloc(sizeof(avltree_t));
+    if (tree == NULL) {
+        return NULL;
+    }
+    /* create a shared stack if requested in flags */
+    if ((flags & AFL_SHARED_STACK) != 0) {
+        tree->stack = rbuf_create(AVLTREE_STACK_SZ, RBF_DEFAULT);
+        if (tree->stack == NULL) {
+            free(tree);
+            return NULL;
+        }
+    } else {
+        tree->stack = NULL;
+    }
+    tree->root = NULL;
+    tree->flags = flags;
+    tree->cmp = cmpfun;
+    tree->free = freefun;
+    return tree;
+}
+
+/*****************************************************************************/
+avltree_node_t *    avltree_node_create(
+                        avltree_t *                 tree,
+                        void *                      data,
+                        avltree_node_t *            left,
+                        avltree_node_t *            right) {
+    avltree_node_t * new = avltree_node_alloc(tree);
+
+    if (new == NULL)
+        return NULL;
+    new->data = data;
+    new->right = right;
+    new->left = left;
+    new->balance = 0;
+    return new;
+}
+
+/*****************************************************************************/
+avltree_node_t *    avltree_insert(
+                        avltree_t *                 tree,
+                        void *                      data) {
+    avltree_visit_insert_t    insert_data;
+
+    if (tree == NULL) {
+        return NULL;
+    }
+    if (tree->root == NULL) {
+        /* particular case when root is NULL : allocate it here without visiting */
+        if ((tree->root = avltree_node_create(tree, data, NULL, NULL)) == NULL) {
+            return NULL;
+        }
+        LOG_DEBUG(g_vlib_log, "created root 0x%lx data 0x%ld left:0x%lx right:0x%lx\n",
+                  (unsigned long)tree->root, (long)tree->root->data,
+                  (unsigned long)tree->root->left, (unsigned long)tree->root->right);
+        return tree->root;
+    }
+    insert_data.newdata = data;
+    if (avltree_visit(tree, avltree_visit_insert, &insert_data, AVH_PREFIX | AVH_SUFFIX)
+            == AVS_FINISHED) {
+        return insert_data.newnode;
+    }
+    return NULL;
+}
+
+/*****************************************************************************/
+void                avltree_free(
+                        avltree_t *                 tree) {
+    if (tree == NULL) {
+        return ;
+    }
+    avltree_visit(tree, avltree_visit_free, NULL, AVH_PREFIX);
+    if (tree->stack != NULL && (tree->flags & AFL_SHARED_STACK) != 0) {
+        rbuf_free(tree->stack);
+    }
+    free(tree);
+}
+
+/*****************************************************************************/
+void *              avltree_find(
+                        avltree_t *                 tree,
+                        const void *                data) {
+    //TODO
+    return NULL;
+}
+
+/*****************************************************************************/
+int                 avltree_visit(
+                        avltree_t *                 tree,
+                        avltree_visitfun_t          visit,
+                        void *                      user_data,
+                        avltree_visit_how_t         how) {
+    rbuf_t *                stack       = NULL;
+    int                     ret         = AVS_FINISHED;
+    avltree_visit_context_t context;
+
+    if (tree == NULL || visit == NULL) {
+        return AVS_ERROR;
+    }
+    if ((tree->flags & AFL_SHARED_STACK) != 0) {
+        stack = tree->stack;
+    } else {
+        stack = rbuf_create(AVLTREE_STACK_SZ, RBF_DEFAULT);
+    }
+
+    if (tree->root != NULL) {
+        rbuf_push(stack, tree->root);
+        context.level = 0;
+        context.index = 0;
+        context.stack = stack;
+        context.how = (how & AVH_BREADTH) != 0 ? (how & ~AVH_RIGHT) : AVH_PREFIX;
+    }
+
+    while (rbuf_size(stack) != 0) {
+        avltree_node_t *      node = (avltree_node_t *) ((how & AVH_BREADTH) != 0 ?
+                                                            rbuf_dequeue(stack) :
+                                                            rbuf_pop(stack));
+        avltree_node_t *      right = node->right;
+        avltree_node_t *      left = node->left;
+
+        /* visit the current node */
+        if ((how & ~AVH_RIGHT & context.how) == context.how) {
+            ret = visit(tree, node, &context, user_data);
+        }
+
+        /* stop on error or when visit goal is accomplished */
+        if (ret == AVS_ERROR || ret == AVS_FINISHED) {
+            break ;
+        }
+
+        switch (context.how) {
+            case AVH_PREFIX:
+            case AVH_BREADTH:
+                /* push left/right child if required */
+                if (((how & (AVH_BREADTH | AVH_RIGHT)) == (AVH_BREADTH | AVH_RIGHT))
+                ||  ((how & (AVH_RIGHT | AVH_BREADTH)) == 0)) {
+                    if (right != NULL && (ret == AVS_GO_RIGHT || ret == AVS_CONTINUE)) {
+                        rbuf_push(stack, right);
+                    }
+                    if (left != NULL && (ret == AVS_GO_LEFT || ret == AVS_CONTINUE)) {
+                        rbuf_push(stack, left);
+                    }
+                } else {
+                    if (left != NULL && (ret == AVS_GO_LEFT || ret == AVS_CONTINUE)) {
+                        rbuf_push(stack, left);
+                    }
+                    if (right != NULL && (ret == AVS_GO_RIGHT || ret == AVS_CONTINUE)) {
+                        rbuf_push(stack, right);
+                    }
+                }
+                break ;
+            case AVH_INFIX:
+                break ;
+            case AVH_SUFFIX:
+                break ;
+            default:
+                LOG_ERROR(g_vlib_log, "avltree_visit: bad state %d", context.how);
+                ret = AVS_ERROR;
+                rbuf_reset(stack);
+                break ;
+        }
+    }
+    if ((tree->flags & AFL_SHARED_STACK) != 0) {
+        rbuf_reset(stack);
+    } else {
+        rbuf_free(stack);
+    }
+    return ret != AVS_ERROR ? AVS_FINISHED : AVS_ERROR;
+}
+
+/*****************************************************************************/
+void *              avltree_remove(
+                        avltree_t *                 tree,
+                        const void *                data) {
+    if (tree == NULL) {
+        return NULL;
+    }
+    //TODO
+    return NULL;
 }
 
 /*****************************************************************************/
@@ -106,8 +312,9 @@ static int          avltree_visit_rebalance(
 #endif
     idata->prev_child = node;
 
-    return AVS_CONT;
+    return AVS_CONTINUE;
 }
+
 /*****************************************************************************/
 static int          avltree_visit_insert(
                         avltree_t *                 tree,
@@ -194,195 +401,7 @@ static int          avltree_visit_free(
     (void) user_data;
 
     avltree_node_free(tree, node);
-    return AVS_CONT;
-}
-
-/*****************************************************************************/
-avltree_t *         avltree_create(
-                        avltree_flags_t             flags,
-                        avltree_cmpfun_t            cmpfun,
-                        avltree_freefun_t           freefun) {
-    avltree_t * tree;
-
-    if (cmpfun == NULL) {
-        return NULL; /* avl tree is based on node comparisons. */
-    }
-    tree = malloc(sizeof(avltree_t));
-    if (tree == NULL) {
-        return NULL;
-    }
-    /* create a shared stack if requested in flags */
-    if ((flags & AFL_SHARED_STACK) != 0) {
-        tree->stack = rbuf_create(AVLTREE_STACK_SZ, RBF_DEFAULT);
-        if (tree->stack == NULL) {
-            free(tree);
-            return NULL;
-        }
-    } else {
-        tree->stack = NULL;
-    }
-    tree->root = NULL;
-    tree->flags = flags;
-    tree->cmp = cmpfun;
-    tree->free = freefun;
-    return tree;
-}
-
-/*****************************************************************************/
-avltree_node_t *    avltree_node_create(
-                        avltree_t *                 tree,
-                        void *                      data,
-                        avltree_node_t *            left,
-                        avltree_node_t *            right) {
-    avltree_node_t * new = avltree_node_alloc(tree);
-
-    if (new == NULL)
-        return NULL;
-    new->data = data;
-    new->right = right;
-    new->left = left;
-    new->balance = 0;
-    return new;
-}
-
-/*****************************************************************************/
-avltree_node_t *    avltree_insert(
-                        avltree_t *                 tree,
-                        void *                      data) {
-    avltree_visit_insert_t    insert_data;
-
-    if (tree == NULL) {
-        return NULL;
-    }
-    if (tree->root == NULL) {
-        /* particular case when root is NULL : allocate it here without visiting */
-        if ((tree->root = avltree_node_create(tree, data, NULL, NULL)) == NULL) {
-            return NULL;
-        }
-        LOG_DEBUG(g_vlib_log, "created root 0x%lx data 0x%ld left:0x%lx right:0x%lx\n",
-                  (unsigned long)tree->root, (long)tree->root->data,
-                  (unsigned long)tree->root->left, (unsigned long)tree->root->right);
-        return tree->root;
-    }
-    insert_data.newdata = data;
-    if (avltree_visit(tree, avltree_visit_insert, &insert_data, AVH_PREFIX | AVH_SUFFIX)
-            == AVS_FINISHED) {
-        return insert_data.newnode;
-    }
-    return NULL;
-}
-
-/*****************************************************************************/
-void                avltree_free(
-                        avltree_t *                 tree) {
-    if (tree == NULL) {
-        return ;
-    }
-    avltree_visit(tree, avltree_visit_free, NULL, AVH_PREFIX);
-    free(tree);
-}
-
-/*****************************************************************************/
-void *              avltree_find(
-                        avltree_t *                 tree,
-                        const void *                data) {
-    //TODO
-    return NULL;
-}
-
-/*****************************************************************************/
-int                 avltree_visit(
-                        avltree_t *                 tree,
-                        avltree_visitfun_t          visit,
-                        void *                      user_data,
-                        avltree_visit_how_t         how) {
-    rbuf_t *                stack       = NULL;
-    int                     ret         = AVS_FINISHED;
-    avltree_visit_context_t context;
-
-    if (tree == NULL || visit == NULL) {
-        return AVS_ERROR;
-    }
-    if ((tree->flags & AFL_SHARED_STACK) != 0) {
-        stack = tree->stack;
-    } else {
-        stack = rbuf_create(AVLTREE_STACK_SZ, RBF_DEFAULT);
-    }
-
-    if (tree->root != NULL) {
-        rbuf_push(stack, tree->root);
-        context.level = 0;
-        context.index = 0;
-        context.stack = stack;
-        context.how = (how & AVH_BREADTH) != 0 ? (how & ~AVH_RIGHT) : AVH_PREFIX;
-    }
-
-    while (rbuf_size(stack) != 0) {
-        avltree_node_t *      node = (avltree_node_t *) ((how & AVH_BREADTH) != 0 ?
-                                                            rbuf_dequeue(stack) :
-                                                            rbuf_pop(stack));
-        avltree_node_t *      right = node->right;
-        avltree_node_t *      left = node->left;
-
-        /* visit the current node */
-        if ((how & ~AVH_RIGHT & context.how) == context.how) {
-            ret = visit(tree, node, &context, user_data);
-        }
-
-        /* stop on error or when visit goal is accomplished */
-        if (ret == AVS_ERROR || ret == AVS_FINISHED) {
-            break ;
-        }
-
-        switch (context.how) {
-            case AVH_PREFIX:
-            case AVH_BREADTH:
-                /* push left/right child if required */
-                if (((how & (AVH_BREADTH | AVH_RIGHT)) == (AVH_BREADTH | AVH_RIGHT))
-                ||  ((how & (AVH_RIGHT | AVH_BREADTH)) == 0)) {
-                    if (right != NULL && (ret == AVS_GO_RIGHT || ret == AVS_CONT)) {
-                        rbuf_push(stack, right);
-                    }
-                    if (left != NULL && (ret == AVS_GO_LEFT || ret == AVS_CONT)) {
-                        rbuf_push(stack, left);
-                    }
-                } else {
-                    if (left != NULL && (ret == AVS_GO_LEFT || ret == AVS_CONT)) {
-                        rbuf_push(stack, left);
-                    }
-                    if (right != NULL && (ret == AVS_GO_RIGHT || ret == AVS_CONT)) {
-                        rbuf_push(stack, right);
-                    }
-                }
-                break ;
-            case AVH_INFIX:
-                break ;
-            case AVH_SUFFIX:
-                break ;
-            default:
-                LOG_ERROR(g_vlib_log, "avltree_visit: bad state %d", context.how);
-                ret = AVS_ERROR;
-                rbuf_reset(stack);
-                break ;
-        }
-    }
-    if ((tree->flags & AFL_SHARED_STACK) != 0) {
-        rbuf_reset(stack);
-    } else {
-        rbuf_free(stack);
-    }
-    return ret != AVS_ERROR ? AVS_FINISHED : AVS_ERROR;
-}
-
-/*****************************************************************************/
-void *              avltree_remove(
-                        avltree_t *                 tree,
-                        const void *                data) {
-    if (tree == NULL) {
-        return NULL;
-    }
-    //TODO
-    return NULL;
+    return AVS_CONTINUE;
 }
 
 /*****************************************************************************/
