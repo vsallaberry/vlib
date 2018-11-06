@@ -64,85 +64,91 @@ typedef enum {
     AVS_GO_RIGHT    = -23, /* only go to right node, but continue visit */
     AVS_SKIP        = -22, /* skip this node, but continue visit */
     AVS_CONT        = -21, /* continue visit */
+    AVS_NEXTVISIT   = -20, /* stop current visit and start next one (prefix,infix,suffix) */
     AVS_ERROR       = -1,  /* stop visit, report error */
     AVS_FINISHED    = 0,   /* stop visit, report success */
 } avltree_visit_status_t;
 
+/** how to visit the tree (direction) */
+typedef enum {
+    AVH_PREFIX  = 1 << 0,   /* prefix (first visit, before the two childs) */
+    AVH_INFIX   = 1 << 1,   /* infix (second visit between the two childs) */
+    AVH_SUFFIX  = 1 << 2,   /* suffix (third visit, after the two childs */
+    AVH_BREADTH = 1 << 3,   /* breadth-first (width visit) */
+    AVH_RIGHT   = 1 << 7,   /* visit modifier: visit right child before left child */
+    AVH_DEFAULT = AVH_PREFIX,
+} avltree_visit_how_t;
+
 /** data to be passed to avltree_visitfun_t functions */
 typedef struct {
-    size_t                  level;      /* current node level (depth) */
-    size_t                  index;      /* current node index in level */
-    const rbuf_t *          stack;      /* current stack */
-    void *                  user_data;  /* specific user data from avltree_visit() */
-} avltree_visit_data_t;
+    avltree_visit_how_t         how;    /* current visit state (prefix,infix,...) */
+    size_t                      level;  /* current node level (depth) */
+    size_t                      index;  /* current node index in level */
+    const rbuf_t *              stack;  /* current stack */
+} avltree_visit_context_t;
 
 /** avltree_node_t visit function called on each node by avltree_visit()
  * @param tree the tree beiing visited, cannot be NULL (ensured by avltree_visit())
  * @param node the node beiing visited, cannot be NULL (ensured by avltree_visit())
- * @param visit_data avltree_visit_data_t struct with infos and user_data from avltree_visit()
+ * @param context avltree_visit_context_t struct with node infos and visit state,
+ *        cannot be NULL (ensured by avltree_visit())
+ * @param user_data the specific user data given to avltree_visit
  * @return avltree_visit_status_t
  */
-typedef int     (*avltree_visitfun_t) (
-                    avltree_t *             tree,
-                    avltree_node_t *        node,
-                    avltree_visit_data_t *  visit_data);
-
-/** how to visit the tree (direction) */
-typedef enum {
-    AVH_INFIX_L     = 0,    /* infix visit(2nd), starting from left (increasing order) */
-    AVH_INFIX_R,            /* infix visit(2nd), starting from right (decreasing order) */
-    AVH_LARG_L,             /* width visit, starting from left */
-    AVH_LARG_R,             /* width visit, starting from right */
-    AVH_PREFIX_L,           /* prefix visit(1st), left child before right child */
-    AVH_PREFIX_R,           /* prefix visit(1st), right child before left child */
-    AVH_SUFFIX_L,           /* suffix visit(3rd), left child before right child */
-    AVH_SUFFIX_R,           /* suffix visit(3rd), right child before left child */
-    AVH_DEFAULT = AVH_INFIX_L,
-} avltree_visit_how_t;
+typedef int         (*avltree_visitfun_t) (
+                        avltree_t *                 tree,
+                        avltree_node_t *            node,
+                        avltree_visit_context_t *   context,
+                        void *                      user_data);
 
 /*****************************************************************************/
 
 /** AVLNODE : shortcut for avltree_node_create() */
-#define AVLNODE(value, left, right)         avltree_node_create(NULL, value, left, right)
+#define AVLNODE(value, left, right)     avltree_node_create(NULL, value, left, right)
 
 /** avltree_create() */
 avltree_t *         avltree_create(
-                        avltree_flags_t         flags,
-                        avltree_cmpfun_t        cmpfun,
-                        avltree_freefun_t       freefun);
+                        avltree_flags_t             flags,
+                        avltree_cmpfun_t            cmpfun,
+                        avltree_freefun_t           freefun);
 
 /** avltree_node_create */
 avltree_node_t *    avltree_node_create(
-                        avltree_t *             tree,
-                        void *                  data,
-                        avltree_node_t *        left,
-                        avltree_node_t *        right);
+                        avltree_t *                 tree,
+                        void *                      data,
+                        avltree_node_t *            left,
+                        avltree_node_t *            right);
 
 /** avltree_insert() */
 avltree_node_t *    avltree_insert(
-                        avltree_t *             tree,
-                        void *                  data);
+                        avltree_t *                 tree,
+                        void *                      data);
 
 /** avltree_free() */
 void                avltree_free(
-                        avltree_t *             tree);
+                        avltree_t *                 tree);
 
 /** avltree_find() */
 void *              avltree_find(
-                        avltree_t *             tree,
-                        const void *            data);
+                        avltree_t *                 tree,
+                        const void *                data);
 
-/** avltree_visit() */
+/** avltree_visit()
+ * The given function will be called on each node in an order specified by how.
+ * @param tree the tree to visit
+ * @param visit the visit function (avltree_visitfun_t)
+ * @param user_data the specific user_data to give to visit function
+ * @param how a combination of avltree_visit_how_t, giving visit type(s) (prefix|infix|...) */
 int                 avltree_visit(
-                        avltree_t *             tree,
-                        avltree_visitfun_t      visit,
-                        void *                  user_data,
-                        avltree_visit_how_t     how);
+                        avltree_t *                 tree,
+                        avltree_visitfun_t          visit,
+                        void *                      user_data,
+                        avltree_visit_how_t         how);
 
 /** avltree_remove() */
 void *              avltree_remove(
-                        avltree_t *             tree,
-                        const void *            data);
+                        avltree_t *                 tree,
+                        const void *                data);
 
 /*****************************************************************************/
 
