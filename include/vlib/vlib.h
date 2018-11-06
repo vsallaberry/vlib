@@ -29,6 +29,9 @@
 #include "time.h"
 #include "account.h"
 #include "options.h"
+#include "thread.h"
+#include "rbuf.h"
+#include "avltree.h"
 
 #ifdef __cplusplus
 extern "C" {
