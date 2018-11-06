@@ -142,8 +142,18 @@ avltree_node_t *    avltree_insert(
         return tree->root;
     }
     insert_data.newdata = data;
+    insert_data.newnode = NULL;
     if (avltree_visit(tree, avltree_visit_insert, &insert_data, AVH_PREFIX | AVH_SUFFIX)
             == AVS_FINISHED) {
+        /*rbuf_free(insert_data.stack);
+        / * insertion done, update balance and rebalance if needed * /
+        fprintf(stderr, "update_balance for %ld\n", (long) data);
+        if (0 && insert_data.new_balance != 0
+        &&  avltree_visit(tree, avltree_visit_update_balance, &insert_data, AVH_PREFIX_L)
+                != AVS_FINISHED) {
+            LOG_ERROR(g_vlib_log, "error while updating balance after %ld insertion",
+                      (long) data);
+        }*/
         return insert_data.newnode;
     }
     return NULL;
@@ -155,7 +165,9 @@ void                avltree_free(
     if (tree == NULL) {
         return ;
     }
-    avltree_visit(tree, avltree_visit_free, NULL, AVH_PREFIX);
+    if (avltree_visit(tree, avltree_visit_free, NULL, AVH_SUFFIX) != AVS_FINISHED) {
+        LOG_WARN(g_vlib_log, "warning avltree_visit_free() error");
+    }
     if (tree->stack != NULL && (tree->flags & AFL_SHARED_STACK) != 0) {
         rbuf_free(tree->stack);
     }
@@ -166,9 +178,57 @@ void                avltree_free(
 void *              avltree_find(
                         avltree_t *                 tree,
                         const void *                data) {
-    //TODO
+    avltree_node_t *    node;
+    int                 cmp;
+
+    if (tree == NULL) {
+        return NULL;
+    }
+    node = tree->root;
+    while (node) {
+        cmp = tree->cmp(data, node->data);
+        if (cmp == 0) {
+            return node->data;
+        } else if (cmp < 0) {
+            node = node->left;
+        } else {
+            node = node->right;
+        }
+    }
+    //TODO: handle nodes with same value;
     return NULL;
 }
+
+#define AGC_FIRST   1
+#define AGC_SECOND  2
+static inline avltree_node_t *  avltree_visit_get_child(
+                                    int                         what,
+                                    avltree_visit_status_t      ret,
+                                    avltree_visit_how_t         how,
+                                    avltree_node_t *            left,
+                                    avltree_node_t *            right) {
+    /* invert [ret, left and right] if the visit is from right to left */
+    if (((how & (AVH_BREADTH | AVH_RIGHT)) == AVH_BREADTH)
+    ||  ((how & (AVH_RIGHT | AVH_BREADTH)) == AVH_RIGHT)) {
+        avltree_node_t * tmp = left;
+        left = right;
+        right = tmp;
+        if (ret == AVS_GO_LEFT) {
+           ret = AVS_GO_RIGHT;
+        } else if (ret == AVS_GO_RIGHT) {
+           ret = AVS_GO_LEFT;
+        }
+    }
+    if (what == AGC_FIRST) {
+        if (left != NULL && (ret == AVS_GO_LEFT || ret == AVS_CONTINUE)) {
+            return left;
+        }
+    } else if (right != NULL && (ret == AVS_GO_RIGHT || ret == AVS_CONTINUE)) {
+        return right;
+    }
+    return NULL;
+}
+
 
 /*****************************************************************************/
 int                 avltree_visit(
@@ -177,7 +237,7 @@ int                 avltree_visit(
                         void *                      user_data,
                         avltree_visit_how_t         how) {
     rbuf_t *                stack       = NULL;
-    int                     ret         = AVS_FINISHED;
+    int                     ret         = AVS_CONTINUE;
     avltree_visit_context_t context;
 
     if (tree == NULL || visit == NULL) {
@@ -201,43 +261,88 @@ int                 avltree_visit(
         avltree_node_t *      node = (avltree_node_t *) ((how & AVH_BREADTH) != 0 ?
                                                             rbuf_dequeue(stack) :
                                                             rbuf_pop(stack));
+        //TODO: loop (stack mode) can be optimized by not pushing the next node
+        //      to be visited, just do node = node->left/right
+        //TODO: PREFIX mode can be optimized (same as BREADTH) if it is the only required in how.
+        //TODO: AVS_NEXTVISIT and AVS_SKIP might not work correctly
+
         avltree_node_t *      right = node->right;
         avltree_node_t *      left = node->left;
 
-        /* visit the current node */
+        LOG_DEBUG(g_vlib_log, "altree_visit(): node:%ld(%ld,%ld) how:%d ctx:%d "
+                              "do_visit:%d last_ret:%d",
+                (long) node->data,
+                node->left?(long)node->left->data:-1,
+                node->right?(long)node->right->data:-1,
+                how, context.how, (how &~AVH_RIGHT & context.how), ret);
+
+        /* visit the current node if required, and update ret only if visitor is called */
         if ((how & ~AVH_RIGHT & context.how) == context.how) {
+            context.how |= (how & AVH_RIGHT); // TODO find cleaner solution
             ret = visit(tree, node, &context, user_data);
+            context.how &= ~AVH_RIGHT; // TODO find cleaner solution
+            /* stop on error or when visit goal is accomplished */
+            if (ret == AVS_ERROR || ret == AVS_FINISHED) {
+                break ;
+            }
+            /* we remove the current visit type from set */
+            if (ret == AVS_NEXTVISIT) {
+                how &= ~context.how;
+            }
         }
 
-        /* stop on error or when visit goal is accomplished */
-        if (ret == AVS_ERROR || ret == AVS_FINISHED) {
-            break ;
-        }
-
+        /* prepare next visit */
         switch (context.how) {
-            case AVH_PREFIX:
             case AVH_BREADTH:
                 /* push left/right child if required */
-                if (((how & (AVH_BREADTH | AVH_RIGHT)) == (AVH_BREADTH | AVH_RIGHT))
-                ||  ((how & (AVH_RIGHT | AVH_BREADTH)) == 0)) {
-                    if (right != NULL && (ret == AVS_GO_RIGHT || ret == AVS_CONTINUE)) {
-                        rbuf_push(stack, right);
-                    }
-                    if (left != NULL && (ret == AVS_GO_LEFT || ret == AVS_CONTINUE)) {
-                        rbuf_push(stack, left);
-                    }
+                if ((node = avltree_visit_get_child(AGC_SECOND, ret, how, left, right)) != NULL) {
+                    rbuf_push(stack, node);
+                }
+                if ((node = avltree_visit_get_child(AGC_FIRST, ret, how, left, right)) != NULL) {
+                    rbuf_push(stack, node);
+                }
+                break ;
+            case AVH_PREFIX:
+                /* push current node, so that child can return to its parent */
+                rbuf_push(stack, node);
+                /* push first child if required (taking care of AVH_RIGHT modifier) */
+                if (ret != AVS_NEXTVISIT
+                &&  (node = avltree_visit_get_child(AGC_FIRST, ret, how, left, right)) != NULL) {
+                    /* visit first child in prefix mode */
+                    rbuf_push(stack, node);
                 } else {
-                    if (left != NULL && (ret == AVS_GO_LEFT || ret == AVS_CONTINUE)) {
-                        rbuf_push(stack, left);
-                    }
-                    if (right != NULL && (ret == AVS_GO_RIGHT || ret == AVS_CONTINUE)) {
-                        rbuf_push(stack, right);
-                    }
+                    /* stay on node for infix visit */
+                    context.how = AVH_INFIX;
                 }
                 break ;
             case AVH_INFIX:
+                /* push current node, so that child can return to its parent */
+                rbuf_push(stack, node);
+                /* push left/right child if required (taking care of AVH_RIGHT modifier) */
+                if (ret != AVS_NEXTVISIT
+                &&  (node = avltree_visit_get_child(AGC_SECOND, ret, how, left, right)) != NULL) {
+                    /* go to right, for prefix visit */
+                    rbuf_push(stack, node);
+                    context.how = AVH_PREFIX;
+                } else {
+                    /* stays on node, for SUFFIX visit */
+                    context.how = AVH_SUFFIX;
+                }
                 break ;
             case AVH_SUFFIX:
+                if (ret == AVS_NEXTVISIT) {
+                    //break ;
+                }
+                if (rbuf_size(stack)) {
+                    avltree_node_t * parent = rbuf_top(stack);
+                    if (node == avltree_visit_get_child(AGC_FIRST, AVS_CONTINUE, how,
+                                                        parent->left, parent->right)) {
+                        context.how = AVH_INFIX;
+                    } else {
+                        context.how = AVH_SUFFIX;
+                    }
+                    /* next visit is for parent */
+                }
                 break ;
             default:
                 LOG_ERROR(g_vlib_log, "avltree_visit: bad state %d", context.how);
@@ -280,12 +385,15 @@ static int          avltree_visit_rebalance(
 
     pparent = parent ? (parent->left == node ? &parent->left : &parent->right) : &tree->root;
 
-    LOG_DEBUG(g_vlib_log, "INSERT %ld parent %ld obal:%d nbal:%d ppar=%ld",
-              (long)idata->newnode->data, (long) node->data, node->balance,
-              node->balance + balance, (long)(*pparent)->data);
+    LOG_DEBUG(g_vlib_log, "INSERT %ld cur %ld(%ld,%ld) obal:%d nbal:%d ppar=%ld",
+                (long)idata->newnode->data, (long) node->data,
+                node->left?(long)node->left->data : -1,
+                node->right?(long)node->right->data : -1,
+                node->balance,
+                node->balance + balance, parent ? (long)(*pparent)->data : -1);
 
     node->balance += balance;
-#if 1
+#if 0
     if (node->balance < -1) {
         /* right rotate */
         if (node->left->balance > 0) {
@@ -325,19 +433,17 @@ static int          avltree_visit_insert(
     avltree_node_t *            new;
     avltree_node_t **           parent;
 
-    if (context->how == AVH_INFIX) {
-        return AVS_NEXTVISIT;
-    } else if (context->how == AVH_SUFFIX) {
+    if ((context->how & ~AVH_RIGHT) == AVH_SUFFIX) {
         return avltree_visit_rebalance(tree, node, context, user_data);
-    } else if (context->how != AVH_PREFIX) {
+    } else if ((context->how & ~AVH_RIGHT) != AVH_PREFIX) {
         return AVS_ERROR;
     }
 
-    LOG_DEBUG(g_vlib_log, "visiting node 0x%lx data %ld left:0x%lx right:0x%lx "
-                          "left_data:0x%ld right_data:0x%ld\n",
-              (unsigned long)node, (long) node->data,
-              (unsigned long)node->left, (unsigned long)node->right,
-              node->left?(long)node->left->data:-1, node->right?(long)node->right->data:-1);
+    LOG_DEBUG(g_vlib_log, "VISITING for Insert, Node %ld(%ld,%ld) How %d Ptr %lx(%lx,%lx)",
+              (long)node->data,
+              node->left?(long)node->left->data:-1, node->right?(long)node->right->data:-1,
+              context->how,
+              (unsigned long) node, (unsigned long)node->left, (unsigned long)node->right);
 
     if (tree->cmp(idata->newdata, node->data) <= 0) {
         /* go left */
@@ -348,7 +454,6 @@ static int          avltree_visit_insert(
         /* left is null, we insert on node->left */
         parent = &(node->left);
         if (node->right == NULL) {
-            //new_balance = -1;
             idata->new_balance = -1;
         }
     } else {
@@ -360,7 +465,6 @@ static int          avltree_visit_insert(
         /* right is null, we insert on node->right */
         parent = &(node->right);
         if (node->left == NULL) {
-            //new_balance = 1;
             idata->new_balance = +1;
         }
     }
@@ -377,12 +481,11 @@ static int          avltree_visit_insert(
     idata->newnode = new;
     idata->prev_child = new;
 
-    LOG_DEBUG(g_vlib_log, "inserted node 0x%lx data %ld left:0x%lx right:0x%lx "
-                          "node:0x%lx node->left:0x%lx node->right:0x%lx\n parent 0x%lx",
-              (unsigned long)new, (long)new->data, (unsigned long)new->left,
-              (unsigned long)new->right, (unsigned long)node,
-              (unsigned long)node->left, (unsigned long)node->right,
-              (unsigned long)*parent);
+    LOG_DEBUG(g_vlib_log, "INSERTED node %ld(%lx,%lx) ptr 0x%lx on %s of %ld ptr 0x%lx",
+              (long)new->data, (unsigned long)new->left, (unsigned long)new->right,
+              (unsigned long)new,
+              *parent == node->left ? "LEFT" : "RIGHT",
+              (long)node->data, (unsigned long) node);
 
     if (idata->new_balance == 0) {
         return AVS_FINISHED;
