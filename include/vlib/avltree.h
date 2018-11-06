@@ -76,12 +76,12 @@ typedef enum {
     AVH_SUFFIX  = 1 << 2,   /* suffix, post-order (third visit, after the two childs) */
     AVH_BREADTH = 1 << 3,   /* breadth-first (width visit) */
     AVH_RIGHT   = 1 << 7,   /* visit modifier: visit right child before left child */
-    AVH_DEFAULT = AVH_PREFIX,
 } avltree_visit_how_t;
 
 /** data to be passed to avltree_visitfun_t functions */
 typedef struct {
-    avltree_visit_how_t         how;    /* current visit state (prefix,infix,...) */
+    avltree_visit_how_t         state;  /* current visit state (prefix,infix,...) */
+    avltree_visit_how_t         how;    /* requested visit modes (prefix|infix|...) */
     size_t                      level;  /* current node level (depth) */
     size_t                      index;  /* current node index in level */
     const rbuf_t *              stack;  /* current stack */
@@ -96,10 +96,10 @@ typedef struct {
  * @return avltree_visit_status_t
  */
 typedef int         (*avltree_visitfun_t) (
-                        avltree_t *                 tree,
-                        avltree_node_t *            node,
-                        avltree_visit_context_t *   context,
-                        void *                      user_data);
+                        avltree_t *                         tree,
+                        avltree_node_t *                    node,
+                        const avltree_visit_context_t *     context,
+                        void *                              user_data);
 
 /*****************************************************************************/
 
