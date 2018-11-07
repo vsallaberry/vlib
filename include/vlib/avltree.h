@@ -64,7 +64,7 @@ typedef enum {
     AVS_GO_RIGHT    = -23, /* only go to right node, but continue visit */
     AVS_SKIP        = -22, /* skip this node, but continue visit */
     AVS_CONTINUE    = -21, /* continue visit */
-    AVS_NEXTVISIT   = -20, /* stop current visit and start next one (prefix,infix,suffix) */
+    AVS_NEXTVISIT   = -20, /* stop current visit, stop pushing childs, and start next visit */
     AVS_ERROR       = -1,  /* stop visit, report error */
     AVS_FINISHED    = 0,   /* stop visit, report success */
 } avltree_visit_status_t;
