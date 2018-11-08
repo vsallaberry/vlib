@@ -151,7 +151,7 @@ INSTALL		= install -c -m 0644
 INSTALLBIN	= install -c -m 0755
 INSTALLDIR	= install -c -d -m 0755
 VALGRIND	= valgrind
-VALGRIND_ARGS	= --leak-check=full --track-origins=yes --show-leak-kinds=all --suppressions=$(VALGRINDSUPP) -v
+VALGRIND_ARGS	= --leak-check=full --track-origins=yes --show-leak-kinds=all -v
 MKTEMP		= mktemp
 NO_STDERR	= 2> /dev/null
 NO_STDOUT	= > /dev/null
@@ -1044,15 +1044,16 @@ debug-makefile:
 	 sed -e 's/^\(cmd_[[:space:]0-9a-zA-Z_]*\)=/\1= ls $(NAME)\/\1 || time /' Makefile > Makefile.debug \
 	 && "$(MAKE)" -f Makefile.debug
 
-$(VALGRINDSUPP):
-	@$(cmd_TESTBSDOBJ) && $(TEST) -e "$(.CURDIR)/$@" || echo "$(NAME): create $@"
-	@$(TOUCH) "$@"
-	@if $(cmd_TESTBSDOBJ); then $(TEST) -e "$(.CURDIR)/$@" || mv "$@" "$(.CURDIR)"; ln -sf "$(.CURDIR)/$@" .; fi
+#$(VALGRINDSUPP):
+#	@$(cmd_TESTBSDOBJ) && $(TEST) -e "$(.CURDIR)/$@" || echo "$(NAME): create $@"
+#	@$(TOUCH) "$@"
+#	@if $(cmd_TESTBSDOBJ); then $(TEST) -e "$(.CURDIR)/$@" || mv "$@" "$(.CURDIR)"; ln -sf "$(.CURDIR)/$@" .; fi
 # Run Valgrind filter output
 valgrind: all $(VALGRINDSUPP)
 	@$(RM) -R $(BIN).dSYM
 	@logfile=`$(MKTEMP) ./valgrind_XXXXXX` && $(MV) "$${logfile}" "$${logfile}.log"; logfile="$${logfile}.log"; \
-	 $(VALGRIND) $(VALGRIND_ARGS) --log-file="$${logfile}" $(VALGRIND_RUN_PROGRAM) || true; \
+	 $(TEST) -e "$(VALGRINDSUPP)" && vgsupp="--suppressions=$(VALGRINDSUPP)" || vgsupp=; \
+	 $(VALGRIND) $(VALGRIND_ARGS) $${vgsupp} --log-file="$${logfile}" $(VALGRIND_RUN_PROGRAM) || true; \
 	 if $(TEST) -z "$(VALGRIND_MEM_IGNORE_PATTERN)"; then cat "$${logfile}"; else \
  	     $(AWK) '/([0-9]+[[:space:]]+bytes|[cC]onditional jump|uninitialised value)[[:space:]]+/ { if (block == 0) {block=1; blockignore=0;} } \
 	         //{ \
@@ -1103,6 +1104,7 @@ help:
 	  "   VALGRIND_ARGS               [$(VALGRIND_ARGS)]" \
 	  "   VALGRIND_RUN_PROGRAM        [$(VALGRIND_RUN_PROGRAM)]" \
 	  "   VALGRIND_MEM_IGNORE_PATTERN [$(VALGRIND_MEM_IGNORE_PATTERN)]" \
+	  "   VALGRINDSUPP                [$(VALGRINDSUPP)]" \
 	  "" \
 	  "make merge-makefile" \
 	  "  merge the common part of Makefile with SUBDIRS:" \
