@@ -150,6 +150,23 @@ void *              avltree_remove(
                         avltree_t *                 tree,
                         const void *                data);
 
+/** avltree_printfun_t
+ * this function must return the number of chars printed (let be it small for better view) */
+typedef int         (*avltree_printfun_t)(
+                        FILE *                      out,
+                        const avltree_node_t *      node);
+
+/** avltree_print() */
+void                avltree_print(
+                        avltree_t *                 tree,
+                        avltree_printfun_t          print,
+                        FILE * out);
+
+/** default avltree_node_printer */
+int                 avltree_print_node_default(
+                        FILE *                      out,
+                        const avltree_node_t *      node);
+
 /*****************************************************************************/
 
 #ifdef __cplusplus

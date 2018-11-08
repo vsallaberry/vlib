@@ -21,6 +21,8 @@
  * AVL: 1962, Georgii Adelson-Velsky & Evguenii Landis.
  */
 #include <stdlib.h>
+#include <math.h>
+#include <stdio.h>
 
 #include "vlib/avltree.h"
 #include "vlib/log.h"
@@ -40,8 +42,10 @@ typedef struct {
 } avltree_visit_insert_t;
 
 /*****************************************************************************/
-static avltree_node_t * avltree_rotate_left(avltree_t * tree, avltree_node_t * node);
-static avltree_node_t * avltree_rotate_right(avltree_t * tree, avltree_node_t * node);
+static avltree_node_t * avltree_rotate_left(avltree_t * tree, avltree_node_t * node, int update);
+static avltree_node_t * avltree_rotate_right(avltree_t * tree, avltree_node_t * node, int update);
+static avltree_node_t * avltree_rotate_rightleft(avltree_t * tree, avltree_node_t * node);
+static avltree_node_t * avltree_rotate_leftright(avltree_t * tree, avltree_node_t * node);
 static int              avltree_visit_rebalance(
                             avltree_t *                     tree,
                             avltree_node_t *                node,
@@ -122,7 +126,10 @@ avltree_node_t *    avltree_node_create(
     return new;
 }
 
-/*****************************************************************************/
+/****************************************************************************
+ * avltree_insert(): for now, the avltree_visit(AVH_PREFIX|AVH_SUFFIX) is
+ * used. lets see later for optimization, but at the moment, this allows
+ * debugging and optimizing avltree_visit */
 avltree_node_t *    avltree_insert(
                         avltree_t *                 tree,
                         void *                      data) {
@@ -190,6 +197,7 @@ void *              avltree_find(
     return NULL;
 }
 
+/*****************************************************************************/
 #define AGC_FIRST   1
 #define AGC_SECOND  2
 static inline avltree_node_t *  avltree_visit_get_child(
@@ -219,7 +227,6 @@ static inline avltree_node_t *  avltree_visit_get_child(
     }
     return NULL;
 }
-
 
 /*****************************************************************************/
 int                 avltree_visit(
@@ -258,6 +265,7 @@ int                 avltree_visit(
                                                             rbuf_pop(stack));
         //TODO: loop (stack mode) can be optimized by not pushing the next node
         //      to be visited, just do node = node->left/right
+        //TODO: skip states which are not required by visitor (push child earlier)
         //TODO: AVS_NEXTVISIT and AVS_SKIP might not work correctly
 
         avltree_node_t *      right = node->right;
@@ -389,13 +397,13 @@ static int          avltree_visit_rebalance(
     LOG_DEBUG(g_vlib_log, "BALANCING %ld(%ld,%ld) ppar=%ld "
                           "difbal:%d dirbal:%d obal:%d nbal:%d (Inserted:%ld)",
                 (long) node->data,
-                node->left?(long)node->left->data : -1,
-                node->right?(long)node->right->data : -1,
+                node->left ? (long) node->left->data : -1,
+                node->right ? (long) node->right->data : -1,
                 parent ? (long)(*pparent)->data : -1,
                 idata->new_balance, balance_dir,
                 node->balance,
                 node->balance + (balance_dir * idata->new_balance),
-                (long)idata->newnode->data);
+                (long) idata->newnode->data);
 
     if (idata->new_balance != 0) {
         int old_balance = node->balance;
@@ -407,40 +415,50 @@ static int          avltree_visit_rebalance(
         else
             idata->new_balance = 0;
     }
-#if 0
+
     if (node->balance < -1) {
+#       ifdef _DEBUG
+        if (g_vlib_log && g_vlib_log->level >= LOG_LVL_DEBUG)
+            avltree_print(tree, avltree_print_node_default, stderr);
+#       endif
         /* right rotate */
         if (node->left->balance > 0) {
             //double rotate
             LOG_DEBUG(g_vlib_log, "left(%ld) right(%ld) rotation",
                                   (long)node->left->data, (long) node->data);
-            node->left = avltree_rotate_left(tree, node->left);
-
+            *pparent = avltree_rotate_leftright(tree, node);
         } else {
             LOG_DEBUG(g_vlib_log, "right(%ld) rotation", (long) node->data);
+            *pparent = avltree_rotate_right(tree, node, 1);
         }
-        *pparent = avltree_rotate_right(tree, node);
-        return AVS_FINISHED; //FIXME must continue the balance update
+        idata->prev_child = *pparent;
+
+        return AVS_FINISHED;
     } else if (node->balance > 1) {
+#       ifdef _DEBUG
+        if (g_vlib_log && g_vlib_log->level >= LOG_LVL_DEBUG)
+            avltree_print(tree, avltree_print_node_default, stderr);
+#       endif
         // left rotate
         if (node->right->balance < 0) {
             //double rotation
             LOG_DEBUG(g_vlib_log, "right(%ld) left(%ld) rotation",
                                   (long)node->right->data, (long) node->data);
-            node->right = avltree_rotate_right(tree, node->right);
+            *pparent = avltree_rotate_rightleft(tree, node);
         } else {
             LOG_DEBUG(g_vlib_log, "left(%ld) rotation", (long) node->data);
+            *pparent = avltree_rotate_left(tree, node, 1);
         }
-        *pparent = avltree_rotate_left(tree, node);
-        return AVS_FINISHED; //FIXME must continue the balance update
+        idata->prev_child = *pparent;
+
+        return AVS_FINISHED;
+    } else {
+        idata->prev_child = node;
     }
-#endif
 
     if (idata->new_balance == 0) {
         return AVS_FINISHED;
     }
-
-    idata->prev_child = node;
 
     return AVS_CONTINUE;
 }
@@ -500,7 +518,7 @@ static int          avltree_visit_insert(
 
     LOG_DEBUG(g_vlib_log, "INSERTED node %ld(%lx,%lx) ptr 0x%lx on %s of %ld ptr 0x%lx",
               (long)new->data, (unsigned long)new->left, (unsigned long)new->right,
-              (unsigned long)new,
+              (unsigned long) new,
               *parent == node->left ? "LEFT" : "RIGHT",
               (long)node->data, (unsigned long) node);
 
@@ -522,42 +540,186 @@ static int          avltree_visit_free(
 }
 
 /*****************************************************************************/
-/** rotate_left()
- * the right child of node is right-heavy (balance = 2).
- * @param tree the tree
- * @param node root of subtree to be rotated
- */
-static avltree_node_t * avltree_rotate_left(avltree_t * tree, avltree_node_t * node) {
+static avltree_node_t * avltree_rotate_left(avltree_t * tree, avltree_node_t * node, int update) {
     (void) tree;
     avltree_node_t * rchild = node->right;
 
     node->right = rchild->left;
     rchild->left = node;
 
-    if (rchild->balance == 0) {
-        node->balance = 1;
-        rchild->balance = -1;
-    } else {
-        node->balance = 0;
-        rchild->balance = 0;
+    if (update == 1) {
+        if (rchild->balance == 0) {
+            node->balance = 1;
+            rchild->balance = -1;
+        } else {
+            node->balance = 0;
+            rchild->balance = 0;
+        }
     }
     return rchild;
 }
-
-static avltree_node_t * avltree_rotate_right(avltree_t * tree, avltree_node_t * node) {
+/*****************************************************************************/
+static avltree_node_t * avltree_rotate_right(avltree_t * tree, avltree_node_t * node, int update) {
     (void) tree;
     avltree_node_t * lchild = node->left;
 
     node->left = lchild->right;
     lchild->right = node;
 
-    if (lchild->balance == 0) {
-        node->balance = -1;
-        lchild->balance = 1;
-    } else {
-        node->balance = 0;
-        lchild->balance = 0;
+    if (update == 1) {
+        if (lchild->balance == 0) {
+            node->balance = -1;
+            lchild->balance = 1;
+        } else {
+            node->balance = 0;
+            lchild->balance = 0;
+        }
     }
     return lchild;
+}
+/*****************************************************************************/
+static avltree_node_t * avltree_rotate_rightleft(avltree_t * tree, avltree_node_t * node) {
+    (void) tree;
+    avltree_node_t * rchild = node->right;
+    avltree_node_t * l_of_rchild = rchild->left;
+    avltree_node_t * newroot;
+
+    node->right = avltree_rotate_right(tree, node->right, 0);
+    newroot = avltree_rotate_left(tree, node, 0);
+
+    if (l_of_rchild->balance > 0) {
+        node->balance = -1;
+        rchild->balance = 0;
+    } else if (l_of_rchild->balance == 0) {
+        node->balance = 0;
+        rchild->balance = 0;
+    } else {
+        node->balance = 0;
+        rchild->balance = 1;
+    }
+    l_of_rchild->balance = 0;
+
+    return newroot;
+}
+/*****************************************************************************/
+static avltree_node_t * avltree_rotate_leftright(avltree_t * tree, avltree_node_t * node) {
+    (void) tree;
+    avltree_node_t * lchild = node->left;
+    avltree_node_t * r_of_lchild = lchild->right;
+    avltree_node_t * newroot;
+
+    node->left = avltree_rotate_left(tree, node->left, 0);
+    newroot = avltree_rotate_right(tree, node, 0);
+
+    if (r_of_lchild->balance < 0) {
+        node->balance = 1;
+        lchild->balance = 0;
+    } else if (r_of_lchild->balance == 0) {
+        node->balance = 0;
+        lchild->balance = 0;
+    } else {
+        node->balance = 0;
+        lchild->balance = -1;
+    }
+    r_of_lchild->balance = 0;
+
+    return newroot;
+}
+
+/*****************************************************************************/
+int                 avltree_print_node_default(
+                        FILE *                      out,
+                        const avltree_node_t *      node) {
+    return fprintf(out, "%ld(%d)", (long)node->data, node->balance);
+}
+
+/*****************************************************************************/
+/* TODO, the avltree_visit is not ready to pass node index, node depth,
+ * TODO, get terminal columns number (width)
+ * then for now the visit is inlined in this function */
+void avltree_print(avltree_t * tree, avltree_printfun_t print, FILE * out) {
+    rbuf_t *    fifo;
+    int         width       = 200;
+    int         node_nb     = 1;
+    int         node_sz     = width / 3;
+    int         display     = (node_nb - 1) * node_sz;
+    int         indent      = (width - display) / 2;
+    ssize_t     n;
+    ssize_t     old_idx     = -1;
+
+    if ((tree->flags & AFL_SHARED_STACK) != 0) {
+        fifo = tree->stack;
+    } else {
+        fifo = rbuf_create(32 * 3, RBF_DEFAULT);
+    }
+
+    if (tree && tree->root) {
+        rbuf_push(fifo, 0);
+        rbuf_push(fifo, 0);
+        rbuf_push(fifo, tree->root);
+        for (n = 0; n < indent; n++)
+            fputc(' ', out);
+    }
+
+    while (rbuf_size(fifo)) {
+        size_t              level   = (size_t) rbuf_dequeue(fifo);
+        ssize_t             idx     = (ssize_t) rbuf_dequeue(fifo);
+        avltree_node_t *    node    = (avltree_node_t *) rbuf_dequeue(fifo);
+
+        /* padding for inexistant previous brothers */
+        if (old_idx + 1 < idx) {
+            for(n = 0; n < node_sz * (idx - old_idx - 1); n++)
+                fputc(' ', out);
+        }
+
+        /* print node & padding */
+        n = print(out, node);
+        if (rbuf_size(fifo) != 0 && (size_t) rbuf_bottom(fifo) == level) {
+            for( ; n < node_sz; n++)
+                fputc(' ', out);
+        }
+        /* detect if this is the last element of the level */
+        if (rbuf_size(fifo) == 0 || level != (size_t) rbuf_bottom(fifo)) {
+            /* next element is on new level */
+            old_idx = -1;
+            fputc('\n', out);
+            node_nb = pow(2, level + 1);
+            node_sz = width / (node_nb  );
+            display = (node_nb-1) * node_sz;
+            indent = (width - display) / 2;
+            for (n = 0; n < indent; n++)
+                    fputc(' ', out);
+            for (int i = 0; i < pow(2, level); i++) {
+                for (n = 0; n < node_sz; n++)
+                    fputc(n == node_sz / 2 ? '+' : '_', out);
+                if (i + 1!= pow(2, level))
+                for (n = 0; n < node_sz; n++)
+                    fputc(' ', out);
+            }
+            fputc('\n', out);
+            for (n = 0; n < indent; n++)
+                fputc(' ', out);
+        } else {
+            old_idx = idx;
+        }
+
+        if (node->left) {
+            rbuf_push(fifo, (void*)((long)(level + 1)));
+            rbuf_push(fifo, (void*)((ssize_t)(idx * 2)));
+            rbuf_push(fifo, node->left);
+        }
+        if (node->right) {
+            rbuf_push(fifo, (void*)((long)(level + 1)));
+            rbuf_push(fifo, (void*)((ssize_t)(idx * 2 + 1)));
+            rbuf_push(fifo, node->right);
+        }
+    }
+    fputc('\n', out);
+
+    if ((tree->flags & AFL_SHARED_STACK) != 0) {
+        rbuf_reset(fifo);
+    } else {
+        rbuf_free(fifo);
+    }
 }
 
