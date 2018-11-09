@@ -21,7 +21,6 @@
  * AVL: 1962, Georgii Adelson-Velsky & Evguenii Landis.
  */
 #include <stdlib.h>
-#include <math.h>
 #include <stdio.h>
 
 #include "vlib/avltree.h"
@@ -234,11 +233,11 @@ int                 avltree_visit(
                         avltree_visitfun_t          visit,
                         void *                      user_data,
                         avltree_visit_how_t         how) {
-    rbuf_t *                stack       = NULL;
+    rbuf_t *                stack           = NULL;
     avltree_visit_context_t context;
-    int                     ret         = AVS_CONTINUE;
-    int                     breadth_style;
-    int                     push = 1;
+    int                     ret             = AVS_CONTINUE;
+    int                     breadth_style   = 0;
+    int                     push            = 1;
 
     if (tree == NULL || visit == NULL) {
         return AVS_ERROR;
@@ -683,18 +682,18 @@ void avltree_print(avltree_t * tree, avltree_printfun_t print, FILE * out) {
             /* next element is on new level */
             old_idx = -1;
             fputc('\n', out);
-            node_nb = pow(2, level + 1);
-            node_sz = width / (node_nb  );
-            display = (node_nb-1) * node_sz;
+            node_nb = 1 << (level + 1);
+            node_sz = width / (node_nb);
+            display = (node_nb - 1) * node_sz;
             indent = (width - display) / 2;
             for (n = 0; n < indent; n++)
                     fputc(' ', out);
-            for (int i = 0; i < pow(2, level); i++) {
+            for (int i = 0; i < (1 << (level)); i++) {
                 for (n = 0; n < node_sz; n++)
                     fputc(n == node_sz / 2 ? '+' : '_', out);
-                if (i + 1!= pow(2, level))
-                for (n = 0; n < node_sz; n++)
-                    fputc(' ', out);
+                if (i + 1 != (1 << (level)))
+                    for (n = 0; n < node_sz; n++)
+                        fputc(' ', out);
             }
             fputc('\n', out);
             for (n = 0; n < indent; n++)
