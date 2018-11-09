@@ -51,8 +51,7 @@
 #define OPT_USAGE_OPT_PAD 30
 
 inline static int is_opt_end(const opt_options_desc_t * opt) {
-    return opt == NULL
-        || (opt->short_opt == 0 && opt->desc == NULL);
+    return opt == NULL || opt->short_opt == OPT_ID_END;
 }
 
 inline static int is_valid_short_opt(int c) {
@@ -131,6 +130,8 @@ static int opt_alias(int i_opt, const opt_config_t * opt_config) {
 static int opt_error(int exit_code, const opt_config_t * opt_config, int show_usage,
                      const char * fmt, ...) {
     if (opt_config && (opt_config->flags & OPT_FLAG_SILENT) == 0) {
+        if (opt_config->log != NULL)
+            log_header(LOG_LVL_ERROR, opt_config->log, NULL, NULL, 0);
         if (fmt != NULL) {
             va_list arg;
             va_start(arg, fmt);
@@ -222,11 +223,12 @@ static int opt_usage_filter(const char * filter, int i_opt, int i_section,
 
     return 0;
 }
+#include "vlib/log.h"
 
 static size_t opt_newline(FILE * out, const opt_config_t * opt_config, int print_header) {
-    (void) opt_config;
-    (void) print_header;
     fputc('\n', out);
+    if (print_header && opt_config->log != NULL)
+        log_header(LOG_LVL_INFO, opt_config->log, NULL, NULL, 0);
     return 0;
 }
 
@@ -246,13 +248,22 @@ static void opt_print_usage_summary(const opt_config_t * opt_config,
     } else {
         start_name++;
     }
-    if (opt_config->version_string && *opt_config->version_string)
-        fprintf(out, "%s\n\n", opt_config->version_string);
+    if (opt_config->version_string && *opt_config->version_string) {
+        const char * next = opt_config->version_string, * token;
+        size_t len;
+        while ((len = strtok_ro_r(&token, "\n", &next, NULL, 0)) > 0 || *next) {
+            fwrite(token, 1, len, out);
+            opt_newline(out, opt_config, 1);
+        }
+        opt_newline(out, opt_config, 1);
+    }
+
     n_printed = pad = fprintf(out, "Usage: %s ", start_name);
 
     /* print only simple usage summary if requested */
     if ((opt_config->flags & OPT_FLAG_SIMPLEUSAGE) != 0) {
-        fprintf(out, "[options] [arguments]\n");
+        fprintf(out, "[options] [arguments]");
+        opt_newline(out, opt_config, 1);
         return ;
     }
 
@@ -287,7 +298,7 @@ static void opt_print_usage_summary(const opt_config_t * opt_config,
             if (!isarg) {
                len += 4 + (*opt->arg != '[' ? 2 : 0); /* will print "[-Xarg]" or "[-X<arg>]" */
             } else if (i_firstarg < 0) {
-                len += 5; /* will printf additional " [--]" string */
+                len += 5 + 24; /* will printf additional " --<long-option>[=value] [--]" string */
             }
             /* check columns limit */
             if (n_printed + len > max_columns) {
@@ -298,7 +309,7 @@ static void opt_print_usage_summary(const opt_config_t * opt_config,
             /* display it */
             if (isarg) {
                 if (i_firstarg < 0) {
-                    n_printed += fprintf(out, " [--]");
+                    n_printed += fprintf(out, " --<long-option>[=value] [--]");
                 }
                 i_firstarg = i_opt;
                 n_printed += fprintf(out, " %s", opt->arg);
@@ -309,24 +320,23 @@ static void opt_print_usage_summary(const opt_config_t * opt_config,
             }
         }
     }
-    /* print " [--]" if not already done */
+    /* print " --<long-option>[=value] [--]" if not already done */
     if (i_firstarg < 0) {
-        if (n_printed + 5 > max_columns) {
+        if (n_printed + 5 + 24 > max_columns) {
             opt_newline(out, opt_config, 1);
             for (n_printed = 1; n_printed < pad; n_printed++)
                 fputc(' ', out);
         }
-        n_printed += fprintf(out, " [--]");
+        n_printed += fprintf(out, " --<long-option>[=value] [--]");
     }
-    opt_newline(out, opt_config, 0);
+    opt_newline(out, opt_config, 1);
 }
 
 int opt_usage(int exit_status, const opt_config_t * opt_config, const char * filter) {
     char            desc_buffer[4096];
-    FILE *          out = stdout;
+    FILE *          out;
     unsigned int    max_columns;
-    int             i_opt, i_current_section = -1;
-
+    int             i_opt, i_current_section = -1, filter_matched = 0;
     /* sanity checks */
     fflush(NULL);
     if (opt_config == NULL || opt_config->argv == NULL || opt_config->opt_desc == NULL) {
@@ -339,21 +349,33 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
         return exit_status;
     }
 
+    if (opt_config->log != NULL) {
+        out = opt_config->log->out;
+    } else {
+        out = stdout;
+    }
+
     /* if this is an error: use stderr and put a blank between error message and usage */
     if (OPT_IS_ERROR(exit_status) != 0) {
-        out = stderr;
-        opt_newline(out, opt_config, 1);
-    }
+        if (opt_config->log == NULL)
+            out = stderr;
+        flockfile(out);
+        opt_newline(out, opt_config, 0);
+    } else
+        flockfile(out);
 
     /* get max columns usable for display */
     max_columns = get_max_columns(out, opt_config);
-
+    if (opt_config->log != NULL) {
+        max_columns -= log_header(LOG_LVL_INFO, opt_config->log, NULL, NULL, 0);
+    }
     /* print program name, version and usage summary */
     opt_print_usage_summary(opt_config, out, max_columns);
 
     /* print list of options with their descrption */
     i_opt = 0;
-    for (const opt_options_desc_t * opt = opt_config->opt_desc; !is_opt_end(opt); ++opt, ++i_opt) {
+    for (const opt_options_desc_t * opt = opt_config->opt_desc;
+            (filter_matched == 0 && filter != NULL) || !is_opt_end(opt); ++opt, ++i_opt) {
         int             n_printed = 0;
         const char *    token;
         const char *    next;
@@ -362,6 +384,13 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
         size_t          desc_size = 0, * psize = NULL;
         int             is_section;
 
+        /* restart loop if bad usage filter was given */
+        if (is_opt_end(opt)) {
+            opt = opt_config->opt_desc;
+            i_opt = 0;
+            exit_status = OPT_ERROR(OPT_EBADFLT);
+            filter = NULL;
+        }
         /* keep current section index, and stop if we should only print main section */
         if ((is_section = is_opt_section(opt->short_opt))) {
             if (filter == NULL && (i_current_section >= 0 || opt != opt_config->opt_desc)
@@ -373,6 +402,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
         if (!opt_usage_filter(filter, i_opt, i_current_section, opt_config)) {
             continue ;
         }
+        ++filter_matched;
         if (!is_section) {
             /* skip option if this is an alias */
             if (opt_alias(i_opt, opt_config) >= 0)
@@ -449,13 +479,18 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
             eol_shift = 2;
             /* print description */
             n_printed += fwrite(token, 1, len, out);
-            if (token[len-1] == '\n')
+            if (token[len-1] == '\n') {
                 n_printed = 0;
+                if (opt_config->log != NULL)
+                    log_header(LOG_LVL_INFO, opt_config->log, NULL, NULL, 0);
+            }
         }
         /* EOL before processing next option */
         opt_newline(out, opt_config, 1);
     }
     opt_newline(out, opt_config, 0);
+    fflush(out);
+    funlockfile(out);
     return exit_status;
 }
 
@@ -498,7 +533,9 @@ int opt_parse_options(const opt_config_t * opt_config) {
                 if ((result = opt_alias(i_opt, opt_config)) >= 0)
                     i_opt = result;
                 /* Long option is found, the matching short_opt is in opt_val. */
-                if (desc[i_opt].short_opt == 0) {
+                /* if (!is_opt_user(desc[i_opt].short_opt)
+                 * &&  !is_valid_short_opt(desc[i_opt].short_opt)) { */
+                if (desc[i_opt].short_opt == OPT_ID_END) {
                     return opt_error(OPT_ERROR(OPT_ELONGID), opt_config, 1,
                                      "error: bad 'short_opt' value for option '%s'\n", long_opt);
                 }
@@ -552,7 +589,10 @@ int opt_parse_options(const opt_config_t * opt_config) {
                     result = opt_config->callback(desc[i_opt].short_opt,
                                                   opt_arg, &i_argv, opt_config);
                     if (OPT_IS_ERROR(result)) {
-                        return opt_error(OPT_ERROR(OPT_EBADOPT), opt_config, 1,
+                        if (OPT_EXIT_CODE(result) == OPT_EBADFLT)
+                            opt_error(result, opt_config, 0, "error: bad filter '%s'\n", opt_arg);
+                        return opt_error(OPT_ERROR(OPT_EBADOPT), opt_config,
+                                         OPT_EXIT_CODE(result) != OPT_EBADFLT,
                                          "error: incorrect option '-%c%s'\n",
                                          long_opt != NULL ? '-' : desc[i_opt].short_opt,
                                          long_opt != NULL ? long_opt : "");
@@ -578,6 +618,23 @@ int opt_parse_options(const opt_config_t * opt_config) {
         }
     }
     return OPT_CONTINUE(1);
+}
+
+int opt_parse_options_2pass(opt_config_t * opt_config, opt_option_callback_t callback2) {
+    int ret;
+    for (int i = 0; i < 2; i++) {
+        if (i == 0) {
+            opt_config->flags |= OPT_FLAG_SILENT;
+        } else {
+            ret = opt_config->callback(OPT_ID_END, NULL, NULL, opt_config);
+            if (!OPT_IS_CONTINUE(ret))
+                return ret;
+            opt_config->flags &= ~OPT_FLAG_SILENT;
+            opt_config->callback = callback2;
+        }
+        ret = opt_parse_options(opt_config);
+    }
+    return ret;
 }
 
 int opt_describe_filter(int short_opt, const char * arg, int * i_argv,

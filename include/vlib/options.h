@@ -22,6 +22,8 @@
 #ifndef VLIB_OPTIONS_H
 #define VLIB_OPTIONS_H
 
+#include "vlib/log.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -29,6 +31,8 @@ extern "C" {
 #define OPT_DESCRIBE_OPTION     0x40000000              /* mask for option dynamic description */
 #define OPT_OPTION_FLAG_MIN     0x00020000              /* internal: first bit used for flags */
 #define OPT_OPTION_FLAG_MASK    (OPT_OPTION_FLAG_MIN - 1)/* mask to get OPT value without flags */
+
+#define OPT_ID_END              0                       /* NULL short_opt for end of desc array */
 
 #define OPT_ID_USER             0x00010000              /* first id available for USER */
 #define OPT_ID_USER_MAX         (OPT_ID_USER + 0xfff)   /* last USER id - 4096 IDs */
@@ -54,12 +58,13 @@ enum {
     OPT_ELONG       = 105,  /* unknown long option */
     OPT_ELONGID     = 106,  /* bad long option short_opt value */
     OPT_EOPTNOARG   = 107,  /* argument missing for option */
-    OPT_EOPTARG     = 108   /* unexpected argument for option */
+    OPT_EOPTARG     = 108,  /* unexpected argument for option */
+    OPT_EBADFLT     = 109   /* bad usage filter : usage not displayed */
 };
 
 /**
- * Option description, User will create a { 0,NULL,NULL,NULL } terminated array,
- * eg: opt_option_desc_t desc[] = {{'h',"help",NULL,"show help"},{0,NULL,NULL,NULL}};
+ * Option description, User will create a { OPT_ID_END,NULL,NULL,NULL } terminated array,
+ * eg: opt_option_desc_t desc[] = {{'h',"help",NULL,"show help"},{OPT_ID_END,NULL,NULL,NULL}};
  * short_opt:
  *   - a character for the short option (isascii() && isgraph())
  *   - OPT_ID_USER...OPT_ID_USER_MAX for for a long option without corresponding
@@ -139,6 +144,7 @@ struct opt_config_s {
     opt_config_flag_t           flags;
     const char *                version_string;
     void *                      user_data;
+    log_t *                     log;
 };
 
 /**
@@ -153,7 +159,7 @@ int             opt_usage(int exit_status, const opt_config_t * opt_config,
  * @param opt_config the option configuration including:
  *    argc given by main
  *    argv given by main
- *    opt_desc, an array of options, terminated by { 0, NULL,....,NULL }
+ *    opt_desc, an array of options, terminated by { OPT_ID_END, NULL,....,NULL }
  *    callback the user specific function called for each argument.
  *    version_string the program version (can be OPT_VERSION_STRING defined below)
  *                   it can also contain EOL and/or copyright, description.
@@ -165,7 +171,14 @@ int             opt_usage(int exit_status, const opt_config_t * opt_config,
  */
 int             opt_parse_options(const opt_config_t * opt_config);
 
-/** opt_describe_usage() : default function describing the filter of --help command-line
+/* opt_parse_options_2pass() : same as opt_parse_options(), with 1 pass in silent
+ * mode with opt_config->callback and second pass without silent mode with callback2,
+ * opt_config->callback(OPT_ID_END, NULL, NULL, opt_config) is called before second pass,
+ * if its return value is not OPT_IS_CONTINUE, second pass is not done. */
+int             opt_parse_options_2pass(opt_config_t * opt_config,
+                                        opt_option_callback_t callback2);
+
+/** opt_describe_filter() : default function describing the filter of --help command-line
  * option to be called from opt_callback_t option handler - see OPT_DESCRIBE_OPTION */
 int             opt_describe_filter(int short_opt, const char * arg, int * i_argv,
                                     const opt_config_t * opt_config);
