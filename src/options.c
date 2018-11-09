@@ -298,7 +298,7 @@ static void opt_print_usage_summary(const opt_config_t * opt_config,
             if (!isarg) {
                len += 4 + (*opt->arg != '[' ? 2 : 0); /* will print "[-Xarg]" or "[-X<arg>]" */
             } else if (i_firstarg < 0) {
-                len += 5 + 24; /* will printf additional " --<long-option>[=value] [--]" string */
+                len += 5 + 26; /* will printf additional " [--<long-option>[=value]] [--]" string */
             }
             /* check columns limit */
             if (n_printed + len > max_columns) {
@@ -309,7 +309,7 @@ static void opt_print_usage_summary(const opt_config_t * opt_config,
             /* display it */
             if (isarg) {
                 if (i_firstarg < 0) {
-                    n_printed += fprintf(out, " --<long-option>[=value] [--]");
+                    n_printed += fprintf(out, " [--<long-option>[=value]] [--]");
                 }
                 i_firstarg = i_opt;
                 n_printed += fprintf(out, " %s", opt->arg);
@@ -320,14 +320,14 @@ static void opt_print_usage_summary(const opt_config_t * opt_config,
             }
         }
     }
-    /* print " --<long-option>[=value] [--]" if not already done */
+    /* print " [--<long-option>[=value]] [--]" if not already done */
     if (i_firstarg < 0) {
-        if (n_printed + 5 + 24 > max_columns) {
+        if (n_printed + 5 + 26 > max_columns) {
             opt_newline(out, opt_config, 1);
             for (n_printed = 1; n_printed < pad; n_printed++)
                 fputc(' ', out);
         }
-        n_printed += fprintf(out, " --<long-option>[=value] [--]");
+        n_printed += fprintf(out, " [--<long-option>[=value]] [--]");
     }
     opt_newline(out, opt_config, 1);
 }
