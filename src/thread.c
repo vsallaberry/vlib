@@ -78,6 +78,7 @@ int callback(
 }
 #define VTE_DATA_FD(fd)         ((void *)((long)fd))
 #define VTE_DATA_SIG(sig)       ((void *)((long)sig))
+#define VTE_DATA_PTR(ptr)       ((void *)(ptr))
 #define VTE_DATA_FLAG(flag)     ((vlib_thread_callback_t)(flag))
 #define VTE_DATA_FLAGVAL(val)   ((void *)((long)val))
 void testcb() {
@@ -88,7 +89,7 @@ void testcb() {
     volatile sig_atomic_t flag;
     int flag_value = 1 << 7;
     vlib_thread_register_event(vthread, VTE_FD_READ, VTE_DATA_FD(fd), callback, vthread);
-    vlib_thread_register_event(vthread, VTE_INIT, str, callback, vthread);
+    vlib_thread_register_event(vthread, VTE_INIT, VTE_DATA_PTR(str), callback, vthread);
     vlib_thread_register_event(vthread, VTE_SIG, VTE_DATA_SIG(sig),
             VTE_DATA_FLAG(&flag), VTE_DATA_FLAGVAL(flag_value));
 }
@@ -183,61 +184,54 @@ int                 vlib_thread_start(
 #include <sys/param.h>
 #include <sys/sysctl.h>
 
-static int is_valgrind(int argc, const char *const* argv) {
+#define VALGRIND_DEBUG_WORKAROUND 1
+
+int vlib_thread_valgrind(int argc, const char *const* argv) {
     static int valgrind = -1;
+
     if (valgrind != -1)
         return valgrind;
-
-    /*
-    int mib2[] = {
-	    CTL_KERN,
-	    KERN_PROC,
-        KERN_PROC_PID,
-        getpid()
-    };
-    struct kinfo_proc proc;
-    size_t len = sizeof(proc);
-    if (sysctl(mib2, sizeof(mib2) / sizeof(*mib2), &proc, &len, NULL, 0) < 0) {
-	    LOG_ERROR(NULL, "sysctl(buf): %s", strerror(errno));
-	    return -1;
-    }
-    */
+    if (argv == NULL || argc < 1)
+        return 0;
 
     int mib[] = {
 	    CTL_KERN,
 	    KERN_PROCARGS,
         getpid()
     };
-    int kargv_len = 0;
+    size_t kargv_len = 0;
     char * kargv;
 
+    valgrind = 0;
     if (sysctl(mib, sizeof(mib) / sizeof(*mib), NULL, &kargv_len, NULL, 0) < 0) {
 	    LOG_ERROR(NULL, "sysctl(NULL): %s", strerror(errno));
-	    return -1;
+        return -1;
     }
     if ((kargv = malloc(kargv_len * sizeof(char))) == NULL) {
         LOG_ERROR(NULL, "malloc argv: %s", strerror(errno));
+        valgrind = -1; // try again
 	    return -1;
     }
     if (sysctl(mib, sizeof(mib) / sizeof(*mib), kargv, &kargv_len, NULL, 0) < 0) {
         LOG_ERROR(NULL, "sysctl(buf): %s", strerror(errno));
-        free(argv);
+        free(kargv);
 	    return -1;
     }
-    valgrind = 0;
     flockfile(stderr);
-    fprintf(stderr, "*** ARGV(%d):\n", kargv_len);
-    for (int i = 0; i < kargv_len; ) {
-        fprintf(stderr, "%d.%d><", kargv[i], kargv[i+1]);
-        if (strncmp(kargv + i, "./vsensorsdemo", strlen("./vsensorsdemo")+1) == 0)
+    fprintf(stderr, "*** ARGV(%lu):\n", kargv_len);
+    for (size_t i = 0; i < kargv_len; ) {
+        int n = fprintf(stderr, "%04lu:<%s>\n", i, kargv + i) - 3 - 4 - 1;
+        if (argv && strcmp(kargv + i, *argv) == 0)
             break ;
         if (strstr(kargv + i, "valgrind") != NULL
         || strstr(kargv + i, "memcheck") != NULL) {
             valgrind = 1;
             break ;
         }
-        i += fprintf(stderr, "%s>", kargv + i);
-        fputc('\n', stderr);
+        if (n >= 0)
+            i += n + 1;
+        else
+            break;
     }
     //fwrite(argv, sizeof(char), argv_len, stderr);
     fputc('\n', stderr);
@@ -247,7 +241,11 @@ static int is_valgrind(int argc, const char *const* argv) {
     return valgrind;
 }
 #else
-# define is_valgrind(argc, argv) 0
+int vlib_thread_valgrind(int argc, const char *const* argv) {
+    (void) argc;
+    (void) argv;
+    return 0;
+}
 #endif
 
 /** stop and clean the thread
@@ -261,7 +259,7 @@ void *                  vlib_thread_stop(
 
     if (priv == NULL) {
         LOG_WARN(g_vlib_log, "bad thread context");
-        return NULL;
+        return ret_val;
     }
 
     LOG_DEBUG(vthread->log, "locking flag_mutex...");
@@ -276,25 +274,26 @@ void *                  vlib_thread_stop(
     ret = pthread_cond_signal(&priv->cond);
     LOG_DEBUG(vthread->log, "pthread_cond_signal ret %d", ret);
 
-    int valgrind = is_valgrind(0, NULL);
+#   ifdef VALGRIND_DEBUG_WORKAROUND
+    int valgrind = vlib_thread_valgrind(0, NULL);
     if (valgrind) {
         LOG_DEBUG(vthread->log, "VALGRIND: pthread_cond_wait...");
         pthread_cond_wait(&priv->cond, &priv->mutex);
+        pthread_mutex_unlock(&priv->mutex);
+        usleep(20000);
         ret_val = NULL;
-    }
-    pthread_mutex_unlock(&priv->mutex);
-    sched_yield();
-    sched_yield();
-
-    if (!valgrind) {
+    } else
+#   endif
+    {
+        pthread_mutex_unlock(&priv->mutex);
         LOG_DEBUG(vthread->log, "pthread_join...");
         pthread_join(vthread->tid, &ret_val);
     }
 
-    pthread_mutex_unlock(&flag_mutex);
-
     LOG_DEBUG(vthread->log, "destroy vthread and return...");
     vlib_thread_ctx_destroy(vthread);
+
+    pthread_mutex_unlock(&flag_mutex);
 
     return ret_val;
 }
@@ -474,14 +473,12 @@ static void * vlib_thread(void * data) {
                   sigismember(&sigset, priv->exit_signal));
 
         pthread_mutex_unlock(&priv->mutex);
-
 #       ifndef VLIB_THREAD_PSELECT
         select_ret = select(fd_max + 1, &readfds, &writefds, &errfds, p_select_timeout);
 #       else
         select_ret = pselect(fd_max + 1, &readfds, &writefds, &errfds, p_select_timeout, &sigset);
 #       endif
         LOG_DEBUG(vthread->log, "select return %d errno %d", select_ret, errno);
-
         pthread_mutex_lock(&priv->mutex);
 
         LOG_DEBUG(vthread->log, "mutex relocked");
@@ -565,11 +562,7 @@ static void flag_sig_handler(int sig, siginfo_t * sig_info,  void * context) {
               sig, sig_info, sig_info? sig_info->si_pid : -1, context, tself);
 
     if (sig != SIG_SPECIAL_VALUE) {
-        if (1
-#       ifndef _DEBUG /* when run with gdb, the sender of signal is not getpid() */
-        && sig_info && sig_info->si_pid == getpid()
-#       endif
-        ) {
+        if (sig_info && (sig_info->si_pid == 0 || (long)sig_info->si_pid == (long)getpid())) {
             /* looking for tid in threadlist and update running if found, then delete entry */
             for (struct threadlist_s * prev = NULL, * cur = threadlist;
                  cur;

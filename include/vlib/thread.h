@@ -116,6 +116,7 @@ int                 vlib_thread_set_exit_signal(
                             vlib_thread_t *             vthread,
                             int                         exit_signal);
 
+int vlib_thread_valgrind(int argc, const char *const* argv);
 /*
 / ** register a flag for modification on signal reception * /
 int                 vlib_thread_sig_register_flag(
