@@ -32,7 +32,14 @@
 
 #include "vlib/log.h"
 #include "vlib/util.h"
+#include "vlib/hash.h"
 #include "vlib/options.h"
+
+/** internal log_pool structure */
+typedef struct log_pool_s {
+    hash_t *    files;
+    slist_t *   logs;
+} log_pool_t;
 
 /** internal vlib log instance */
 static log_t s_vlib_log_default = {
@@ -458,7 +465,7 @@ int log_list_prefixcmp(const void * vlist1_data, const void * vlist2_data) {
     return log_list_prefixfind(log1->prefix, vlist2_data);
 }
 
-slist_t * log_create_from_cmdline(slist_t * logs,
+slist_t * log_create_from_cmdline(slist_t * log_pool,
                                   const char * log_levels, const char *const* modules) {
     // FIXME: work in progress, PARSING OK, using it is TODO
     if (log_levels == NULL) {
@@ -499,7 +506,7 @@ slist_t * log_create_from_cmdline(slist_t * logs,
         len = maxlen;
         LOG_DEBUG_BUF(NULL, mod_file, len, "mod_file ");
     }
-    return logs;
+    return log_pool;
 }
 
 void log_close(log_t * log) {
