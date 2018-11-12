@@ -611,9 +611,9 @@ debug: update-$(BUILDINC) $(DEBUGDIRS)
 	     { $(SED) -e 's/^\([[:space:]]*\#[[:space:]]*define[[:space:]][[:space:]]*BUILD_APPRELEASE[[:space:]]\).*/\1 "DEBUG"/' \
 	          $(BUILDINC) $(NO_STDERR); } > $(BUILDINC).tmp && $(MV) $(BUILDINC).tmp $(BUILDINC) || true; \
 	     $(PRINTF) "$(NAME): debug enabled ('make distclean' to disable it).\n"; \
-	     $(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; \
 	 fi
-	 @if $(TEST) -n "$(SUBMODROOTDIR)"; then "$(MAKE)" SUBMODROOTDIR="$(SUBMODROOTDIR)"; else "$(MAKE)"; fi
+	 @$(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; \
+	  if $(TEST) -n "$(SUBMODROOTDIR)"; then "$(MAKE)" SUBMODROOTDIR="$(SUBMODROOTDIR)"; else "$(MAKE)"; fi
 $(DEBUGDIRS):
 	@recdir=$(@:-debug=); rectarget=debug; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} debug
 
@@ -624,10 +624,10 @@ test-build: update-$(BUILDINC) $(TESTBUILDDIRS)
 	@if $(TEST) "$(RELEASE_MODE)" = "RELEASE"; then \
 	     { $(SED) -e 's/^\([[:space:]]*\#[[:space:]]*define[[:space:]][[:space:]]*BUILD_APPRELEASE[[:space:]]\).*/\1 "TEST"/' \
 	          $(BUILDINC) $(NO_STDERR); } > $(BUILDINC).tmp && $(MV) $(BUILDINC).tmp $(BUILDINC) \
-	     && $(PRINTF) "$(NAME): test enabled ('make distclean' to disable it).\n" \
-	     && { $(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; }; \
-        fi
-	@if $(TEST) -n "$(SUBMODROOTDIR)"; then "$(MAKE)" SUBMODROOTDIR="$(SUBMODROOTDIR)"; else "$(MAKE)"; fi
+	     && $(PRINTF) "$(NAME): test enabled ('make distclean' to disable it).\n"; \
+	 fi
+	@$(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; \
+	 if $(TEST) -n "$(SUBMODROOTDIR)"; then "$(MAKE)" SUBMODROOTDIR="$(SUBMODROOTDIR)"; else "$(MAKE)"; fi
 $(TESTBUILDDIRS):
 	@recdir=$(@:-test-build=); rectarget=test-build; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} test-build
 
@@ -1184,6 +1184,7 @@ rinfo: info
 .PHONY: subdirs $(CLEANDIRS)
 .PHONY: subdirs $(DISTCLEANDIRS)
 .PHONY: subdirs $(DEBUGDIRS)
+.PHONY: subdirs $(TESTBUILDDIRS)
 .PHONY: subdirs $(DOCDIRS)
 .PHONY: default_rule all build_all cleanme clean distclean dist test info rinfo \
 	doc installme install debug gentags update-$(BUILDINC) create-$(BUILDINC) \
