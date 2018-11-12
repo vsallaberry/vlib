@@ -111,6 +111,14 @@ size_t          rbuf_size(
     return size;
 }
 /*****************************************************************************/
+size_t          rbuf_maxsize(
+                    const rbuf_t *  rbuf) {
+    if (rbuf == NULL) {
+        return 0;
+    }
+    return rbuf->max_size;
+}
+/*****************************************************************************/
 int             rbuf_push(
                     rbuf_t *        rbuf,
                     void *          data) {

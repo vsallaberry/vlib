@@ -77,6 +77,14 @@ void            rbuf_free(
 size_t          rbuf_size(
                     const rbuf_t *  rbuf);
 
+/** current maximum size for the buffer
+ *  (note: it can increase if not created with RBF_OVERWRITE)
+ * @param rbuf the buffer
+ * @return current maximum size of buffer */
+size_t          rbuf_maxsize(
+                    const rbuf_t *  rbuf);
+
+
 /** push an element at end of the buffer: compatible with lifo(stack)/fifo(queue)
  * @param rbuf the buffer
  * @param data the element to be pushed

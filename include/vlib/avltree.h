@@ -106,32 +106,55 @@ typedef int         (*avltree_visitfun_t) (
 /** AVLNODE : shortcut for avltree_node_create() */
 #define AVLNODE(value, left, right)     avltree_node_create(NULL, value, left, right)
 
-/** avltree_create() */
+/** avltree_create()
+ * complexity: O(1) */
 avltree_t *         avltree_create(
                         avltree_flags_t             flags,
                         avltree_cmpfun_t            cmpfun,
                         avltree_freefun_t           freefun);
 
-/** avltree_node_create */
+/** avltree_node_create
+ * complexity: O(1) */
 avltree_node_t *    avltree_node_create(
                         avltree_t *                 tree,
                         void *                      data,
                         avltree_node_t *            left,
                         avltree_node_t *            right);
 
-/** avltree_insert() */
+/** avltree_insert()
+ * complexity: O(log2(n)) */
 avltree_node_t *    avltree_insert(
                         avltree_t *                 tree,
                         void *                      data);
 
-/** avltree_free() */
+/** avltree_free()
+ * complexity: O(n) */
 void                avltree_free(
                         avltree_t *                 tree);
 
-/** avltree_find() */
+/** avltree_find()
+ * complexity: O(log2(n))
+ * @return the element or NULL on error with errno set (errno is NOT changed on success). */
 void *              avltree_find(
                         avltree_t *                 tree,
                         const void *                data);
+
+/** avltree_find_min()
+ * complexity: O(log2(n))
+ * @return the min element or NULL on error with errno set (errno is NOT changed on success). */
+void *              avltree_find_min(
+                        avltree_t *                 tree);
+
+/** avltree_find_max()
+ * complexity: O(log2(n))
+ * @return the max element or NULL on error with errno set (errno is NOT changed on success). */
+void *              avltree_find_max(
+                        avltree_t *                 tree);
+
+/** avltree_find_depth()
+ * complexity: O(log2(n)) */
+unsigned int        avltree_find_depth(
+                        avltree_t *                 tree);
 
 /** avltree_visit()
  * The given function will be called on each node in an order specified by how.
@@ -145,7 +168,8 @@ int                 avltree_visit(
                         void *                      user_data,
                         avltree_visit_how_t         how);
 
-/** avltree_remove() */
+/** avltree_remove()
+ * complexity: O(log2(n)) */
 void *              avltree_remove(
                         avltree_t *                 tree,
                         const void *                data);
@@ -156,7 +180,8 @@ typedef int         (*avltree_printfun_t)(
                         FILE *                      out,
                         const avltree_node_t *      node);
 
-/** avltree_print() */
+/** avltree_print()
+ * complexity: O(n) */
 void                avltree_print(
                         avltree_t *                 tree,
                         avltree_printfun_t          print,

@@ -22,6 +22,7 @@
  */
 #include <stdlib.h>
 #include <stdio.h>
+#include <errno.h>
 
 #include "vlib/avltree.h"
 #include "vlib/log.h"
@@ -31,7 +32,7 @@
 #include "vlib_private.h"
 
 /*****************************************************************************/
-#define AVLTREE_STACK_SZ    32
+#define AVLTREE_STACK_SZ    32 /* 10^5 elts:depth=20, 10^6:24, 10^7:28 */
 
 typedef struct {
     void *              newdata;        /* IN  : value of new node */
@@ -93,7 +94,7 @@ avltree_t *         avltree_create(
     }
     /* create a shared stack if requested in flags */
     if ((flags & AFL_SHARED_STACK) != 0) {
-        tree->stack = rbuf_create(AVLTREE_STACK_SZ, RBF_DEFAULT);
+        tree->stack = rbuf_create(AVLTREE_STACK_SZ, RBF_DEFAULT | RBF_SHRINK_ON_RESET);
         if (tree->stack == NULL) {
             free(tree);
             return NULL;
@@ -179,6 +180,7 @@ void *              avltree_find(
     int                 cmp;
 
     if (tree == NULL) {
+        errno = EINVAL;
         return NULL;
     }
     node = tree->root;
@@ -193,7 +195,69 @@ void *              avltree_find(
         }
     }
     //TODO: handle nodes with same value;
+    errno = ENOENT;
     return NULL;
+}
+
+/*****************************************************************************/
+void *              avltree_find_min(
+                        avltree_t *                 tree) {
+    avltree_node_t *    node;
+
+    if (tree == NULL) {
+        errno = EINVAL;
+        return NULL;
+    }
+    if (tree->root == NULL) {
+        errno = ENOENT;
+        return NULL;
+    }
+    node = tree->root;
+    while (node->left != NULL) {
+        node = node->left;
+    }
+    return node->data;
+}
+
+/*****************************************************************************/
+void *              avltree_find_max(
+                        avltree_t *                 tree) {
+    avltree_node_t *    node;
+
+    if (tree == NULL) {
+        errno = EINVAL;
+        return NULL;
+    }
+    if (tree->root == NULL) {
+        errno = ENOENT;
+        return NULL;
+    }
+    node = tree->root;
+    while (node->right != NULL) {
+        node = node->right;
+    }
+    return node->data;
+}
+
+/*****************************************************************************/
+unsigned int        avltree_find_depth(
+                        avltree_t *                 tree) {
+    avltree_node_t *    node;
+    unsigned int        depth = 0;
+
+    if (tree == NULL) {
+        return 0;
+    }
+    node = tree->root;
+    while (node != NULL) {
+        ++depth;
+        if (node->balance > 0) {
+            node = node->right;
+        } else {
+            node = node->left;
+        }
+    }
+    return depth;
 }
 
 /*****************************************************************************/
