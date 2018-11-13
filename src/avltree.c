@@ -150,6 +150,8 @@ avltree_node_t *    avltree_insert(
     }
     insert_data.newdata = data;
     insert_data.newnode = NULL;
+    insert_data.prev_child = NULL;
+    insert_data.new_balance = 0;
     if (avltree_visit(tree, avltree_visit_insert, &insert_data, AVH_PREFIX | AVH_SUFFIX)
             == AVS_FINISHED) {
         return insert_data.newnode;
@@ -314,13 +316,14 @@ int                 avltree_visit(
 
     if (tree->root != NULL) {
         rbuf_push(stack, tree->root);
-        context.level = 0;
-        context.index = 0;
-        context.stack = stack;
-        context.state = (how & AVH_BREADTH) != 0 ? (how & ~AVH_RIGHT & AVH_BREADTH) : AVH_PREFIX;
-        breadth_style = (context.state == AVH_BREADTH || (how & ~AVH_RIGHT) == AVH_PREFIX);
-        context.how = how;
     }
+
+    context.level = 0;
+    context.index = 0;
+    context.stack = stack;
+    context.state = (how & AVH_BREADTH) != 0 ? (how & ~AVH_RIGHT & AVH_BREADTH) : AVH_PREFIX;
+    breadth_style = (context.state == AVH_BREADTH || (how & ~AVH_RIGHT) == AVH_PREFIX);
+    context.how = how;
 
     while (rbuf_size(stack) != 0) {
         avltree_node_t *      node = (avltree_node_t *) ((how & AVH_BREADTH) != 0 ?

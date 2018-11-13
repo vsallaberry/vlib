@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#include <stdint.h>
 #include <limits.h>
 #include <ctype.h>
 #include <pthread.h>
