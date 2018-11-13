@@ -31,6 +31,20 @@
 extern "C" {
 #endif
 
+/** vlib_thread_state bits */
+typedef enum {
+    VTS_NONE            = 0,
+    VTS_CREATING        = 1 << 0,
+    VTS_CREATED         = 1 << 1,
+    VTS_STARTED         = 1 << 2,
+    VTS_RUNNING         = 1 << 3,
+    VTS_FINISHING       = 1 << 4,
+    VTS_FINISHED        = 1 << 5,
+    VTS_WAITING         = 1 << 7,
+    VTS_ERROR           = 1 << 8,
+    VTS_EXIT_REQUESTED  = 1 << 15,
+} vlib_thread_state_t;
+
 /** opaaue struct vlib_thread_priv_s */
 struct vlib_thread_priv_s;
 
@@ -53,6 +67,11 @@ typedef enum {
     VTE_FD_WRITE        = 1 << 6, /* action_data is fd */
     VTE_FD_ERR          = 1 << 7, /* action_data is fd */
 } vlib_thread_event_t;
+
+/** cast macros for the event_data parameter of vlib_thread_(un)register_event() */
+#define VTE_DATA_FD(fd)         ((void *)((long)fd))
+#define VTE_DATA_SIG(sig)       ((void *)((long)sig))
+#define VTE_DATA_PTR(ptr)       ((void *)(ptr))
 
 /** vlib thread callback : see vlib_thread_register_event() */
 typedef int         (*vlib_thread_callback_t)(
@@ -92,11 +111,10 @@ void *               vlib_thread_stop(
  * @param event the type of event
  *   VTE_{INIT,CLEAN,PROCESS*}: event_data is ignored. This flags can be combined together.
  *   VTE_FD_{READ,WRITE,ERR}: event_data is fd. This flags can be combined together.
- *   VTE_SIG: event_data is signal value, callback is flag pointer,
- *            callback_user_data is flag value. This flag cannot be combined.
+ *   VTE_SIG: event_data is signal value. This flag cannot be combined.
  * @param event_data see parameter 'action'
- * @param callback the callback to be called on this event (or flag ptr for VTE_SIG)
- * @param callback_user_data the pointer to be passed to callback (or flag val for VTE_SIG)
+ * @param callback the callback to be called on this event
+ * @param callback_user_data the pointer to be passed to callback
  * @return 0 on SUCCESS, other value on error
  */
 int                 vlib_thread_register_event(
@@ -105,6 +123,20 @@ int                 vlib_thread_register_event(
                             void *                      event_data,
                             vlib_thread_callback_t      callback,
                             void *                      callback_user_data);
+
+/** unregister an action on the vlib thread
+ * @param vthread the vlib thread context
+ * @param event the type of event
+ *   VTE_{INIT,CLEAN,PROCESS*}: event_data is ignored. This flags can be combined together.
+ *   VTE_FD_{READ,WRITE,ERR}: event_data is fd. This flags can be combined together.
+ *   VTE_SIG: event_data is signal value. This flag cannot be combined.
+ * @param event_data see parameter 'action'
+ * @return 0 on SUCCESS, other value on error
+ */
+int                 vlib_thread_unregister_event(
+                            vlib_thread_t *             vthread,
+                            vlib_thread_event_t         event,
+                            void *                      event_data);
 
 /** setup a custom signal to stop the thread
  * @param vthread the vlib thread context
@@ -116,49 +148,17 @@ int                 vlib_thread_set_exit_signal(
                             vlib_thread_t *             vthread,
                             int                         exit_signal);
 
+/** get thread state
+ * @param vthread the vlib thread context
+ * @return state the bit combination of vlib_thread_state_t
+ */
+unsigned int        vlib_thread_state(
+                            vlib_thread_t *             vthread);
+
+/** to be called at start of program with argc > 0 and *argv valid.
+ * next calls can be done with argc == 0 and argv == NULL
+ * @return 1 if valgrind was detected, 0 otherwise */
 int vlib_thread_valgrind(int argc, const char *const* argv);
-/*
-/ ** register a flag for modification on signal reception * /
-int                 vlib_thread_sig_register_flag(
-                            vlib_thread_t *             vthread,
-                            int                         sig,
-                            sig_atomic_t *              flag_ptr,
-                            unsigned int                value);
-
-/ ** unregister a flag for modification on signal reception * /
-int                 vlib_thread_sig_unregister_flag(
-                            vlib_thread_t *             vthread,
-                            int                         sig,
-                            sig_atomic_t *              flag_ptr);
-
-/ ** register a function on a signal reception * /
-int                 vlib_thread_sig_register_func(
-                            vlib_thread_t *             vthread,
-                            int                         sig,
-                            vlib_thread_callback_t      callback,
-                            void *                      callback_data);
-
-/ ** unregister a function on a signal reception * /
-int                 vlib_thread_sig_unregister_func(
-                            vlib_thread_t *             vthread,
-                            int                         sig,
-                            vlib_thread_callback_t      callback);
-
-/ ** register a fd for the select call * /
-int                 vlib_thread_fd_register(
-                            vlib_thread_t *             vthread,
-                            int                         fd,
-                            vlib_thread_action_t        action,
-                            vlib_thread_callback_t      callback,
-                            void *                      callback_user_data);
-
-/ ** unregister a fd for the select call * /
-int                 vlib_thread_fd_unregister(
-                            vlib_thread_t *             vthread,
-                            int                         fd,
-                            vlib_thread_action_t        action,
-                            vlib_thread_callback_t      callback);
-*/
 
 #ifdef __cplusplus
 }
