@@ -1049,7 +1049,7 @@ debug-makefile:
 #	@$(TOUCH) "$@"
 #	@if $(cmd_TESTBSDOBJ); then $(TEST) -e "$(.CURDIR)/$@" || mv "$@" "$(.CURDIR)"; ln -sf "$(.CURDIR)/$@" .; fi
 # Run Valgrind filter output
-valgrind: all $(VALGRINDSUPP)
+valgrind: all
 	@$(RM) -R $(BIN).dSYM
 	@logfile=`$(MKTEMP) ./valgrind_XXXXXX` && $(MV) "$${logfile}" "$${logfile}.log"; logfile="$${logfile}.log"; \
 	 $(TEST) -e "$(VALGRINDSUPP)" && vgsupp="--suppressions=$(VALGRINDSUPP)" || vgsupp=; \
