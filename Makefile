@@ -69,7 +69,7 @@ DISTDIR		= ../../dist
 
 # PREFIX: where the application is to be installed
 PREFIX		= /usr/local
-INSTALL_FILES	= $(LIBS) include
+INSTALL_FILES	= $(LIB) include
 
 # Project specific Flags (system specific flags are set in $(sys_{LIBS,WARN,INCS,OPTI,DEBUG})
 # if you set LIBS_<system>, or similar. They are added here to make you control the order of arguments).
@@ -147,9 +147,9 @@ TR		= tr
 GIT		= git
 DIFF		= diff
 UNIQ		= uniq
-INSTALL		= install -c -m 0644
-INSTALLBIN	= install -c -m 0755
-INSTALLDIR	= install -c -d -m 0755
+INSTALL		= install -m 0644
+INSTALLBIN	= install -m 0755
+INSTALLDIR	= install -d -m 0755
 VALGRIND	= valgrind
 VALGRIND_ARGS	= --leak-check=full --track-origins=yes --show-leak-kinds=all -v
 MKTEMP		= mktemp
