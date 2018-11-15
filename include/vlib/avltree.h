@@ -52,6 +52,7 @@ typedef enum {
 /** avltree_t */
 typedef struct {
     avltree_node_t *            root;
+    size_t                      n_elements;
     avltree_flags_t             flags;
     struct rbuf_s *             stack;
     avltree_cmpfun_t            cmp;
@@ -156,6 +157,20 @@ void *              avltree_find_max(
 unsigned int        avltree_find_depth(
                         avltree_t *                 tree);
 
+/** avltree_count()
+ * complexity: O(1)
+ * @return number of elements in the tree
+ *         or 0 on error with errno set (errno is NOT changed on success). */
+size_t              avltree_count(
+                        avltree_t *                 tree);
+
+/** avltree_memorysize()
+ * complexity: O(1)
+ * @return estimation of memory used by the tree (except size of nodes datas)
+ *         or 0 on error with errno set (errno is NOT changed on success). */
+size_t              avltree_memorysize(
+                        avltree_t *                 tree);
+
 /** avltree_visit()
  * The given function will be called on each node in an order specified by how.
  * @param tree the tree to visit
@@ -169,7 +184,9 @@ int                 avltree_visit(
                         avltree_visit_how_t         how);
 
 /** avltree_remove()
- * complexity: O(log2(n)) */
+ * complexity: O(log2(n))
+ * @return the removed data
+ *         or NULL on error with errno set (errno is NOT changed on success). */
 void *              avltree_remove(
                         avltree_t *                 tree,
                         const void *                data);

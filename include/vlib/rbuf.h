@@ -71,19 +71,27 @@ int             rbuf_reset(
 void            rbuf_free(
                     rbuf_t *        rbuf);
 
-/** number of element in the buffer
+/** number of elements in the buffer
  * @param rbuf the buffer
- * @return number of elements in the buffer */
+ * @return number of elements in the buffer
+ *         or 0 on error with errno set (errno is NOT changed on success). */
 size_t          rbuf_size(
                     const rbuf_t *  rbuf);
 
 /** current maximum size for the buffer
  *  (note: it can increase if not created with RBF_OVERWRITE)
  * @param rbuf the buffer
- * @return current maximum size of buffer */
+ * @return current maximum size of buffer
+ *         or 0 on error with errno set (errno is NOT changed on success). */
 size_t          rbuf_maxsize(
                     const rbuf_t *  rbuf);
 
+/** estimation of memory used by the buffer
+ * @param rbuf the buffer
+ * @return current estimation of memory used by the buffer
+ *         or 0 on error with errno set (errno is NOT changed on success). */
+size_t          rbuf_memorysize(
+                    const rbuf_t *  rbuf);
 
 /** push an element at end of the buffer: compatible with lifo(stack)/fifo(queue)
  * @param rbuf the buffer

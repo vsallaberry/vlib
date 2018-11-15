@@ -103,6 +103,7 @@ avltree_t *         avltree_create(
         tree->stack = NULL;
     }
     tree->root = NULL;
+    tree->n_elements = 0;
     tree->flags = flags;
     tree->cmp = cmpfun;
     tree->free = freefun;
@@ -143,6 +144,7 @@ avltree_node_t *    avltree_insert(
         if ((tree->root = avltree_node_create(tree, data, NULL, NULL)) == NULL) {
             return NULL;
         }
+        ++tree->n_elements;
         LOG_DEBUG(g_vlib_log, "created root 0x%lx data 0x%ld left:0x%lx right:0x%lx\n",
                   (unsigned long)tree->root, (long)tree->root->data,
                   (unsigned long)tree->root->left, (unsigned long)tree->root->right);
@@ -154,6 +156,7 @@ avltree_node_t *    avltree_insert(
     insert_data.new_balance = 0;
     if (avltree_visit(tree, avltree_visit_insert, &insert_data, AVH_PREFIX | AVH_SUFFIX)
             == AVS_FINISHED) {
+        ++tree->n_elements;
         return insert_data.newnode;
     }
     return NULL;
@@ -260,6 +263,29 @@ unsigned int        avltree_find_depth(
         }
     }
     return depth;
+}
+/*****************************************************************************/
+size_t              avltree_count(
+                        avltree_t *                 tree) {
+    if (tree == NULL) {
+        errno = EINVAL;
+        return 0;
+    }
+    return tree->n_elements;
+}
+/*****************************************************************************/
+size_t              avltree_memorysize(
+                        avltree_t *                 tree) {
+    size_t size;
+    if (tree == NULL) {
+        errno = EINVAL;
+        return 0;
+    }
+    size = sizeof(avltree_t);
+    if (tree->stack != NULL) {
+       size += rbuf_memorysize(tree->stack);
+    }
+    return size + (avltree_count(tree) * sizeof(avltree_node_t));
 }
 
 /*****************************************************************************/
@@ -439,9 +465,13 @@ void *              avltree_remove(
                         avltree_t *                 tree,
                         const void *                data) {
     if (tree == NULL) {
+        errno = EINVAL;
         return NULL;
     }
     //TODO
+    if (0) {
+        --tree->n_elements;
+    }
     return NULL;
 }
 

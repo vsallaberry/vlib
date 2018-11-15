@@ -102,7 +102,11 @@ size_t          rbuf_size(
                     const rbuf_t *  rbuf) {
     ssize_t size;
 
-    if (rbuf == NULL || RBUF_IS_EMPTY(rbuf) || rbuf->start >= rbuf->max_size) {
+    if (rbuf == NULL || rbuf->start >= rbuf->max_size) {
+        errno = EINVAL;
+        return 0;
+    }
+    if (RBUF_IS_EMPTY(rbuf)) {
         return 0;
     }
     if ((size = 1 + rbuf->end - rbuf->start) <= 0) {
@@ -114,9 +118,19 @@ size_t          rbuf_size(
 size_t          rbuf_maxsize(
                     const rbuf_t *  rbuf) {
     if (rbuf == NULL) {
+        errno = EINVAL;
         return 0;
     }
     return rbuf->max_size;
+}
+/*****************************************************************************/
+size_t          rbuf_memorysize(
+                    const rbuf_t *  rbuf) {
+    if (rbuf == NULL) {
+        errno = EINVAL;
+        return 0;
+    }
+    return sizeof(rbuf_t) + (rbuf->max_size * sizeof(void *));
 }
 /*****************************************************************************/
 int             rbuf_push(
