@@ -1114,8 +1114,9 @@ help:
 	  "  PREFIX         [$(PREFIX)]" \
 	  "  INSTALL_FILES  [$(INSTALL_FILES)]" \
 	  "" \
-	  "make test" \
-	  "  TEST_RUN_PROGRAM [`echo "$(TEST_RUN_PROGRAM)"`]" \
+	  "make test"; \
+	  $(PRINTF) "  TEST_RUN_PROGRAM  ["'$(TEST_RUN_PROGRAM:S/'/'"'"'/g)$(subst ','"'"',$(TEST_RUN_PROGRAM))]\n'; \
+	$(PRINTF) "%s\n" \
 	  "" \
 	  "make .gitignore" \
 	  "" \
@@ -1123,7 +1124,6 @@ help:
 	  "  DISTDIR          [ $(DISTDIR) ]" \
 	  ""
 
-#
 info:
 	@$(PRINTF) "%s\n" \
 	  "NAME             : $(NAME)" \
