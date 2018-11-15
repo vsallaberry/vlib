@@ -228,13 +228,12 @@ int                 vlib_thread_set_exit_signal(
         LOG_WARN(g_vlib_log, "bad thread context");
         return -1;
     }
-    LOG_VERBOSE(vthread->log, "new exit signal %d", exit_signal);
-
     pthread_mutex_lock(&priv->mutex);
     ret = vlib_thread_notify(vthread);
     priv->exit_signal = exit_signal;
     pthread_mutex_unlock(&priv->mutex);
 
+    LOG_VERBOSE(vthread->log, "new exit signal %d", exit_signal);
     return 0;
 }
 
@@ -367,7 +366,7 @@ static void * vlib_thread_body(void * data) {
     priv->state |= VTS_STARTED;
     /* call the VTE_INIT callbacks just before starting select loop */
     SLIST_FOREACH_DATA(priv->event_list, data, vlib_thread_event_data_t *) {
-        if ((data->event & VTE_INIT) != 0 && data->callback != NULL) {
+        if (data != NULL && data->callback != NULL && (data->event & VTE_INIT) != 0) {
             ret = data->callback(vthread, VTE_INIT, NULL, data->callback_data);
         }
     }
@@ -375,7 +374,18 @@ static void * vlib_thread_body(void * data) {
     LOG_VERBOSE(vthread->log, "thread: launched");
 
     while ((priv->state & (VTS_RUNNING | VTS_EXIT_REQUESTED)) == VTS_RUNNING) {
-        /* fill the read, write, err fdsets */
+        /* if exit_signal has changed, block it (will be unlocked by pselect) */
+        if (!sigismember(&block_sigset, priv->exit_signal)) {
+            int new_exit_signal = priv->exit_signal;
+            priv->exit_signal = old_exit_signal;
+            if (vlib_thread_set_exit_signal_internal(vthread, new_exit_signal, &block_sigset) != 0) {
+                priv->state |= VTS_ERROR;
+                break ;
+            }
+        }
+        old_exit_signal = priv->exit_signal;
+
+        /* fill the read, write, err fdsets, and manage new registered signals  */
         FD_ZERO(&readfds);
         FD_ZERO(&writefds);
         FD_ZERO(&errfds);
@@ -390,8 +400,22 @@ static void * vlib_thread_body(void * data) {
                 if ((data->event & VTE_FD_ERR) != 0) {
                     FD_SET(data->ev.fd, &errfds); if (data->ev.fd > fd_max) fd_max = data->ev.fd;
                 }
+                if ((data->event & VTE_SIG) != 0
+                && !sigismember(&block_sigset, data->ev.sig)) {
+                    //TODO: removal from block_sigset of unregitered signals.
+                    sigaddset(&block_sigset, data->ev.sig);
+                    if (pthread_sigmask(SIG_SETMASK, &block_sigset, NULL) != 0) {
+                        LOG_ERROR(vthread->log, "error: pthread_sigmask(): %s", strerror(errno));
+                        priv->state |= VTS_ERROR;
+                        break ;
+                    }
+                }
             }
         }
+        if ((priv->state & VTS_ERROR) != 0) {
+            break ;
+        }
+
         /* set select timeout */
         if (priv->process_timeout > 0) {
             p_select_timeout = &select_timeout;
@@ -405,7 +429,7 @@ static void * vlib_thread_body(void * data) {
         } else {
             p_select_timeout = NULL;
         }
-        old_exit_signal = priv->exit_signal;
+
         /* -------------------------------------------- */
         LOG_DEBUG(vthread->log, "start select timeout=%d exit_signal ismember ? %d",
                   priv->process_timeout, sigismember(&select_sigset, priv->exit_signal));
@@ -433,29 +457,14 @@ static void * vlib_thread_body(void * data) {
         priv->state &= ~VTS_WAITING;
         /* -------------------------------------------- */
 
-        /* if exit_signal has changed, block it (will be unlocked by pselect) */
-        if (!sigismember(&block_sigset, priv->exit_signal)) {
-            int new_exit_signal = priv->exit_signal;
-            priv->exit_signal = old_exit_signal;
-            if (vlib_thread_set_exit_signal_internal(vthread, new_exit_signal, &block_sigset) != 0) {
-                priv->state |= VTS_ERROR;
-                break ;
-            }
-        }
         /* we have just been released by select, call callbacks with select result
          * and update pthread_sigmask in case of configuration change */
         SLIST_FOREACH_DATA(priv->event_list, data, vlib_thread_event_data_t *) {
-            if ((data->event & VTE_PROCESS_START) != 0) {
+            if (data != NULL && data->callback != NULL
+            && (data->event & VTE_PROCESS_START) != 0) {
                 ret = data->callback(vthread, VTE_PROCESS_START,
                                              (void *)((long) select_ret),
                                              data->callback_data);
-            } else if ((data->event & VTE_SIG) != 0
-            && !sigismember(&block_sigset, data->ev.sig)) {
-                //TODO: removal from block_sigset of unregitered signals.
-                sigaddset(&block_sigset, data->ev.sig);
-                if (pthread_sigmask(SIG_SETMASK, &block_sigset, NULL) != 0) {
-                    LOG_WARN(vthread->log, "error: pthread_sigmask(): %s", strerror(errno));
-                }
             }
         }
 
@@ -467,13 +476,11 @@ static void * vlib_thread_body(void * data) {
             LOG_VERBOSE(vthread->log, "thread: interrupted by signal: %s", strsignal(last_signal));
             /* check callbacks registered to signal */
             SLIST_FOREACH_DATA(priv->event_list, data, vlib_thread_event_data_t *) {
-               if (data != NULL) {
-                    if ((data->event & VTE_SIG) != 0 && (last_signal == data->ev.sig)
-                    && data->callback != NULL) {
-                        ret = data->callback(vthread, VTE_SIG, VTE_DATA_SIG(data->ev.sig),
-                                                      data->callback_data);
-                    }
-               }
+                if (data != NULL && data->callback != NULL
+                && (data->event & VTE_SIG) != 0 && (last_signal == data->ev.sig)) {
+                    ret = data->callback(vthread, VTE_SIG, VTE_DATA_SIG(data->ev.sig),
+                                                  data->callback_data);
+                }
             }
             continue ;
         }
@@ -483,19 +490,16 @@ static void * vlib_thread_body(void * data) {
             break ;
         }
         SLIST_FOREACH_DATA(priv->event_list, data, vlib_thread_event_data_t *) {
-            if (data != NULL) {
-                if ((data->event & VTE_FD_READ) != 0 && FD_ISSET(data->ev.fd, &readfds)
-                && data->callback != NULL) {
+            if (data != NULL && data->callback != NULL) {
+                if ((data->event & VTE_FD_READ) != 0 && FD_ISSET(data->ev.fd, &readfds)) {
                     ret = data->callback(vthread, VTE_FD_READ, VTE_DATA_FD(data->ev.fd),
                                             data->callback_data);
                 }
-                if ((data->event & VTE_FD_WRITE) != 0 && FD_ISSET(data->ev.fd, &writefds)
-                && data->callback != NULL) {
+                if ((data->event & VTE_FD_WRITE) != 0 && FD_ISSET(data->ev.fd, &writefds)) {
                     ret = data->callback(vthread, VTE_FD_WRITE, VTE_DATA_FD(data->ev.fd),
                                             data->callback_data);
                 }
-                if ((data->event & VTE_FD_ERR) != 0 && FD_ISSET(data->ev.fd, &errfds)
-                && data->callback != NULL) {
+                if ((data->event & VTE_FD_ERR) != 0 && FD_ISSET(data->ev.fd, &errfds)) {
                     ret = data->callback(vthread, VTE_FD_ERR, VTE_DATA_FD(data->ev.fd),
                                             data->callback_data);
                 }
@@ -512,7 +516,7 @@ static void * vlib_thread_body(void * data) {
 
     SLIST_FOREACH_DATA(priv->event_list, data, vlib_thread_event_data_t *) {
         if (data != NULL) {
-            if ((data->event & VTE_CLEAN) != 0 && data->callback != NULL) {
+            if (data->callback != NULL && (data->event & VTE_CLEAN) != 0) {
                 ret = data->callback(vthread, VTE_CLEAN, (void *) NULL,
                                             data->callback_data);
             }
