@@ -34,7 +34,16 @@ extern "C" {
 /** opaque struct logpool_s */
 typedef struct logpool_s    logpool_t;
 
-/** logpool_create_from_cmdline() */
+/** logpool_create(): create empty logpool
+ * return create logpool on success, NULL otherwise */
+logpool_t *         logpool_create();
+
+/** logpool_free() */
+void                logpool_free(
+                        logpool_t *         pool);
+
+/** logpool_create_from_cmdline()
+ * return create logpool on success, NULL otherwise */
 logpool_t *         logpool_create_from_cmdline(
                         logpool_t *         pool,
                         const char *        log_levels,
@@ -44,15 +53,23 @@ logpool_t *         logpool_create_from_cmdline(
 void                logpool_free(
                         logpool_t *         pool);
 
-/** logpool_prefixcmp() */
-int                 logpool_prefixcmp(
-                        const void *        vpool1_data,
-                        const void *        vpool2_data);
+/** logpool_add()
+ * @return 0 on success, -1 otherwise */
+int                 logpool_add(
+                        logpool_t *         pool,
+                        log_t *             log);
 
-/** logpool_prefixfind() */
-int                 logpool_prefixfind(
-                        const void *        vvalue,
-                        const void *        vpool_data);
+/** logpool_remove()
+ * @return 0 on success, -1 otherwise */
+int                 logpool_remove(
+                        logpool_t *         pool,
+                        log_t *             log);
+
+/** logpool_find()
+ * @return log entry if found, NULL otherwise */
+log_t *             logpool_find(
+                        logpool_t *         pool,
+                        const char *        prefix);
 
 /*****************************************************************************/
 
