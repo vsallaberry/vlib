@@ -23,39 +23,60 @@ This is not an exhaustive list but the list of systems on which it has been buil
 - FreeBSD 11.1
 
 ## Compilation
-Make sure you clone the repository with '--recursive' option.  
-    $ git clone --recursive https://github.com/vsallaberry/vlib
+### Cloning **vlib** repository
+If you are using SUBMODROOTDIR Makefile's feature (RECOMMANDED):  
+    $ git clone https://github.com/vsallaberry/vlib  
+    $ git submodule update --init  
 
+Otherwise:  
+    $ git clone --recursive https://vsallaberry/vlib  
+### Building
 Just type:  
-    $ make # (or 'make -j3' for SMP)
+    $ make # (or 'make -j3' for SMP)  
 
 If the Makefile cannot be parsed by 'make', try:  
-    $ ./make-fallback
+    $ ./make-fallback  
+### General information
+An overview of Makefile rules can be displayed with:  
+    $ make help  
 
 Most of utilities used in Makefile are defined in variables and can be changed
-with something like 'make SED=gsed TAR=gnutar' (or ./make-fallback SED=...)
+with something like 'make SED=gsed TAR=gnutar' (or ./make-fallback SED=...)  
 
 To See how make understood the Makefile, you can type:  
-    $ make info # ( or ./make-fallback info)
+    $ make info # ( or ./make-fallback info)  
 
 When making without version.h created (not the case for this repo), some old
-bsd make can stop. Just type again '$ make' and it will be fine.
+bsd make can stop. Just type again '$ make' and it will be fine.  
 
 When you link **vlib** with a program, you need pthread (-lpthread), 
 and on linux, rt, dl (-lrt -ldl).
 
 ## Integration
 This part describes the way to integrate and use **vlib** in another project.
-Simplest way is to add **vlib** as a git submodule of your project:  
-$ git submodule add -b master https://github.com/vsallaberry/vlib ext/vlib  
+### SubModule creation
+Simplest way is to add **vlib** as a git submodule of your project:   
+    $ git submodule add -b master https://github.com/vsallaberry/vlib ext/vlib  
 
 where ext/vlib is the path where vlib will be fetched. It is a good idea to group
-submodules in a common folder, here, 'ext'.
+submodules in a common folder, here, 'ext' (see Makefile feature SUBMODROOTDIR).  
 
-Then you will reference **vlib** in the main Makefile (can be a copy of **vlib** Makefile),
-so as make can be run on **vlib** (SUBDIRS), BIN dependencies and linking are right (SUBLIBS),
-and include dirs for 'gcc -I' are reconized(INCDIRS):  
-    LIBVLIBDIR      = ext/vlib
+Populate the submodule with:  
+    $ git submodule update --init  
+
+If you are using ssh and github, and need to push, you can do: 
+    $ git remote set-url --push origin git@github.com:<username>/vlib.git  
+
+### Referencing **vlib** in the program's Makefile
+Then you will reference **vlib** in the program's Makefile (can be a copy of **vlib** Makefile),
+so as make can be run on **vlib** (SUBDIRS), ensuring right BIN dependencies and linking (SUBLIBS),
+and using appropriate include dirs for gcc '-I<IncludeDir>' (INCDIRS):  
+    # If you want to Group all submodules (including submodules of submodules) in one folder:
+    SUBMODROOTDIR   = ext
+    LIBVLIBDIR      = $(SUBMODROOTDIR)/vlib
+    # If you want to keep the submodules tree as it is (with possible submodule duplicates):  
+    #SUBMODROOTDIR   = 
+    #LIBVLIBDIR      = ext/vlib
     SUBDIRS         = $(LIBVLIBDIR)
     SUBLIBS         = $(LIBVLIBDIR)/libvlib.a
     INCDIRS         = $(LIBVLIBDIR)/include
