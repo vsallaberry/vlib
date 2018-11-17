@@ -167,14 +167,8 @@ int         log_describe_option(char * buffer, int * size, const char *const* mo
                                 slist_t * modules_list, const char *(module_get)(const void *));
 
 log_t *     log_create(log_t * from);
-slist_t *   log_create_from_cmdline(slist_t * logs,
-                                    const char * log_levels, const char *const* modules);
-void        log_list_free(slist_t * logs);
-
 int         log_header(log_level_t level, log_t * log,
                        const char * file, const char * func, int line);
-int         log_list_prefixcmp(const void * vlist1_data, const void * vlist2_data);
-int         log_list_prefixfind(const void * vvalue, const void *vlist_data);
 void        log_close(log_t * log);
 void        log_destroy(void * vlog);
 

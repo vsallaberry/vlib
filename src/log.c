@@ -36,12 +36,6 @@
 #include "vlib/hash.h"
 #include "vlib/options.h"
 
-/** internal log_pool structure */
-typedef struct log_pool_s {
-    hash_t *    files;
-    slist_t *   logs;
-} log_pool_t;
-
 /** internal vlib log instance */
 static log_t s_vlib_log_default = {
     .level = LOG_LVL_INFO,
@@ -446,70 +440,6 @@ log_t * log_create(log_t * from) {
     return log;
 }
 
-int log_list_prefixfind(const void * vvalue, const void * vlist_data) {
-    const char *    prefix  = (const char *) vvalue;
-    const log_t *   log     = (const log_t *) vlist_data;
-
-    if (prefix == NULL || log == NULL || log->prefix == NULL) {
-        return 1;
-    }
-    return strcmp(prefix, log->prefix);
-}
-
-int log_list_prefixcmp(const void * vlist1_data, const void * vlist2_data) {
-    const log_t * log1 = (const log_t *) vlist1_data;
-
-    if (log1 == NULL || vlist2_data == NULL || log1->prefix) {
-        return (vlist1_data == vlist2_data) ? 0 : 1;
-    }
-
-    return log_list_prefixfind(log1->prefix, vlist2_data);
-}
-
-slist_t * log_create_from_cmdline(slist_t * log_pool,
-                                  const char * log_levels, const char *const* modules) {
-    // FIXME: work in progress, PARSING OK, using it is TODO
-    if (log_levels == NULL) {
-        return NULL;
-    }
-    //char            prefix[LOG_PREFIX_SZ];
-    //char            log_path[PATH_MAX];
-    //const char *    next_mod_lvl;
-    //log_t       default_log = { .level = LOG_LVL_DEFAULT, .out = stderr, .prefix = "main", .flags = 0};
-(void)modules;
-
-    /* Parse log levels string with strtok_ro_r/strcspn instead of strtok_r or strsep
-     * as those cool libc functions change the token by replacing sep with 0 */
-    //const char * next = log_levels;
-    size_t maxlen;
-    size_t len;
-    const char * next_tok;
-    const char * mod_name;
-    const char * mod_lvl;
-    const char * mod_file;
-    for (const char *next = log_levels; next && *next; /* no_incr */) {
-        /* Get the following LOG configuration separated by ',' used for next loop */
-        maxlen = strtok_ro_r(&next_tok, ",", &next, NULL, 0);
-        LOG_DEBUG_BUF(NULL, next_tok, maxlen, "log_line ");
-
-        /* Get the Module Name that must be followed by '=' */
-        len = strtok_ro_r(&mod_name, "=", &next_tok, &maxlen, 1);
-        //fprintf(stderr, "'%c'(%d)\n", *next_tok, *next_tok);
-        //if (maxlen == 0) { maxlen += len; next = mod_name; len = 0; }
-        LOG_DEBUG_BUF(NULL, mod_name, len, "mod_name ");
-
-        /* Get the Module Level that can be followed by '@' or end of string. */
-        len = strtok_ro_r(&mod_lvl, "@", &next_tok, &maxlen, 0);
-        LOG_DEBUG_BUF(NULL, mod_lvl, len, "mod_lvl ");
-
-        //len = strtok_ro_r(&mod_file, "\0", &next_tok, &maxlen, 0);
-        mod_file = next_tok;
-        len = maxlen;
-        LOG_DEBUG_BUF(NULL, mod_file, len, "mod_file ");
-    }
-    return log_pool;
-}
-
 void log_close(log_t * log) {
     if (log && log->out) {
         fflush(log->out);
@@ -532,9 +462,5 @@ void log_destroy(void * vlog) {
         log->prefix = NULL;
         free(log);
     }
-}
-
-void log_list_free(slist_t * logs) {
-    slist_free(logs, log_destroy);
 }
 
