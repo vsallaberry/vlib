@@ -334,7 +334,7 @@ int                 avltree_visit(
     if (tree == NULL || visit == NULL) {
         return AVS_ERROR;
     }
-    if ((tree->flags & AFL_SHARED_STACK) != 0) {
+    if (tree->stack != NULL) {
         stack = tree->stack;
     } else {
         stack = rbuf_create(AVLTREE_STACK_SZ, RBF_DEFAULT);
@@ -452,7 +452,7 @@ int                 avltree_visit(
                 break ;
         }
     }
-    if ((tree->flags & AFL_SHARED_STACK) != 0) {
+    if (stack == tree->stack) {
         rbuf_reset(stack);
     } else {
         rbuf_free(stack);
@@ -743,7 +743,7 @@ void avltree_print(avltree_t * tree, avltree_printfun_t print, FILE * out) {
     ssize_t     n;
     ssize_t     old_idx     = -1;
 
-    if ((tree->flags & AFL_SHARED_STACK) != 0) {
+    if (tree->stack != NULL) {
         fifo = tree->stack;
     } else {
         fifo = rbuf_create(32 * 3, RBF_DEFAULT);
@@ -812,7 +812,7 @@ void avltree_print(avltree_t * tree, avltree_printfun_t print, FILE * out) {
     }
     fputc('\n', out);
 
-    if ((tree->flags & AFL_SHARED_STACK) != 0) {
+    if (fifo == tree->stack) {
         rbuf_reset(fifo);
     } else {
         rbuf_free(fifo);

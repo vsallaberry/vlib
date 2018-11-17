@@ -45,6 +45,11 @@ typedef struct avltree_node_s {
 /** tree flags */
 typedef enum {
     AFL_NONE            = 0,
+    /** AFL_SHARED_STACK: Request to create an internal stack, shared between
+     * the tree operations. Otherwise, if the tree stack (tree->stack) is NULL,
+     * tree operations will create and free a stack at each call. If not NULL,
+     * tree operations will use the stack even without AFL_SHARED_STACK,
+     * allowing sharing a stack between several trees. */
     AFL_SHARED_STACK    = 1 << 0,
     AFL_DEFAULT         = AFL_SHARED_STACK,
 } avltree_flags_t;
@@ -79,7 +84,7 @@ typedef enum {
     AVH_RIGHT   = 1 << 7,   /* visit modifier: visit right child before left child */
 } avltree_visit_how_t;
 
-/** data to be passed to avltree_visitfun_t functions */
+/** visit context to be passed to avltree_visitfun_t functions */
 typedef struct {
     avltree_visit_how_t         state;  /* current visit state (prefix,infix,...) */
     avltree_visit_how_t         how;    /* requested visit modes (prefix|infix|...) */
