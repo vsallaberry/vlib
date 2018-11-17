@@ -32,7 +32,7 @@
 # include <time.h>
 #endif
 
-#include "slist.h"
+#include "vlib/slist.h"
 
 #ifdef __cplusplus
 extern "C" {

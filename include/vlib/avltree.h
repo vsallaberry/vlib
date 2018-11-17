@@ -23,7 +23,7 @@
 #ifndef VLIB_AVLTREE_H
 #define VLIB_AVLTREE_H
 
-#include "rbuf.h"
+#include "vlib/rbuf.h"
 
 #ifdef __cplusplus
 extern "C" {

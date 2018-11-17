@@ -37,7 +37,7 @@
 # include <limits.h>
 #endif
 
-#include "log.h"
+#include "vlib/log.h"
 
 #ifdef __cplusplus
 extern "C" {

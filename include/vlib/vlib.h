@@ -22,16 +22,16 @@
 #ifndef VLIB_VLIB_H
 #define VLIB_VLIB_H
 
-#include "slist.h"
-#include "hash.h"
-#include "util.h"
-#include "log.h"
-#include "time.h"
-#include "account.h"
-#include "options.h"
-#include "thread.h"
-#include "rbuf.h"
-#include "avltree.h"
+#include "vlib/slist.h"
+#include "vlib/hash.h"
+#include "vlib/util.h"
+#include "vlib/log.h"
+#include "vlib/time.h"
+#include "vlib/account.h"
+#include "vlib/options.h"
+#include "vlib/thread.h"
+#include "vlib/rbuf.h"
+#include "vlib/avltree.h"
 
 #ifdef __cplusplus
 extern "C" {

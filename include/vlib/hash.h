@@ -22,7 +22,7 @@
 #ifndef VLIB_HASH_H
 #define VLIB_HASH_H
 
-#include "slist.h"
+#include "vlib/slist.h"
 
 #ifdef __cplusplus
 extern "C" {
