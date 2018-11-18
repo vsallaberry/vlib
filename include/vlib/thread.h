@@ -69,8 +69,8 @@ typedef enum {
 } vlib_thread_event_t;
 
 /** cast macros for the event_data parameter of vlib_thread_(un)register_event() */
-#define VTE_DATA_FD(fd)         ((void *)((long)fd))
-#define VTE_DATA_SIG(sig)       ((void *)((long)sig))
+#define VTE_DATA_FD(fd)         ((void *)((long)(fd)))
+#define VTE_DATA_SIG(sig)       ((void *)((long)(sig)))
 #define VTE_DATA_PTR(ptr)       ((void *)(ptr))
 
 /** vlib thread callback : see vlib_thread_register_event() */
@@ -147,6 +147,32 @@ int                 vlib_thread_unregister_event(
 int                 vlib_thread_set_exit_signal(
                             vlib_thread_t *             vthread,
                             int                         exit_signal);
+
+/** create a pipe whose in_fd will be registered by thread. This function
+ * is a shortcut to vlib_thread_register_event, with additionally pipe
+ * creation/cleaning, SIGPIPE for caller is ignored (SIGIGN) if not handled (SIGDFL).
+ * Kernel guaranties atomic writes of PIPE_BUF.
+ * @param vthread the vlib thread context
+ * @param callback the callback to be called on this event
+ * @param callback_user_data the pointer to be passed to callback
+ * @return the out_fd of the created pipe on -1 on error
+ */
+int                 vlib_thread_pipe_create(
+                            vlib_thread_t *             vthread,
+                            vlib_thread_callback_t      callback,
+                            void *                      callback_user_data);
+
+/** write on the pipe. If size exceeds PIPE_BUF, thread mutex is locked.
+ * @param vthread the vlib thread context
+ * @param pipefd_out the fd to write on
+ * @param data the data the be written
+ * @param size the size to be written
+ * @return number of written bytes or -1 on error */
+ssize_t             vlib_thread_pipe_write(
+                            vlib_thread_t *             vthread,
+                            int                         pipe_fdout,
+                            void *                      data,
+                            size_t                      size);
 
 /** get thread state
  * @param vthread the vlib thread context

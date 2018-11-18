@@ -22,6 +22,7 @@
 
 #include <stdlib.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <time.h>
 #include <signal.h>
 #include <pthread.h>
@@ -72,11 +73,22 @@ typedef struct {
 /*****************************************************************************/
 static void *                   vlib_thread_body(void * data);
 static void                     vlib_thread_ctx_destroy(vlib_thread_t * vthread);
-int                             vlib_thread_notify(vlib_thread_t * vthread);
-int                             vlib_thread_set_exit_signal_internal(
+static int                      vlib_thread_notify(vlib_thread_t * vthread);
+static int                      vlib_thread_set_exit_signal_internal(
                                     vlib_thread_t *             vthread,
                                     int                         exit_signal,
                                     sigset_t *                  block_sigset);
+static int                      vlib_thread_closefd(
+                                    vlib_thread_t *             vthread,
+                                    vlib_thread_event_t         event,
+                                    void *                      event_data,
+                                    void *                      callback_user_data);
+static int                      vlib_thread_register_event_unlocked(
+                                    vlib_thread_t *             vthread,
+                                    vlib_thread_event_t         event,
+                                    void *                      event_data,
+                                    vlib_thread_callback_t      callback,
+                                    void *                      callback_user_data);
 static void                     vlib_thread_sig_handler(int sig);
 static volatile sig_atomic_t    s_last_signal = 0;
 
@@ -244,7 +256,8 @@ int                 vlib_thread_register_event(
                             void *                      event_data,
                             vlib_thread_callback_t      callback,
                             void *                      callback_user_data) {
-    vlib_thread_priv_t  * priv = vthread ? (vlib_thread_priv_t *) vthread->priv : NULL;
+    vlib_thread_priv_t *    priv = vthread ? (vlib_thread_priv_t *) vthread->priv : NULL;
+    int                     ret;
 
     if (priv == NULL) {
         LOG_WARN(g_vlib_log, "bad thread context");
@@ -254,13 +267,13 @@ int                 vlib_thread_register_event(
                 event, (long) event_data, (long) callback_user_data);
 
     pthread_mutex_lock(&priv->mutex);
-    //TODO
-
+    ret = vlib_thread_register_event_unlocked(vthread, event, event_data,
+                                              callback, callback_user_data);
     /* signal the thread about configuration change */
     vlib_thread_notify(vthread);
     pthread_mutex_unlock(&priv->mutex);
 
-    return 0;
+    return ret;
 }
 
 /*****************************************************************************/
@@ -279,12 +292,102 @@ int                 vlib_thread_unregister_event(
 
     pthread_mutex_lock(&priv->mutex);
     //TODO
+    LOG_WARN(vthread->log, "warning: %s() NOT IMPLEMENTED", __func__);
 
     /* signal the thread about configuration change */
     vlib_thread_notify(vthread);
     pthread_mutex_unlock(&priv->mutex);
 
     return 0;
+}
+
+/*****************************************************************************/
+int                 vlib_thread_pipe_create(
+                            vlib_thread_t *             vthread,
+                            vlib_thread_callback_t      callback,
+                            void *                      callback_user_data) {
+    struct sigaction        sa;
+    vlib_thread_priv_t *    priv = vthread ? vthread->priv : NULL;
+    int                     pipefd[2];
+    int                     fd_flags;
+
+    /* sanity checks */
+    if (priv == NULL) {
+        LOG_WARN(g_vlib_log, "bad thread context");
+        return VTS_NONE;
+    }
+    /* ignore SIGPIPE for caller if not already set or ignored */
+    if (sigaction(SIGPIPE, NULL, &sa) != 0) {
+        LOG_ERROR(vthread->log, "error sigaction(get SIGPIPE): %s", strerror(errno));
+        return -1;
+    }
+    if ((sa.sa_flags & SA_SIGINFO) == 0 && sa.sa_handler == SIG_DFL) {
+        LOG_DEBUG(vthread->log, "thread: ignore SIGPIPE for vlib_thread_pipe_create() caller");
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = SA_RESTART;
+        sa.sa_handler = SIG_IGN;
+        if (sigaction(SIGPIPE, &sa, NULL) != 0) {
+            LOG_ERROR(vthread->log, "error sigaction(set SIGPIPE): %s", strerror(errno));
+            return -1;
+        }
+    }
+    /* create the pipe, set it to non blocking */
+    if (pipe(pipefd) != 0) {
+        LOG_ERROR(vthread->log, "error pipe(): %s", strerror(errno));
+        return -1;
+    }
+    for (unsigned i = 0; i < 2; i++) {
+        fd_flags = fcntl(pipefd[i], F_GETFL);
+        if (fd_flags == -1 || fcntl(pipefd[i], F_SETFL, (fd_flags | O_NONBLOCK)) == -1) {
+            LOG_ERROR(vthread->log, "error fcntl(pipe) : %s", strerror(errno));
+            close(pipefd[1]);
+            close(pipefd[0]);
+            return -1;
+        }
+    }
+    /* LOCK mutex */
+    pthread_mutex_lock(&priv->mutex);
+    if (vlib_thread_register_event_unlocked(vthread, VTE_FD_READ, VTE_DATA_FD(pipefd[0]),
+                                            callback, callback_user_data) != 0
+    ||  vlib_thread_register_event_unlocked(vthread, VTE_CLEAN, NULL,
+                                            vlib_thread_closefd, VTE_DATA_FD(pipefd[1])) != 0) {
+        LOG_ERROR(vthread->log, "error vlib_thread_register_event");
+        close(pipefd[1]);
+        close(pipefd[0]);
+        pipefd[1] = -1;
+    }
+    /* notify the thread about configuration change */
+    vlib_thread_notify(vthread);
+    pthread_mutex_unlock(&priv->mutex);
+
+    return pipefd[1];
+}
+
+/*****************************************************************************/
+ssize_t                 vlib_thread_pipe_write(
+                            vlib_thread_t *             vthread,
+                            int                         pipe_fdout,
+                            void *                      data,
+                            size_t                      size) {
+    vlib_thread_priv_t *    priv = vthread ? vthread->priv : NULL;
+    int                     locked = 0;
+    ssize_t                 ret;
+
+    /* sanity checks */
+    if (priv == NULL) {
+        LOG_WARN(g_vlib_log, "bad thread context");
+        return -1;
+    }
+    /* checks whether the size exceeds PIPE_BUF */
+    if (size > PIPE_BUF) {
+        pthread_mutex_lock(&priv->mutex);
+        locked = 1;
+    }
+    ret = write(pipe_fdout, data, size);
+    if (locked) {
+        pthread_mutex_unlock(&priv->mutex);
+    }
+    return ret;
 }
 
 /*****************************************************************************/
@@ -533,11 +636,26 @@ static void * vlib_thread_body(void * data) {
 }
 
 /*****************************************************************************/
+static int                      vlib_thread_closefd(
+                                    vlib_thread_t *             vthread,
+                                    vlib_thread_event_t         event,
+                                    void *                      event_data,
+                                    void *                      callback_user_data) {
+    int fd = (int)((long) callback_user_data);
+    (void) vthread;
+    (void) event;
+    (void) event_data;
+
+    return close(fd);
+}
+
+/*****************************************************************************/
 static void vlib_thread_ctx_destroy(vlib_thread_t * vthread) {
     if (vthread == NULL)
         return ;
     vlib_thread_priv_t  * priv = (vlib_thread_priv_t *) vthread->priv;
     if (priv) {
+        slist_free(priv->event_list, free);
         pthread_mutex_destroy(&priv->mutex);
         pthread_cond_destroy(&priv->cond);
         free(priv);
@@ -547,7 +665,7 @@ static void vlib_thread_ctx_destroy(vlib_thread_t * vthread) {
 
 /*****************************************************************************/
 /** signal the running thread about configuration change */
-int vlib_thread_notify(vlib_thread_t * vthread) {
+static int vlib_thread_notify(vlib_thread_t * vthread) {
     vlib_thread_priv_t * priv = vthread->priv;
 
     if ((priv->state & VTS_RUNNING) != 0) {
@@ -560,7 +678,37 @@ int vlib_thread_notify(vlib_thread_t * vthread) {
 }
 
 /*****************************************************************************/
-int                 vlib_thread_set_exit_signal_internal(
+static int          vlib_thread_register_event_unlocked(
+                            vlib_thread_t *             vthread,
+                            vlib_thread_event_t         event,
+                            void *                      event_data,
+                            vlib_thread_callback_t      callback,
+                            void *                      callback_user_data) {
+    vlib_thread_priv_t *        priv = vthread->priv;
+    vlib_thread_event_data_t *  ev;
+    slist_t *                   new;
+
+    if ((ev = malloc(sizeof(vlib_thread_event_data_t))) == NULL) {
+        LOG_ERROR(vthread->log, "error: cannot malloc event_data : %s", strerror(errno));
+        return -1;
+    }
+    ev->event = event;
+    ev->ev.fd = (int)((long) event_data); // TODO
+    ev->callback = callback;
+    ev->callback_data = callback_user_data;
+    new = slist_prepend(priv->event_list, ev);
+    if (new == priv->event_list) {
+        LOG_ERROR(vthread->log, "error: cannot add in event_list : %s", strerror(errno));
+        free(ev);
+        return -1;
+    }
+    priv->event_list = new;
+
+    return 0;
+}
+
+/*****************************************************************************/
+static int          vlib_thread_set_exit_signal_internal(
                             vlib_thread_t *             vthread,
                             int                         exit_signal,
                             sigset_t *                  block_sigset) {
