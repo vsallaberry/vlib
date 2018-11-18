@@ -147,6 +147,8 @@ TR		= tr
 GIT		= git
 DIFF		= diff
 UNIQ		= uniq
+OD		= od
+GZIP		= gzip
 INSTALL		= install -m 0644
 INSTALLBIN	= install -m 0755
 INSTALLDIR	= install -d -m 0755
@@ -204,15 +206,9 @@ VERSIONINC	= version.h
 SYSDEPDIR	= sysdeps
 
 # SRCINC containing source code is included if APP_INCLUDE_SOURCE is defined in VERSIONINC.
-SRCINCNAME	= _src_.c
 SRCINCDIR	= $(BUILDDIR)
-
-cmd_SRCINC	= $(cmd_FINDBSDOBJ); ! $(TEST) -e $(VERSIONINC) \
-		  || $(GREP) -Eq '^[[:space:]]*\#[[:space:]]*define APP_INCLUDE_SOURCE([[:space:]]|$$)' \
-	                                $(VERSIONINC) $(NO_STDERR) && echo $(SRCINCDIR)/$(SRCINCNAME) | $(SED) -e 's|^\./||' || true
-tmp_SRCINC	!= $(cmd_SRCINC)
-tmp_SRCINC	?= $(shell $(cmd_SRCINC))
-SRCINC		:= $(tmp_SRCINC)
+SRCINC_STR	= $(SRCINCDIR)/_src_.c
+SRCINC_Z	= $(SRCINCDIR)/_src_.z.c
 
 # Get Debug/Test mode in build.h
 WARN_TEST	= $(WARN_RELEASE)
@@ -391,7 +387,8 @@ find_AND_NOGEN2	:= $(tmp_FIND_NOGEN2)
 # Other non-generated sources and headers. Extension must be in low-case.
 cmd_SRC		= $(cmd_FINDBSDOBJ); \
 		  $(FIND) $(SRCDIR) \( -name '*.c' -or -name '*.cc' -or -name '*.cpp' -or -name '*.m' -or -name '*.mm' \) \
- 		    $(find_AND_NOGEN) -and \! -path '$(SRCINC)' -and \! -path './$(SRCINC)' \
+ 		    $(find_AND_NOGEN) -and \! -path '$(SRCINC_Z)' -and \! -path './$(SRCINC_Z)' \
+		                      -and \! -path '$(SRCINC_STR)' -and \! -path './$(SRCINC_STR)' \
 		    $(find_AND_SYSDEP) -print $(NO_STDERR) | $(SED) -e 's|^\./||'
 cmd_INCLUDES	= $(cmd_FINDBSDOBJ); \
 		  $(FIND) $(INCDIRS) $(SRCDIR) \( -name '*.h' -or -name '*.hh' -or -name '*.hpp' \) \
@@ -400,6 +397,16 @@ cmd_INCLUDES	= $(cmd_FINDBSDOBJ); \
 		    -and \! \( -path $(FLEXLEXER_LNK) -and -type l \) \
 		    -and \! -path $(BUILDINC) -and \! -path ./$(BUILDINC) $(find_AND_SYSDEP) \
 		    -print $(NO_STDERR) | $(SED) -e 's|^\./||'
+
+# SRCINC containing source code is included if APP_INCLUDE_SOURCE is defined in VERSIONINC.
+cmd_SRCINC	= $(cmd_FINDBSDOBJ); ! $(TEST) -e $(VERSIONINC) \
+		  || $(GREP) -Eq '^[[:space:]]*\#[[:space:]]*define APP_INCLUDE_SOURCE([[:space:]]|$$)' \
+	                                $(VERSIONINC) $(NO_STDERR) && case " $(INCLUDES) " in \
+					    *" vlib/avltree.h "*) echo $(SRCINC_Z) | $(SED) -e 's|^\./||' ;; \
+		                            *) echo $(SRCINC_STR) | $(SED) -e 's|^\./||' ;; esac || true
+tmp_SRCINC	!= $(cmd_SRCINC)
+tmp_SRCINC	?= $(shell $(cmd_SRCINC))
+SRCINC		:= $(tmp_SRCINC)
 
 # SRC variable, filled from the 'find' command (cmd_SRC) defined above.
 tmp_SRC		!= $(cmd_SRC)
@@ -870,7 +877,7 @@ dist:
 	 && $(RM) -R "$(DISTDIR)/$${distname}" \
 	 && $(PRINTF) "$(NAME): archives created: $$(ls $(DISTDIR)/$${distname}.* | $(TR) '\n' ' ')\n"
 
-$(SRCINC): $(SRCINC_CONTENT)
+$(SRCINC_STR): $(SRCINC_CONTENT)
 	@# Generate $(SRCINC) containing all sources.
 	@$(PRINTF) "$(NAME): generate $@\n"
 	@$(MKDIR) -p $(@D)
@@ -878,7 +885,8 @@ $(SRCINC): $(SRCINC_CONTENT)
 	 $(PRINTF) "/* generated content */\n" > $@ ; \
 		$(AWK) 'BEGIN { dbl_bkslash="\\"; gsub(/\\/, "\\\\\\", dbl_bkslash); o="awk on ubuntu 12.04"; \
 	                        if (dbl_bkslash=="\\\\") dbl_bkslash="\\\\\\"; else dbl_bkslash="\\\\"; \
-				print "#include <stdlib.h>\n#include \"$(VERSIONINC)\"\n#ifdef APP_INCLUDE_SOURCE\n" \
+				print "#include <stdlib.h>\n#include <stdio.h>\n" \
+		                      "#include \"$(VERSIONINC)\"\n#ifdef APP_INCLUDE_SOURCE\n" \
 				      "static const char * const s_program_source[] = {"; } \
 		   function printblk() { \
 	               gsub(/\\/, dbl_bkslash, blk); \
@@ -893,14 +901,45 @@ $(SRCINC): $(SRCINC_CONTENT)
                        } else \
 		           blk=blk "\n" $$0; \
 		   } END { \
-		       printblk(); print "NULL };\nconst char *const* $(NAME)_get_source() { return s_program_source; }\n#endif"; \
+		       printblk(); print "NULL };\n#endif\n" \
+		         "int $(NAME)_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx) {\n" \
+	                 "    /*return vdecode_buffer(out, buffer, buffer_size, ctx, (const char *)s_program_source, sizeof(s_program_source));*/\n" \
+	                 "    (void) buffer; (void) buffer_size; (void) ctx;\n" \
+		         "    for (const char ** src = s_program_source; *src; src++) fprintf(out, \"%s\", *src); return 0;\n" \
+	                 "}\n" \
 		   }' $$input >> $@ ; \
 	     $(CC) -I. -c $@ -o $(@).tmp.o $(NO_STDERR) \
-	         || $(PRINTF) "%s\n" "#include <stdlib.h>" "#include \"$(VERSIONINC)\"" "#ifdef APP_INCLUDE_SOURCE" \
-	                             "static const char * const s_program_source[] = {" \
-				     "  \"cannot include source. check awk version or antivirus or bug\\n\", NULL};" \
-				     "const char *const* $(NAME)_get_source() { return s_program_source; }" "#endif" > $@; \
+	         || $(PRINTF) "%s\n" '#include <stdlib.h>' '#include <stdio.h>' '#include "$(VERSIONINC)"' '#ifdef APP_INCLUDE_SOURCE' \
+	                             'int $(NAME)_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx) {' \
+				     '    (void) buffer; (void) buffer_size; (void) ctx;' \
+				     '    fprintf(out, "cannot include source. check awk version or antivirus or bug\n"); return 0;' \
+				     '}' '#endif' > $@; \
 	     $(RM) -f $(@).*
+
+$(SRCINC_Z): $(SRCINC_CONTENT)
+	@# Generate $(SRCINC) containing all sources.
+	@$(PRINTF) "$(NAME): generate $@\n"
+	@$(MKDIR) -p $(@D)
+	@$(cmd_TESTBSDOBJ) && input="$>" || input="$(SRCINC_CONTENT)"; \
+	 $(PRINTF) "%s\n" "/* generated content */" \
+	                  "#include <stdlib.h>" \
+	                  "#include <stdio.h>" \
+	                  "#include <zlib.h>" \
+	                  "#include <vlib/util.h>" \
+	                  "#include \"$(VERSIONINC)\"" \
+	                  "#ifdef APP_INCLUDE_SOURCE" \
+	                  "static const unsigned char s_program_source[] = {" \
+	    > $@ ; \
+	 dumpsrc() { for f in $$input; do \
+	     $(PRINTF) "/* FILE: $(NAME)/$$f */\n"; \
+	     cat $$f; \
+	     done; }; dumpsrc | $(GZIP) -c | $(OD) -An -tuC | $(SED) -e 's/[[:space:]][[:space:]]*0*\([0-9][0-9]*\)/\1,/g' >> $@; \
+	 sha=`$(WHICH) shasum sha256 sha256sum $(NO_STDERR) | $(HEADN1)`; case "$$sha" in */shasum) sha="$$sha -a256";; esac; \
+	 $(PRINTF) "%s\n" "};" "static const char * s_program_hash = \"`dumpsrc | $$sha | $(AWK) '{ print $$1; }'`\";" \
+	     "int $(NAME)_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx) {" \
+	     "    return vdecode_buffer(out, buffer, buffer_size, ctx, (const char *)s_program_source, sizeof(s_program_source));" \
+	     "} /* ##ZSRC_END */" \
+	     "#endif" >> $@
 
 $(LICENSE):
 	@$(cmd_TESTBSDOBJ) && $(TEST) -e "$(.CURDIR)/$@" || echo "$(NAME): create $@"
@@ -937,8 +976,9 @@ create-$(BUILDINC): $(VERSIONINC) $(ALLMAKEFILES) .EXEC
 	       "#define BUILD_MAKE \"\"" "#define BUILD_CC_CMD \"\"" "#define BUILD_CXX_CMD \"\"" "#define BUILD_OBJC_CMD \"\"" \
 	       "#define BUILD_GCJ_CMD \"\"" "#define BUILD_CCLD_CMD \"\"" "#define BUILD_SRCPATH \"\"" \
 	       "#define BUILD_JAVAOBJ 0" "#define BUILD_JAR 0" "#define BUILD_BIN 0" "#define BUILD_LIB 0" \
-	       "#define BUILD_YACC 0" "#define BUILD_LEX 0" "#define BUILD_BISON3 0" "#define BUILD_CURSES 1" \
-	       "#ifdef __cplusplus" "extern \"C\" {" "#endif" "const char *const* $(NAME)_get_source();" "#ifdef __cplusplus" "}" "#endif" >> $(BUILDINC); \
+	       "#define BUILD_YACC 0" "#define BUILD_LEX 0" "#define BUILD_BISON3 0" "#define BUILD_ZLIB 0" "#define BUILD_ZLIB_H 0" \
+	       "#define BUILD_CURSES 1" "#include <stdio.h>" "#ifdef __cplusplus" "extern \"C\" {" "#endif" \
+	       "int $(NAME)_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx);" "#ifdef __cplusplus" "}" "#endif" >> $(BUILDINC); \
 	 fi;
 #fullgitrev=`$(GIT) describe --match "v[0-9]*" --always --tags --dirty --abbrev=0 $(NO_STDERR)`
 update-$(BUILDINC): create-build.h .EXEC
@@ -958,6 +998,8 @@ update-$(BUILDINC): create-build.h .EXEC
 	 $(TEST) -n "$(LEX)" && lex=1 || lex=0; \
 	 $(TEST) -n "$(BISON3)" && bison3=1 || bison3=0; \
 	 $(TEST) -n "$(SRCINC)" && appsource=true || appsource=false; \
+	 zlib=0; zlib_h=0; for d in /usr/include{,/zlib} /usr/local/include{,/zlib} /opt/local/include{,/zlib}; do \
+	 	$(TEST) -e "$$d/zlib.h" && zlib_h=1 && zlib=1; break; done; \
 	 if $(SED) -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREV[[:space:]]\).*|\1$${gitrev}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREVFULL[[:space:]]\).*|\1$${fullgitrev}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREMOTE[[:space:]]\).*|\1$${gitremote}|" \
@@ -980,6 +1022,8 @@ update-$(BUILDINC): create-build.h .EXEC
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_YACC[[:space:]]\).*|\1$${yacc}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_LEX[[:space:]]\).*|\1$${lex}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_BISON3[[:space:]]\).*|\1$${bison3}|" \
+	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_ZLIB[[:space:]]\).*|\1$${zlib}|" \
+		-e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_ZLIB_H[[:space:]]\).*|\1$${zlib_h}|" \
 	        $(BUILDINC) > $(BUILDINC).tmp \
 	 ; then \
 	    if $(DIFF) -q $(BUILDINC) $(BUILDINC).tmp $(NO_STDOUT); then $(RM) $(BUILDINC).tmp; \
@@ -1004,7 +1048,7 @@ update-$(BUILDINC): create-build.h .EXEC
 .gitignore:
 	@$(cmd_TESTBSDOBJ) && cd $(.CURDIR) && build=`echo $(.OBJDIR) | $(SED) -e 's|^$(.CURDIR)||'`/ || build=; \
 	 { cat .gitignore $(NO_STDERR); \
-	   for f in $(LIB) $(JAR) $(GENSRC) $(GENJAVA) $(GENINC) $(SRCINC) \
+	   for f in $(LIB) $(JAR) $(GENSRC) $(GENJAVA) $(GENINC) $(SRCINC_Z) $(SRCINC_STR) \
 	            $(BUILDINC) $(BUILDINCJAVA) $(CLANGCOMPLETE) obj/ \
 	            `$(TEST) -n "$(BIN)" && echo "$(BIN)" "$(BIN).dSYM" "$(BIN).core" "core" "core.[0-9]*[0-9]" || true` \
 	            `echo "$(FLEXLEXER_LNK)" | $(SED) -e 's|^\./||' || true`; do \

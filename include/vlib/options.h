@@ -190,9 +190,8 @@ const char *    vlib_get_version();
 
 /**
  * Get vlib source code
- * @return array of const char *, terminated by NULL.
  */
-const char *const* vlib_get_source();
+int vlib_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx);
 
 /**
  * opt_parse_options() and opt_option_callback_t()

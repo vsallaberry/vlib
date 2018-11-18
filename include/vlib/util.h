@@ -67,6 +67,30 @@ size_t      strtok_ro_r(const char ** token, const char * seps,
                         const char ** next, size_t * maxlen,
                         int flags);
 
+/** vdecode_buffer : decode <inbuf> (zlib or raw (char[]), char * tab[])
+ * This function must be called until it returns 0 or -1.
+ * @param out if not NULL, the decoded data is writen to file out
+ * @param outbuf if not NULL, the decoded data is added in outbuf
+ * @param outbufsz the maximum size of outbuf
+ * @param ctx the pointer to decoding context, can be NULL only if decoding to file
+ *        (out != NULL), otherwise it must be a void ** with *ctx = NULL on first call,
+ *        and the updated value on next calls.
+ *        The function will allocate and free memory internally.
+ * @param inbuf the buffer containing data to be decoded.
+ *   Its content is what would give 'echo "string" | gzip -c'
+ *   od can format it to be included in c source:
+ *   $ echo "string" | gzip -c | od -An -tuC
+ *       | sed -e 's/[[:space:]][[:space:]]*0*\([0-9][0-9]*\)/\1,/g'
+ * @param inbufsz the size of buffer
+ * @return number of decoded bytes, 0 when finished, -1 on error */
+ssize_t     vdecode_buffer(
+                FILE *          out,
+                char *          outbuf,
+                size_t          outbufsz,
+                void **         ctx,
+                const char *    inbuf,
+                size_t          inbufsz);
+
 #ifdef __cplusplus
 }
 #endif
