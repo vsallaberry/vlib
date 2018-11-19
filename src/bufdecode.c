@@ -102,6 +102,42 @@ static int inflate_raw(z_stream * z, int flags) {
     return Z_OK;
 }
 static int inflate_strtab(z_stream * z, int flags) {
+    size_t      n, size = z->avail_out;
+    char **     ptr = ((char **) z->msg);
+    char *      end;
+    (void) flags;
+
+    if (ptr == NULL || *ptr == NULL) {
+                printf("### END 1>>%s<< (avail_in=%ld)\n", z->next_in, z->avail_in);
+        return Z_STREAM_END;
+    }
+    if (size > z->avail_in) {
+        size = z->avail_in;
+    }
+    while (z->avail_out > 0) {
+        end = stpncpy((char *) z->next_out, (const char *) z->next_in, size);
+        n = (end - (char *) z->next_out - 1);
+        z->avail_in -= n + 1;
+        z->avail_out -= n;
+        z->next_in += n + 1;
+        z->next_out += n;
+        size -= n;
+        if (size != 0 && *end == 0) { /* 0 was encoutered in next_in */
+            //printf("NEXT_IN### %s<<\n", z->next_in);
+            ++ptr;
+            z->msg = (char *) ptr;
+            z->next_in = (Bytef *) (*ptr);
+            if (z->next_in == NULL) {
+                printf("### END 2>>%s<<\n", z->next_in);
+                return Z_STREAM_END;
+            }
+            //printf("### %s<<\n", z->next_in);
+        }
+    }
+    return Z_OK;
+}
+#if 0
+static int inflate_strtab2(z_stream * z, int flags) {
     char ** ptr = (char **) (z->next_in);
     size_t size;
     (void) flags;
@@ -123,6 +159,7 @@ static int inflate_strtab(z_stream * z, int flags) {
     z->avail_in -= size;
     return Z_OK;
 }
+#endif
 /* ************************************************************************ */
 #if BUILD_ZLIB
 static int inflate_init_zlib(z_stream * z, int flags) {
@@ -164,15 +201,30 @@ ssize_t             vdecode_buffer(
 
     if (outbuf == NULL) {
         if (out == NULL || (outbuf = malloc((internalbuf = outbufsz = 4096))) == NULL) {
+            if (pctx != NULL) {
+                pctx->lib->inflate_end(&pctx->z);
+                free(pctx);
+                if (ctx != NULL)
+                    *ctx = NULL;
+            }
             return -1; /* cannot use internal if no file given */
         }
     } else if (ctx == NULL || outbufsz == 0) {
+        if (pctx != NULL) {
+            pctx->lib->inflate_end(&pctx->z);
+            free(pctx);
+            if (ctx != NULL)
+                *ctx = NULL;
+        }
         return -1; /* fail if giving a buf with size 0 or without ctx */
     }
     if (pctx == NULL) { /* init inflate stream */
         if ((pctx = malloc(sizeof(decodebuf_t))) == NULL) {
             if (internalbuf)
                 free(outbuf);
+            if (ctx) {
+                *ctx = NULL;
+            }
             return -1;
         }
         memset(&pctx->z, 0, sizeof(z_stream));
@@ -182,22 +234,41 @@ ssize_t             vdecode_buffer(
         pctx->z.opaque = Z_NULL;
         pctx->z.avail_in = 0;
         pctx->off = 0;
+
 #       if BUILD_ZLIB
-        if (inbufsz > 2 && inbuf && inbuf[0] == 31 && (unsigned char)(inbuf[1]) == 139
-        && inbuf[2] == 8) {
+        if (inbufsz >= 3 && inbuf
+        && inbuf[0] == 31 && (unsigned char)(inbuf[1]) == 139 && inbuf[2] == 8) {
+            /* GZIP MAGIC */
             pctx->lib = &s_decode_zlib;
         } else
 #       endif
-        if (inbufsz > 2 && inbuf && inbuf[0] == '\n' && inbuf[1] == '/' && inbuf[2] == '*') {
+        if (inbufsz >=4 && inbuf
+        && inbuf[0] == 0x0c && inbuf[1] == 0x0a && inbuf[2] == 0x0f && inbuf[3] == 0x0e) {
+            /* RAW (char array) MAGIC */
             pctx->lib = &s_decode_raw;
-        } else {
+            pctx->off += 4;
+        } else if (inbufsz >= sizeof(void *) && inbuf
+        && (void *)(*((void**)inbuf)) == (void *) 0x0AbcCafeUL) {
+            /* STRTAB (string array) MAGIC */
+            char ** ptr = (char **) inbuf;
+            ++ptr;
             pctx->lib = &s_decode_strtab;
+            pctx->z.msg = ((char *) ptr);
+            pctx->z.next_in = (Bytef *) *ptr;
+            pctx->z.avail_in = inbufsz;
+            //printf(">>>>>%s<<<<<\n", pctx->z.next_in);
+        } else {
+            /* UNKNOWN MAGIC, assuming it is raw */
+            pctx->off = 0;
+            pctx->lib = &s_decode_raw;
         }
         if ((ret = pctx->lib->inflate_init(&pctx->z, 31/*15(max_window)+16(gzip)*/)) != Z_OK) {
             if(pctx)
                 free(pctx);
             if(internalbuf)
                 free(outbuf);
+            if (ctx)
+                *ctx = NULL;
             return -1;
         }
         if (ctx != NULL)

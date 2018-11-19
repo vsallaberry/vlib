@@ -69,6 +69,7 @@ size_t      strtok_ro_r(const char ** token, const char * seps,
 
 /** vdecode_buffer : decode <inbuf> (zlib or raw (char[]), char * tab[])
  * This function must be called until it returns 0 or -1.
+ * To release resources before it returns 0 or -1, call it with (NULL, 0, &ctx, NULL, 0).
  * @param out if not NULL, the decoded data is writen to file out
  * @param outbuf if not NULL, the decoded data is added in outbuf
  * @param outbufsz the maximum size of outbuf
@@ -77,10 +78,13 @@ size_t      strtok_ro_r(const char ** token, const char * seps,
  *        and the updated value on next calls.
  *        The function will allocate and free memory internally.
  * @param inbuf the buffer containing data to be decoded.
- *   Its content is what would give 'echo "string" | gzip -c'
- *   od can format it to be included in c source:
- *   $ echo "string" | gzip -c | od -An -tuC
- *       | sed -e 's/[[:space:]][[:space:]]*0*\([0-9][0-9]*\)/\1,/g'
+ *   1) gzip (it will start with 0x1f,0x8b,0x08), C array can be generated with:
+ *      $ echo "string" | gzip -c | od -An -tuC
+ *        | sed -e 's/[[:space:]][[:space:]]*0*\([0-9][0-9]*\)/\1,/g'
+ *  2) array of strings (first (char *) will be 0x0abcCafe)
+ *     const char *const array[] = { 0x0abcCafe, "String1", "String2", NULL };
+ *  3) raw data (char arrary, starting with 0x0c, 0x0a, 0x0f, 0x0e)
+ *     const char array[] = { 0x0c, 0x0a, 0x0f, 0x0e, 1, 2, 3, 4, 5, 6, 7 };
  * @param inbufsz the size of buffer
  * @return number of decoded bytes, 0 when finished, -1 on error */
 ssize_t     vdecode_buffer(
