@@ -108,6 +108,9 @@ static int inflate_raw(z_stream * z, int flags) {
     size_t size = z->avail_in;
     (void) flags;
 
+    if (size == 0) {
+        return Z_STREAM_END;
+    }
     if (size > z->avail_out) {
         size = z->avail_out;
     }
@@ -228,7 +231,7 @@ ssize_t             vdecode_buffer(
         && inbuf[0] == 0x0c && inbuf[1] == 0x0a && inbuf[2] == 0x0f && inbuf[3] == 0x0e) {
             /* RAW (char array) MAGIC */
             pctx->lib = &s_decode_raw;
-            pctx->off += 4;
+            pctx->off = 4;
         } else if (inbufsz >= sizeof(void *) && inbuf
         && (const char *)(*((const char*const*)inbuf)) == VDECODEBUF_STRTAB_MAGIC) {
             /* STRTAB (string array) MAGIC */
@@ -240,7 +243,6 @@ ssize_t             vdecode_buffer(
             pctx->z.avail_in = inbufsz - sizeof(char *);
         } else {
             /* UNKNOWN MAGIC, assuming it is raw */
-            pctx->off = 0;
             pctx->lib = &s_decode_raw;
         }
         if ((ret = pctx->lib->inflate_init(&pctx->z, 31/*15(max_window)+16(gzip)*/)) != Z_OK) {
