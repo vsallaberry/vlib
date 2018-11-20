@@ -251,7 +251,7 @@ log_t *             logpool_find(
     if (pool == NULL || prefix == NULL) {
         return NULL;
     }
-    ref.prefix = prefix;
+    ref.prefix = (char *) prefix;
     result = avltree_find(pool->logs, &ref);
     return result;
 }
