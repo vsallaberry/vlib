@@ -223,14 +223,15 @@ ssize_t             vdecode_buffer(
         pctx->z.avail_in = 0;
         pctx->off = 0;
 
-#       if BUILD_ZLIB
         if (inbufsz >= 3 && inbuf
         && inbuf[0] == 31 && (unsigned char)(inbuf[1]) == 139 && inbuf[2] == 8) {
             /* GZIP MAGIC */
+#          if BUILD_ZLIB
             pctx->lib = &s_decode_zlib;
-        } else
-#       endif
-        if (inbufsz >=4 && inbuf
+#          else
+            pctx->lib = NULL;
+#          endif
+        } else if (inbufsz >=4 && inbuf
         && inbuf[0] == 0x0c && inbuf[1] == 0x0a && inbuf[2] == 0x0f && inbuf[3] == 0x0e) {
             /* RAW (char array) MAGIC */
             pctx->lib = &s_decode_raw;
@@ -248,7 +249,8 @@ ssize_t             vdecode_buffer(
             /* UNKNOWN MAGIC, assuming it is raw */
             pctx->lib = &s_decode_raw;
         }
-        if ((ret = pctx->lib->inflate_init(&pctx->z, 31/*15(max_window)+16(gzip)*/)) != Z_OK) {
+        if (pctx->lib == NULL || inbuf == NULL
+        ||  (ret = pctx->lib->inflate_init(&pctx->z, 31/*15(max_window)+16(gzip)*/)) != Z_OK) {
             if(pctx)
                 free(pctx);
             if(internalbuf)
