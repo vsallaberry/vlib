@@ -87,6 +87,8 @@ size_t      strtok_ro_r(const char ** token, const char * seps,
  *     const char array[] = { 0x0c, 0x0a, 0x0f, 0x0e, 1, 2, 3, 4, 5, 6, 7 };
  * @param inbufsz the size of buffer
  * @return number of decoded bytes, 0 when finished, -1 on error */
+#define     VDECODEBUF_STRTAB_MAGIC ((const char *) 0x0abcCafeUL)
+#define     VDECODEBUF_RAW_MAGIC    "\x0c\x0a\x0f\x0e"
 ssize_t     vdecode_buffer(
                 FILE *          out,
                 char *          outbuf,

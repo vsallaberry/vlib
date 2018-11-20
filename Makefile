@@ -407,10 +407,12 @@ INCLUDES	:= $(VERSIONINC) $(BUILDINC) $(tmp_INCLUDES)
 # SRCINC containing source code is included if APP_INCLUDE_SOURCE is defined in VERSIONINC.
 # SRCINC_Z (compressed) is used if zlib.h,vlib,gzip,od are present, otherwise SRCINC_STR is used.
 cmd_HAVEVLIB	= case " $(INCLUDES) " in *"include/vlib/avltree.h "*) true ;; *) false ;; esac
+cmd_HAVEZLIBH	= for d in /{usr,usr/local,opt/local}/include{,/zlib}; do \
+	 	    $(TEST) -e "$$d/zlib.h" && break; done
 cmd_SRCINC	= $(cmd_FINDBSDOBJ); ! $(TEST) -e $(VERSIONINC) \
 		  || { $(GREP) -Eq '^[[:space:]]*\#[[:space:]]*define APP_INCLUDE_SOURCE([[:space:]]|$$)' \
 	                                $(VERSIONINC) $(NO_STDERR) \
-		       && $(cmd_HAVEVLIB) \
+		       && $(cmd_HAVEVLIB) && $(cmd_HAVEZLIBH) \
 		       && $(TEST) -x "`$(WHICH) \"$(OD)\" | $(HEADN1) $(NO_STDERR)`" \
 		               -a -x "`$(WHICH) \"$(GZIP)\" | $(HEADN1) $(NO_STDERR)`" \
 		       && echo $(SRCINC_Z) | $(SED) -e 's|^\./||' \
@@ -598,7 +600,7 @@ $(BUILDDIRS): .EXEC
 # --- clean : remove objects and generated files
 clean: cleanme $(CLEANDIRS)
 cleanme:
-	$(RM) $(SRCINC_Z) $(SRCINC_STR) $(SRCINC_Z:.c=.o) $(SRCINC_STR:.c=.o) $(SRCINC_Z:.c=.d) $(SRCINC_STR:.c=.d) \
+	$(RM) $(SRCINC_Z:.c=.*) $(SRCINC_STR:.c=.*) \
 	      $(OBJ:.class=*.class) $(GENSRC) $(GENINC) $(GENJAVA) $(CLASSES:.class=*.class) $(DEPS) $(INCLUDEDEPS)
 	@$(TEST) -L "$(FLEXLEXER_LNK)" && { cmd="$(RM) $(FLEXLEXER_LNK)"; echo "$$cmd"; $$cmd ; } || true
 $(CLEANDIRS):
@@ -921,7 +923,7 @@ $(SRCINC_STR): $(SRCINC_CONTENT)
 	            '# endif' \
 	            '}' '#endif' >> $@; \
 	     }; print_getsrc_fun; \
-	     $(CC) -fsyntax-only $(CPPFLAGS) $(CFLAGS) $(NO_STDERR) $@ \
+	     $(CC) -fsyntax-only $(CPPFLAGS) $(FLAGS_C) $(NO_STDERR) $@ \
 	         || { $(PRINTF) "%s\n" '#include <stdlib.h>' '#include <stdio.h>' '#include "$(VERSIONINC)"' '#ifdef APP_INCLUDE_SOURCE' \
 	                             'static const char * const s_program_source[] = { (const char *) 0xabcCafeUL,' \
 				     '    "cannot include source. check awk version or antivirus or bug\n", NULL' \
@@ -1012,8 +1014,7 @@ update-$(BUILDINC): create-build.h .EXEC
 	 $(TEST) -n "$(BISON3)" && bison3=1 || bison3=0; \
 	 $(TEST) -n "$(SRCINC)" && appsource=true || appsource=false; \
 	 $(cmd_HAVEVLIB) && vlib=1 || vlib=0; \
-	 zlib=0; zlib_h=0; for d in /usr/include{,/zlib} /usr/local/include{,/zlib} /opt/local/include{,/zlib}; do \
-	 	$(TEST) -e "$$d/zlib.h" && zlib_h=1 && zlib=1; break; done; \
+	 zlib=0; zlib_h=0; $(cmd_HAVEZLIBH) && zlib_h=1 && zlib=1; \
 	 if $(SED) -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREV[[:space:]]\).*|\1$${gitrev}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREVFULL[[:space:]]\).*|\1$${fullgitrev}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREMOTE[[:space:]]\).*|\1$${gitremote}|" \

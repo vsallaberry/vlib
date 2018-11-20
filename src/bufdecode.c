@@ -17,15 +17,30 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 /* ------------------------------------------------------------------------
- * Simple avl tree utilities.
- * AVL: 1962, Georgii Adelson-Velsky & Evguenii Landis.
+ * buffer decoding utilities: supports char[], char *[], zlib.
  */
-#include "version.h"
+#ifdef HAVE_VERSION_H
+# include "version.h"
+#endif
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 
 /* ************************************************************************ */
+#ifndef BUILD_VLIB
+# define BUILD_VLIB 0
+#endif
+#if BUILD_VLIB
+# include "vlib/util.h"
+# include "vlib/log.h"
+#else
+# define VDECODEBUF_STRTAB_MAGIC    ((const char *) 0x0abcCafeUL)
+# define VDECODEBUF_RAW_MAGIC       "\x0c\x0a\x0f\x0e"
+# define LOG_INFO(log,...)
+# define LOG_DEBUG(log,...)
+# define LOG_DEBUG_BUF(log,...)
+# define g_vlib_log NULL
+#endif
 #ifndef BUILD_ZLIB
 # define BUILD_ZLIB 0
 #endif
@@ -102,64 +117,33 @@ static int inflate_raw(z_stream * z, int flags) {
     return Z_OK;
 }
 static int inflate_strtab(z_stream * z, int flags) {
-    size_t      n, size = z->avail_out;
+    size_t      n;
     char **     ptr = ((char **) z->msg);
     char *      end;
     (void) flags;
 
-    if (ptr == NULL || *ptr == NULL) {
-                printf("### END 1>>%s<< (avail_in=%ld)\n", z->next_in, z->avail_in);
+    if (ptr == NULL || *ptr == NULL || z->next_in == NULL) {
         return Z_STREAM_END;
     }
-    if (size > z->avail_in) {
-        size = z->avail_in;
-    }
     while (z->avail_out > 0) {
-        end = stpncpy((char *) z->next_out, (const char *) z->next_in, size);
-        n = (end - (char *) z->next_out - 1);
-        z->avail_in -= n + 1;
+        end = stpncpy((char *) z->next_out, (const char *) z->next_in, z->avail_out);
+        n = (end - (char *) z->next_out);
         z->avail_out -= n;
-        z->next_in += n + 1;
         z->next_out += n;
-        size -= n;
-        if (size != 0 && *end == 0) { /* 0 was encoutered in next_in */
-            //printf("NEXT_IN### %s<<\n", z->next_in);
+        z->next_in += n;
+        if (*z->next_in == 0) { /* 0 was encoutered in next_in */
             ++ptr;
             z->msg = (char *) ptr;
             z->next_in = (Bytef *) (*ptr);
+            z->avail_in -= sizeof(char *);
             if (z->next_in == NULL) {
-                printf("### END 2>>%s<<\n", z->next_in);
-                return Z_STREAM_END;
+                break ;
             }
-            //printf("### %s<<\n", z->next_in);
         }
     }
     return Z_OK;
 }
-#if 0
-static int inflate_strtab2(z_stream * z, int flags) {
-    char ** ptr = (char **) (z->next_in);
-    size_t size;
-    (void) flags;
 
-    if (*ptr == NULL) {
-        return Z_STREAM_END;
-    }
-
-    size = strlen(*ptr);
-    if (size > z->avail_out) {
-        size = z->avail_out;
-        //TODO
-    } else {
-        z->next_in = (Bytef*) (ptr + 1);
-    }
-    memcpy(z->next_out, *ptr, size);
-
-    z->avail_out -= size;
-    z->avail_in -= size;
-    return Z_OK;
-}
-#endif
 /* ************************************************************************ */
 #if BUILD_ZLIB
 static int inflate_init_zlib(z_stream * z, int flags) {
@@ -172,14 +156,12 @@ static decode_wrapper_t s_decode_zlib = {
     .inflate_do     = inflate,
 };
 #endif
-
 /* ************************************************************************ */
 static decode_wrapper_t s_decode_raw = {
     .inflate_init   = inflate_init_raw,
     .inflate_end    = inflate_end_raw,
     .inflate_do     = inflate_raw,
 };
-
 /* ************************************************************************ */
 static decode_wrapper_t s_decode_strtab = {
     .inflate_init   = inflate_init_raw,
@@ -248,15 +230,14 @@ ssize_t             vdecode_buffer(
             pctx->lib = &s_decode_raw;
             pctx->off += 4;
         } else if (inbufsz >= sizeof(void *) && inbuf
-        && (void *)(*((void**)inbuf)) == (void *) 0x0AbcCafeUL) {
+        && (const char *)(*((const char*const*)inbuf)) == VDECODEBUF_STRTAB_MAGIC) {
             /* STRTAB (string array) MAGIC */
             char ** ptr = (char **) inbuf;
             ++ptr;
             pctx->lib = &s_decode_strtab;
             pctx->z.msg = ((char *) ptr);
             pctx->z.next_in = (Bytef *) *ptr;
-            pctx->z.avail_in = inbufsz;
-            //printf(">>>>>%s<<<<<\n", pctx->z.next_in);
+            pctx->z.avail_in = inbufsz - sizeof(char *);
         } else {
             /* UNKNOWN MAGIC, assuming it is raw */
             pctx->off = 0;
