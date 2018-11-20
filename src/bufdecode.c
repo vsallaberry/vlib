@@ -51,7 +51,7 @@
 # include <zlib.h>
 #else
 /* no zlib header on this system */
-#define ZLIB_VERSION    "1.0.0"
+#define ZLIB_VERSION    "1.2.5"
 #define Z_NULL          0
 #define Z_NO_FLUSH      0
 #define Z_OK            0
@@ -72,13 +72,16 @@ typedef struct {
     int                 (*zalloc)();
     int                 (*zfree)();
     void *              opaque;
-    long                pad[128];
+    int                 data_type;
+    unsigned long       adler;
+    unsigned long       reserved;
 } z_stream;
 int inflateInit2_(z_stream * z, int flags, const char * version, int struct_size);
 #define inflateInit2(strm, windowBits) \
-        inflateInit2_((strm), (windowBits), ZLIB_VERSION, (int)sizeof(z_stream))
+        inflateInit2_((strm), (windowBits), zlibVersion(), (int)sizeof(z_stream))
 int inflate(z_stream * z, int flags);
 int inflateEnd(z_stream * z);
+const char * zlibVersion();
 #endif
 
 /* ************************************************************************ */

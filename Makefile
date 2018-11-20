@@ -407,7 +407,8 @@ INCLUDES	:= $(VERSIONINC) $(BUILDINC) $(tmp_INCLUDES)
 # SRCINC containing source code is included if APP_INCLUDE_SOURCE is defined in VERSIONINC.
 # SRCINC_Z (compressed) is used if zlib.h,vlib,gzip,od are present, otherwise SRCINC_STR is used.
 cmd_HAVEVLIB	= case " $(INCLUDES) " in *"include/vlib/avltree.h "*) true ;; *) false ;; esac
-cmd_HAVEZLIBH	= for d in /{usr,usr/local,opt/local}/include{,/zlib}; do \
+cmd_HAVEZLIBH	= for d in /usr/include /usr/include/zlib /usr/local/include /usr/local/include/zlib \
+		           /opt/local/include /opt/local/include/zlib; do \
 	 	    $(TEST) -e "$$d/zlib.h" && break; done
 cmd_SRCINC	= $(cmd_FINDBSDOBJ); ! $(TEST) -e $(VERSIONINC) \
 		  || { $(GREP) -Eq '^[[:space:]]*\#[[:space:]]*define APP_INCLUDE_SOURCE([[:space:]]|$$)' \
