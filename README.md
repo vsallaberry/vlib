@@ -103,6 +103,6 @@ WORK-IN-PROGRESS...
 
 ## License
 GPLv3 or later. See LICENSE file.
-Copyright: Copyright (C) 2017-2018 Vincent Sallaberry
+Copyright: Copyright (C) 2017-2019 Vincent Sallaberry
 **vlib** was first created and first published in 2017 by Vincent Sallaberry.
 
