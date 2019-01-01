@@ -56,6 +56,11 @@ static int              avltree_visit_insert(
                             avltree_node_t *                node,
                             const avltree_visit_context_t * context,
                             void *                          user_data);
+static int              avltree_visit_remove(
+                            avltree_t *                     tree,
+                            avltree_node_t *                node,
+                            const avltree_visit_context_t * context,
+                            void *                          user_data);
 static int              avltree_visit_free(
                             avltree_t *                     tree,
                             avltree_node_t *                node,
@@ -464,14 +469,26 @@ int                 avltree_visit(
 void *              avltree_remove(
                         avltree_t *                 tree,
                         const void *                data) {
+    avltree_visit_insert_t    insert_data;
+
     if (tree == NULL) {
         errno = EINVAL;
         return NULL;
     }
-    //TODO
-    if (0) {
-        --tree->n_elements;
+    if (tree->root == NULL) {
+        errno = ENOENT;
+        return NULL;
     }
+    insert_data.newdata = data;
+    insert_data.newnode = NULL;
+    insert_data.prev_child = (avltree_node_t *) (&(tree->root));
+    insert_data.new_balance = 0;
+    if (avltree_visit(tree, avltree_visit_remove, &insert_data, AVH_PREFIX | AVH_SUFFIX)
+            == AVS_FINISHED) {
+        --tree->n_elements;
+        return insert_data.newnode;
+    }
+    errno = ENOENT;
     return NULL;
 }
 
@@ -528,8 +545,7 @@ static int          avltree_visit_rebalance(
             *pparent = avltree_rotate_right(tree, node, 1);
         }
         idata->prev_child = *pparent;
-
-        return AVS_FINISHED;
+        return AVS_FINISHED; //TODO don't return when deleting node
     } else if (node->balance > 1) {
 #       ifdef _DEBUG
         if (g_vlib_log && g_vlib_log->level >= LOG_LVL_DEBUG)
@@ -546,8 +562,7 @@ static int          avltree_visit_rebalance(
             *pparent = avltree_rotate_left(tree, node, 1);
         }
         idata->prev_child = *pparent;
-
-        return AVS_FINISHED;
+        return AVS_FINISHED; //TODO don't return when deleting node
     } else {
         idata->prev_child = node;
     }
@@ -617,6 +632,108 @@ static int          avltree_visit_insert(
               (unsigned long) new,
               *parent == node->left ? "LEFT" : "RIGHT",
               (long)node->data, (unsigned long) node);
+
+    /* stop prefix visit and switch to suffix visit */
+    return AVS_NEXTVISIT;
+}
+
+/****************************************************************************
+ * The method proposed by T. Hibbard's in 1962 is used
+ * (heights of subtrees changed by at most 1):
+ * 1) deleting a node with no children: remove the node
+ * 2) deleting a node with one child: remove the node and replace it with its child
+ * 3) deleting a node(N) with 2 children: do not delete N. Choose its infix successor or
+ *    infix predecessor (R) as replacement, Copy value of R to N.
+ *    a) If R does not have child, remove R from its parent.
+ *    b) if R has a child (C, right child), replace R with C at R's parent.
+ * When D is root, make R root.
+ * infix successor:   right subtree's left-most  child
+ * infix predecessor: left  subtree's right-most child */
+static int              avltree_visit_remove(
+                            avltree_t *                     tree,
+                            avltree_node_t *                node,
+                            const avltree_visit_context_t * context,
+                            void *                          user_data) {
+    avltree_visit_insert_t *    idata = (avltree_visit_insert_t *) user_data;
+    avltree_node_t **           parent;
+    int                         cmp;
+
+    if (context->state == AVH_SUFFIX) {
+        return AVS_FINISHED; //avltree_visit_rebalance(tree, node, context, user_data);
+    } else if (context->state != AVH_PREFIX) {
+        return AVS_ERROR;
+    }
+
+    LOG_DEBUG(g_vlib_log, "DELETING %ld, Visiting Node %ld(%ld,%ld) How %d Ptr %lx(%lx,%lx)",
+              (long)idata->newdata, (long)node->data,
+              node->left?(long)node->left->data:-1, node->right?(long)node->right->data:-1,
+              context->how,
+              (unsigned long) node, (unsigned long)node->left, (unsigned long)node->right);
+
+    /* keep the parent of node : works because we are in prefix mode */
+    parent = (avltree_node_t **) idata->prev_child;
+
+    /* compare node value with searched one */
+    if ((cmp = tree->cmp(idata->newdata, node->data)) < 0) {
+        /* continue with left node, or raise error if NULL */
+        if (node->left == NULL) {
+            return AVS_ERROR;
+        }
+        idata->prev_child = (avltree_node_t *) (&(node->left));
+        return AVS_GO_LEFT;
+    } else if (cmp > 0) {
+        /* continue with right node, or raise error if NULL */
+        if (node->right == NULL) {
+            return AVS_ERROR;
+        }
+        idata->prev_child = (avltree_node_t *) (&(node->right));
+        return AVS_GO_RIGHT;
+    }
+    /* Found. Node Deletion. When D is root, make R root. */
+    if (node->left == NULL && node->right == NULL) {
+        /* 1) deleting a node with no children: remove the node */
+        LOG_DEBUG(g_vlib_log, "avltree_remove(%ld): case 1 (no child)", (long)(idata->newdata));
+        (*parent) = NULL;
+        avltree_node_free(tree, node);
+        if (node == tree->root) {
+            tree->root = NULL;
+        }
+    } else if (node->left == NULL || node->right == NULL) {
+        /* 2) deleting a node with one child: remove the node and replace it with its child */
+        LOG_DEBUG(g_vlib_log, "avltree_remove(%ld): case 2 (1 child)", (long)(idata->newdata));
+        (*parent) = (node->left != NULL ? node->left : node->right);
+        avltree_node_free(tree, node);
+        if (node == tree->root) {
+            tree->root = (*parent);
+        }
+    } else {
+        /* 3) deleting a node(N) with 2 children: do not delete N:
+         *    choose infix successor as replacement (R), copy value of R to N.*/
+        avltree_node_t ** preplace = &(node->right), * replace;
+        while ((*preplace)->left != NULL) {
+            preplace = &((*preplace)->left);
+        }
+        replace = *preplace;
+        LOG_DEBUG(g_vlib_log, "avltree_remove(%ld): case 3%c (2 children), replace:%ld(%ld:%ld)",
+                  (long)(node->data), replace->right == NULL ? 'a' : 'b',
+                  (long)(replace->data),
+                  replace->left ? (long) (replace->left->data) : -1l,
+                  replace->right ? (long) (replace->right->data) : -1l);
+
+        /* a&b) if R has a child (C,right child), replace R with C at R's parent, else remove it. */
+        node->data = replace->data;
+        *preplace = replace->right;
+        avltree_node_free(tree, replace);
+    }
+
+    //(*parent) = new;
+    idata->newnode = node;
+    idata->new_balance = 1;
+
+    LOG_DEBUG(g_vlib_log, "DELETED node %ld",// on %s of %ld ptr 0x%lx",
+              (long)idata->newdata/*,
+              *parent == node->left ? "LEFT" : "RIGHT",
+              (long)(*parent)->data, (unsigned long) *parent*/);
 
     /* stop prefix visit and switch to suffix visit */
     return AVS_NEXTVISIT;
