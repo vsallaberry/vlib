@@ -128,7 +128,7 @@ void *          rbuf_get(
                     size_t          index);
 
 /** set the index-th element in the buffer.
- * if RBF_OVERWRITE is ON, the buffer is increased so that index will fit.
+ * if RBF_OVERWRITE is OFF, the buffer is increased so that index will fit.
  * @return 0 on success or -1 on error */
 int             rbuf_set(
                     rbuf_t *        rbuf,
