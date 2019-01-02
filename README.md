@@ -3,7 +3,7 @@
 --------------
 
 * [Overview](#overview)
-* [System Requirments](#systemrequirments)
+* [System Requirements](#system-requirements)
 * [Compilation](#compilation)
 * [Integration](#integration)
 * [Contact](#contact)
@@ -25,19 +25,22 @@ This is not an exhaustive list but the list of systems on which it has been buil
 - FreeBSD 11.1
 
 ## Compilation
+
 ### Cloning **vlib** repository
-If you are using SUBMODROOTDIR Makefile's feature (RECOMMANDED, see [submodules](#compilation/using git submodules)):  
-    $ git clone https://github.com/vsallaberry/vlib.git
+If you are using SUBMODROOTDIR Makefile's feature (RECOMMANDED, see [submodules](#using-git-submodules)):  
+    $ git clone https://github.com/vsallaberry/vlib.git  
     $ git submodule update --init  
 
 Otherwise:  
-    $ git clone --recursive https://vsallaberry/vlib.git
+    $ git clone --recursive https://vsallaberry/vlib.git  
+
 ### Building
 Just type:  
     $ make # (or 'make -j3' for SMP)  
 
 If the Makefile cannot be parsed by 'make', try:  
     $ ./make-fallback  
+
 ### General information
 An overview of Makefile rules can be displayed with:  
     $ make help  
@@ -53,6 +56,7 @@ bsd make can stop. Just type again '$ make' and it will be fine.
 
 When you link **vlib** with a program, you need pthread (-lpthread), zlib (-lz),  
 and on linux, rt, dl (-lrt -ldl).
+
 ### Using git submodules
 When your project uses git submodules, it is a good idea to group
 submodules in a common folder, here, 'ext'. Indeed, instead of creating a complex tree
@@ -71,6 +75,7 @@ You can let SUBMODROOTDIR empty if you do not want to group submodules together.
 
 ## Integration
 This part describes the way to integrate and use **vlib** in another project.
+
 ### SubModule creation
 Simplest way is to add **vlib** as a git submodule of your project, in for example ext folder:   
     $ git submodule add -b master https://github.com/vsallaberry/vlib.git ext/vlib  
