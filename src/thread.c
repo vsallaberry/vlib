@@ -847,25 +847,4 @@ int vlib_thread_valgrind(int argc, const char *const* argv) {
 #endif
 
 /*****************************************************************************/
-int callback(
-        vlib_thread_t * vthread,
-        vlib_thread_event_t event,
-        void * event_data,
-        void * user_data) {
-    (void) vthread;
-    (void) event;
-    (void) event_data;
-    (void) user_data;
-    return 0;
-}
-void testcb() {
-    int fd = 1;
-    vlib_thread_t * vthread = NULL;
-    int sig = 1;
-    const char * str = "aaa";
-    vlib_thread_register_event(vthread, VTE_FD_READ, VTE_DATA_FD(fd), callback, vthread);
-    vlib_thread_register_event(vthread, VTE_INIT, VTE_DATA_PTR(str), callback, vthread);
-    vlib_thread_register_event(vthread, VTE_SIG, VTE_DATA_SIG(sig), callback, vthread);
-}
-
 
