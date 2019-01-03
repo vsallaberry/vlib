@@ -30,6 +30,8 @@
 #include "vlib/util.h"
 #include "vlib_private.h"
 
+/* ************************************************************************ */
+
 /** internal log_pool structure */
 struct logpool_s {
     avltree_t *         logs;
@@ -44,17 +46,7 @@ typedef struct {
     int         use_count;
 } logpool_file_t;
 
-/*
-int logpool_prefixfind(const void * vvalue, const void * vpool_data) {
-    const char *    prefix  = (const char *) vvalue;
-    const log_t *   log     = (const log_t *) vpool_data;
-
-    if (prefix == NULL || log == NULL || log->prefix == NULL) {
-        return 1;
-    }
-    return strcmp(prefix, log->prefix);
-} */
-
+/* ************************************************************************ */
 int logpool_prefixcmp(const void * vpool1_data, const void * vpool2_data) {
     const log_t * log1 = (const log_t *) vpool1_data;
     const log_t * log2 = (const log_t *) vpool2_data;
@@ -80,6 +72,7 @@ int logpool_prefixcmp(const void * vpool1_data, const void * vpool2_data) {
     return strcmp(log1->prefix, log2->prefix);
 }
 
+/* ************************************************************************ */
 int logpool_pathcmp(const void * vpool1_data, const void * vpool2_data) {
     const logpool_file_t * file1 = (const logpool_file_t *) vpool1_data;
     const logpool_file_t * file2 = (const logpool_file_t *) vpool2_data;
@@ -93,6 +86,7 @@ int logpool_pathcmp(const void * vpool1_data, const void * vpool2_data) {
         }
         return 1;
     }
+    //TODO: use fileno() for comparison
     if (file1->path == NULL || file2->path == NULL) {
         if (file1->path == file2->path) {
             return 0;
@@ -105,6 +99,7 @@ int logpool_pathcmp(const void * vpool1_data, const void * vpool2_data) {
     return strcmp(file1->path, file2->path);
 }
 
+/* ************************************************************************ */
 static logpool_file_t * logpool_file_create(const char * path, FILE * file) {
     logpool_file_t * pool_file = malloc(sizeof(logpool_file_t));
 
@@ -122,6 +117,7 @@ static logpool_file_t * logpool_file_create(const char * path, FILE * file) {
     return pool_file;
 }
 
+/* ************************************************************************ */
 static void logpool_file_free(void * vfile) {
     logpool_file_t * pool_file = (logpool_file_t *) vfile;
 
@@ -136,6 +132,7 @@ static void logpool_file_free(void * vfile) {
     }
 }
 
+/* ************************************************************************ */
 logpool_t *         logpool_create() {
     logpool_t * pool = malloc(sizeof(logpool_t));
 
@@ -147,8 +144,8 @@ logpool_t *         logpool_create() {
         free(pool);
         return NULL;
     }
-    if (NULL == (pool->logs
-                 = avltree_create(AFL_DEFAULT | AFL_SHARED_STACK, logpool_prefixcmp, log_destroy))
+    if (NULL == (pool->logs = avltree_create(AFL_DEFAULT | AFL_SHARED_STACK,
+                                             logpool_prefixcmp, log_destroy))
     ||  NULL == (pool->files = avltree_create(AFL_DEFAULT & ~AFL_SHARED_STACK,
                                               logpool_pathcmp, logpool_file_free))) {
         LOG_ERROR(g_vlib_log, "error avltree_create(logs | files) : %s", strerror(errno));
@@ -163,15 +160,20 @@ logpool_t *         logpool_create() {
     return pool;
 }
 
+/* ************************************************************************ */
 void                logpool_free(
                         logpool_t *         pool) {
     if (pool != NULL) {
-        avltree_free(pool->logs);
+        pthread_rwlock_wrlock(&pool->rwlock);
         avltree_free(pool->files);
+        avltree_free(pool->logs); /* must be last : it will free the rbuf stack */
+        pthread_rwlock_unlock(&pool->rwlock);
         pthread_rwlock_destroy(&pool->rwlock);
+        free(pool);
     }
 }
 
+/* ************************************************************************ */
 logpool_t *         logpool_create_from_cmdline(
                         logpool_t *         pool,
                         const char *        log_levels,
@@ -222,26 +224,57 @@ logpool_t *         logpool_create_from_cmdline(
     return pool;
 }
 
+/* ************************************************************************ */
 int                 logpool_add(
                         logpool_t *         pool,
                         log_t *             log) {
+    logpool_file_t  file, * pfile;
+    char            path[20];
+
     if (pool == NULL || log == NULL) {
         return -1;
     }
-    //TODO
-    return -1;
+    pthread_rwlock_wrlock(&pool->rwlock);
+    if (avltree_insert(pool->logs, log) == NULL) {
+        pthread_rwlock_unlock(&pool->rwlock);
+        return -1;
+    }
+    //TODO manage file.path
+    if (log->out == NULL) {
+        strcpy(path, "-1");
+    } else {
+        snprintf(path, sizeof(path), "%d", fileno(log->out));
+    }
+    file.path = path;
+    file.file = log->out;
+    if ((pfile = avltree_find(pool->files, &file)) == NULL) {
+        pfile = logpool_file_create(file.path, file.file);
+        if (pfile == NULL || avltree_insert(pool->files, pfile) == NULL) {
+            logpool_file_free(pfile);
+            avltree_remove(pool->logs, log);
+            pthread_rwlock_unlock(&pool->rwlock);
+            return -1;
+        }
+    }
+    ++pfile->use_count;
+    pthread_rwlock_unlock(&pool->rwlock);
+    return 0;
 }
 
+/* ************************************************************************ */
 int                 logpool_remove(
                         logpool_t *         pool,
                         log_t *             log) {
     if (pool == NULL || log == NULL) {
         return -1;
     }
+    pthread_rwlock_wrlock(&pool->rwlock);
     //TODO
+    pthread_rwlock_unlock(&pool->rwlock);
     return -1;
 }
 
+/* ************************************************************************ */
 log_t *             logpool_find(
                         logpool_t *         pool,
                         const char *        prefix) {
@@ -251,8 +284,12 @@ log_t *             logpool_find(
     if (pool == NULL || prefix == NULL) {
         return NULL;
     }
+    pthread_rwlock_rdlock(&pool->rwlock);
     ref.prefix = (char *) prefix;
     result = avltree_find(pool->logs, &ref);
+    pthread_rwlock_unlock(&pool->rwlock);
     return result;
 }
+
+/* ************************************************************************ */
 
