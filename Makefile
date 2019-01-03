@@ -1099,6 +1099,44 @@ merge-makefile:
 	     fi; \
 	 done
 
+# To update submodules of submodules if SUBMODROOTDIR is used
+#  When a submodule (S) in main project (M) is updated,
+#  if this submodule is used in another submodule (A),
+#  the index of S in A must be set to same index of S in M.
+# This is not perfect as only unintialized submodules are updated (but with submodrootdir, you should not clone with recursive)
+# + get recursive submodule list <status>;<sha1>;<folder>
+# + Loop on each submodule (recursively)
+#   - for each submodule, if it is not initialized, find a more recent repository and update index
+subsubmodules:
+	@if $(TEST) -n "$(SUBMODROOTDIR)"; then \
+	     mods=`$(GIT) submodule status --recursive | $(SED) -e 's/^[[:space:]]/=;/' -e 's/^\([U+-]\)/\1;/' -e 's/[[:space:]]/;/g'`; \
+	     for mod in $$mods; do \
+	         stat=; sha=; dir=; IFSbak=$$IFS; IFS=';'; for tok in $$mod; do \
+	             { $(TEST) -z "$$stat" && stat=$$tok; } \
+	             || { $(TEST) -z "$$sha" && sha=$$tok; } \
+		     || { $(TEST) -z "$$dir" && dir=$$tok; }; \
+	         done; IFS=$$IFSbak; \
+	         if $(TEST) "$$stat" = "-"; then \
+	             for mod2 in $$mods; do \
+		         if $(TEST) "$$mod2" != "$$mod"; then \
+		             stat2=; sha2=; dir2=; IFSbak2=$$IFS; IFS=';'; for tok2 in $$mod2; do \
+  	                         { $(TEST) -z "$$stat2" && stat2=$$tok2; } \
+	                         || { $(TEST) -z "$$sha2" && sha2=$$tok2; } \
+		                 || { $(TEST) -z "$$dir2" && dir2=$$tok2; }; \
+	                    done; IFS=$$IFSbak2; \
+	                    if $(TEST) "$$sha" != "$$sha2" && $(GIT) -C "$$dir2" show --summary --pretty=oneline "$$sha" $(NO_STDERR) $(NO_STDOUT); then \
+			        $(PRINTF) "+ setting index of <$$dir> to index of <$$dir2> ($$sha2)\n"; \
+	                        lsfiles=`$(GIT) -C "$$dir/.." ls-files -s --full-name $$(basename "$$dir") | $(GREP) $$sha | $(AWK) '{ print $$1 " " $$4}'` && \
+	                        { index=; for tok in $$lsfiles; do $(TEST) -z "$$index" && index=$$tok || moddir=$$tok; done; } \
+	                        && $(TEST) -n "$$index" -a -n "$$moddir" && $(GIT) -C "$$dir/.." update-index --cacheinfo "$$index" "$$sha2" "$$moddir" \
+	                        || $(PRINTF) "! cannot set index <$$index> of <$$dir>.\n"; break; \
+	                    fi; \
+			fi; \
+		     done; \
+		 fi; \
+	     done; \
+	 fi;
+
 #to generate makefile displaying shell command beeing run
 debug-makefile:
 	@$(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; \
@@ -1181,6 +1219,9 @@ help:
 	  "" \
 	  "make .gitignore" \
 	  "" \
+	  "make subsubmodules" \
+	  "  update index of sub-submodules which are not populated when SUBMODROOTDIR is used" \
+	  "" \
 	  "make dist" \
 	  "  DISTDIR          [ $(DISTDIR) ]" \
 	  ""
@@ -1249,5 +1290,6 @@ rinfo: info
 .PHONY: subdirs $(DOCDIRS)
 .PHONY: default_rule all build_all cleanme clean distclean dist test info rinfo \
 	doc installme install debug gentags update-$(BUILDINC) create-$(BUILDINC) \
-	.gitignore merge-makefile debug-makefile valgrind help test-build
+	.gitignore merge-makefile debug-makefile valgrind help test-build \
+	subsubmodules
 

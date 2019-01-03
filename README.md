@@ -71,6 +71,10 @@ As SUBDIRS in Makefile are called with SUBMODROOTDIR propagation, currently you 
  'make {test,test-build,install,debug,...}-<subdir>', as <subdir>, test-<subdir>, ... are
 defined as targets.  
 
+When SUBMODROOTDIR is used, submodules of submodules will not be populated as they are
+included in root project. The command `make subsubmodules` will update index of non-populated 
+sub-submodules to the index used in the root project.
+
 You can let SUBMODROOTDIR empty if you do not want to group submodules together.
 
 ## Integration
