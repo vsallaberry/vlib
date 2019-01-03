@@ -246,7 +246,7 @@ int                 vlib_thread_set_exit_signal(
     pthread_mutex_unlock(&priv->mutex);
 
     LOG_VERBOSE(vthread->log, "new exit signal %d", exit_signal);
-    return 0;
+    return ret;
 }
 
 /*****************************************************************************/
@@ -347,6 +347,8 @@ int                 vlib_thread_pipe_create(
     }
     /* LOCK mutex */
     pthread_mutex_lock(&priv->mutex);
+    /* register event read for pipefd_in, and event clean to close pipefd_out
+     * note: as slist_prepend() is used, add pipefd_out last so as it will be first to close */
     if (vlib_thread_register_event_unlocked(vthread, VTE_FD_READ, VTE_DATA_FD(pipefd[0]),
                                             callback, callback_user_data) != 0
     ||  vlib_thread_register_event_unlocked(vthread, VTE_CLEAN, NULL,
