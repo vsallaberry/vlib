@@ -158,7 +158,8 @@ void *              avltree_find_max(
                         avltree_t *                 tree);
 
 /** avltree_find_depth()
- * complexity: O(log2(n)) */
+ * complexity: O(log2(n))
+ * @return the depth of tree or 0 on error with errno set (errno is NOT changed on success). */
 unsigned int        avltree_find_depth(
                         avltree_t *                 tree);
 

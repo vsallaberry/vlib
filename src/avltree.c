@@ -256,6 +256,7 @@ unsigned int        avltree_find_depth(
     unsigned int        depth = 0;
 
     if (tree == NULL) {
+        errno = EINVAL;
         return 0;
     }
     node = tree->root;
@@ -493,6 +494,17 @@ void *              avltree_remove(
 }
 
 /*****************************************************************************/
+#ifdef _DEBUG
+# define _DEBUG_PRINT_TREE(tree) \
+        if (g_vlib_log && g_vlib_log->level >= LOG_LVL_DEBUG            \
+        && avltree_count(tree) < 50) {                                  \
+            rbuf_t * stack = tree->stack; tree->stack = NULL;           \
+            avltree_print(tree, avltree_print_node_default, stderr);    \
+            tree->stack = stack;                                        \
+        }
+#else
+# define _DEBUG_PRINT_TREE(tree)
+#endif
 static int          avltree_visit_rebalance(
                         avltree_t *                     tree,
                         avltree_node_t *                node,
@@ -530,10 +542,7 @@ static int          avltree_visit_rebalance(
     }
 
     if (node->balance < -1) {
-#       ifdef _DEBUG
-        if (g_vlib_log && g_vlib_log->level >= LOG_LVL_DEBUG)
-            avltree_print(tree, avltree_print_node_default, stderr);
-#       endif
+        _DEBUG_PRINT_TREE(tree);
         /* right rotate */
         if (node->left->balance > 0) {
             //double rotate
@@ -547,10 +556,7 @@ static int          avltree_visit_rebalance(
         idata->prev_child = *pparent;
         return AVS_FINISHED; //TODO don't return when deleting node
     } else if (node->balance > 1) {
-#       ifdef _DEBUG
-        if (g_vlib_log && g_vlib_log->level >= LOG_LVL_DEBUG)
-            avltree_print(tree, avltree_print_node_default, stderr);
-#       endif
+        _DEBUG_PRINT_TREE(tree);
         // left rotate
         if (node->right->balance < 0) {
             //double rotation
@@ -852,7 +858,7 @@ int                 avltree_print_node_default(
  * then for now the visit is inlined in this function */
 void avltree_print(avltree_t * tree, avltree_printfun_t print, FILE * out) {
     rbuf_t *    fifo;
-    int         width       = 200;
+    int         width       = 100; // TODO: max(80,term_columns)
     int         node_nb     = 1;
     int         node_sz     = width / 3;
     int         display     = (node_nb - 1) * node_sz;
