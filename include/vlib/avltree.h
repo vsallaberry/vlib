@@ -66,13 +66,13 @@ typedef struct {
 
 /** avltree_visitfun_t return value */
 typedef enum {
-    AVS_GO_LEFT     = -24, /* only go to left node, but continue visit */
-    AVS_GO_RIGHT    = -23, /* only go to right node, but continue visit */
-    AVS_SKIP        = -22, /* skip this node, but continue visit */
-    AVS_CONTINUE    = -21, /* continue visit */
-    AVS_NEXTVISIT   = -20, /* stop current visit, stop pushing childs, and start next visit */
-    AVS_ERROR       = -1,  /* stop visit, report error */
-    AVS_FINISHED    = 0,   /* stop visit, report success */
+    AVS_GO_LEFT     = 1 << 0,   /* only go to left node, but continue visit */
+    AVS_GO_RIGHT    = 1 << 1,   /* only go to right node, but continue visit */
+    AVS_SKIP        = 1 << 2,   /* skip this node, but continue visit */
+    AVS_NEXTVISIT   = 1 << 3,   /* stop current visit, stop pushing childs, and start next visit */
+    AVS_CONTINUE    = AVS_GO_LEFT | AVS_GO_RIGHT, /* continue visit */
+    AVS_ERROR       = -1,       /* stop visit, report error */
+    AVS_FINISHED    = 0,        /* stop visit, report success */
 } avltree_visit_status_t;
 
 /** how to visit the tree (direction) */
@@ -90,7 +90,7 @@ typedef struct {
     avltree_visit_how_t         how;    /* requested visit modes (prefix|infix|...) */
     size_t                      level;  /* current node level (depth) */
     size_t                      index;  /* current node index in level */
-    const rbuf_t *              stack;  /* current stack */
+    rbuf_t *                    stack;  /* current stack */
 } avltree_visit_context_t;
 
 /** avltree_node_t visit function called on each node by avltree_visit()
@@ -191,7 +191,8 @@ int                 avltree_visit(
 
 /** avltree_remove()
  * complexity: O(log2(n))
- * @return the removed data
+ * @return the removed data. Warning: depending on the avltree_freefun_t function
+ *                           given in avltree_create, the returned value might be freed.
  *         or NULL on error with errno set (errno is NOT changed on success). */
 void *              avltree_remove(
                         avltree_t *                 tree,
