@@ -406,6 +406,7 @@ INCLUDES	:= $(VERSIONINC) $(BUILDINC) $(tmp_INCLUDES)
 
 # SRCINC containing source code is included if APP_INCLUDE_SOURCE is defined in VERSIONINC.
 # SRCINC_Z (compressed) is used if zlib.h,vlib,gzip,od are present, otherwise SRCINC_STR is used.
+# TODO: removing heading './' (| $(SED) -e 's|^\./||') causes issues with bsd make
 cmd_HAVEVLIB	= case " $(INCLUDES) " in *"include/vlib/avltree.h "*) true ;; *) false ;; esac
 cmd_HAVEZLIBH	= for d in /usr/include /usr/include/zlib /usr/local/include /usr/local/include/zlib \
 		           /opt/local/include /opt/local/include/zlib; do \
@@ -416,8 +417,8 @@ cmd_SRCINC	= $(cmd_FINDBSDOBJ); ! $(TEST) -e $(VERSIONINC) \
 		       && $(cmd_HAVEVLIB) && $(cmd_HAVEZLIBH) \
 		       && $(TEST) -x "`$(WHICH) \"$(OD)\" | $(HEADN1) $(NO_STDERR)`" \
 		               -a -x "`$(WHICH) \"$(GZIP)\" | $(HEADN1) $(NO_STDERR)`" \
-		       && echo $(SRCINC_Z) | $(SED) -e 's|^\./||' \
-		       || echo $(SRCINC_STR) | $(SED) -e 's|^\./||'; } || true
+		       && echo $(SRCINC_Z) \
+		       || echo $(SRCINC_STR); } || true
 tmp_SRCINC	!= $(cmd_SRCINC)
 tmp_SRCINC	?= $(shell $(cmd_SRCINC))
 SRCINC		:= $(tmp_SRCINC)
