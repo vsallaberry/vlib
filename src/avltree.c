@@ -38,7 +38,7 @@ typedef struct {
     void *              newdata;        /* IN  : value of new node */
     avltree_node_t *    newnode;        /* OUT : pointer to new created node */
     char                new_balance;    /* OUT : new balance of inserted node */
-    avltree_node_t **   prev_child;     /* internal: keep previous child when retracing parents */
+    avltree_node_t **   prev_nodep;     /* internal: previous node (prefix:parent, suffix:child) */
 } avltree_visit_insert_t;
 
 /*****************************************************************************/
@@ -157,7 +157,7 @@ avltree_node_t *    avltree_insert(
     }
     insert_data.newdata = data;
     insert_data.newnode = NULL;
-    insert_data.prev_child = &(tree->root);
+    insert_data.prev_nodep = &(tree->root);
     insert_data.new_balance = 0;
     if (avltree_visit(tree, avltree_visit_insert, &insert_data, AVH_PREFIX | AVH_SUFFIX)
             == AVS_FINISHED) {
@@ -484,9 +484,9 @@ void *              avltree_remove(
         errno = ENOENT;
         return NULL;
     }
-    insert_data.newdata = data;
+    insert_data.newdata = (void *) data;
     insert_data.newnode = NULL;
-    insert_data.prev_child = &(tree->root);
+    insert_data.prev_nodep = &(tree->root);
     insert_data.new_balance = 0;
     if (avltree_visit(tree, avltree_visit_remove, &insert_data, AVH_PREFIX | AVH_SUFFIX)
             == AVS_FINISHED) {
@@ -518,7 +518,7 @@ static int          avltree_visit_rebalance(
     avltree_visit_insert_t *    idata       = (avltree_visit_insert_t *) user_data;
     avltree_node_t *            parent      = rbuf_top(context->stack); /* suffix mode, top=parent */
     avltree_node_t **           pparent;
-    int                         balance_dir = &(node->left) == idata->prev_child ? -1 : +1;
+    int                         balance_dir = &(node->left) == idata->prev_nodep ? -1 : +1;
     (void) context;
 
     pparent = parent ? (parent->left == node ? &parent->left : &parent->right) : &tree->root;
@@ -568,7 +568,7 @@ static int          avltree_visit_rebalance(
             LOG_DEBUG(g_vlib_log, "right(%ld) rotation", (long) node->data);
             *pparent = avltree_rotate_right(tree, node, 1);
         }
-        idata->prev_child = pparent;
+        idata->prev_nodep = pparent;
         if (idata->new_balance >= 0 || old_balance == 0)
             return AVS_FINISHED;
     } else if (node->balance > 1) {
@@ -583,11 +583,11 @@ static int          avltree_visit_rebalance(
             LOG_DEBUG(g_vlib_log, "left(%ld) rotation", (long) node->data);
             *pparent = avltree_rotate_left(tree, node, 1);
         }
-        idata->prev_child = pparent;
+        idata->prev_nodep = pparent;
         if (idata->new_balance >= 0 || old_balance == 0)
             return AVS_FINISHED;
     }
-    idata->prev_child = pparent;
+    idata->prev_nodep = pparent;
 
     return AVS_CONTINUE;
 }
@@ -643,7 +643,7 @@ static int          avltree_visit_insert(
     new->balance = 0;
     (*parent) = new;
     idata->newnode = new;
-    idata->prev_child = parent;
+    idata->prev_nodep = parent;
     idata->new_balance = 1;
 
     LOG_DEBUG(g_vlib_log, "INSERTED node %ld(%lx,%lx) ptr 0x%lx on %s of %ld ptr 0x%lx",
@@ -691,7 +691,7 @@ static int              avltree_visit_remove(
               (unsigned long) node, (unsigned long)node->left, (unsigned long)node->right);
 
     /* keep the parent of node : works because we are in prefix mode */
-    parent = idata->prev_child;
+    parent = idata->prev_nodep;
 
     /* compare node value with searched one */
     if ((cmp = tree->cmp(idata->newdata, node->data)) < 0) {
@@ -699,19 +699,19 @@ static int              avltree_visit_remove(
         if (node->left == NULL) {
             return AVS_ERROR;
         }
-        idata->prev_child = &(node->left);
+        idata->prev_nodep = &(node->left);
         return AVS_GO_LEFT;
     } else if (cmp > 0) {
         /* continue with right node, or raise error if NULL */
         if (node->right == NULL) {
             return AVS_ERROR;
         }
-        idata->prev_child = &(node->right);
+        idata->prev_nodep = &(node->right);
         return AVS_GO_RIGHT;
     }
     /* Found. Node Deletion.
      * When D is root, make R root : done with (*parent) = ...,
-     *   (prev_child set to root in avltree_remove). */
+     *   (prev_nodep set to root in avltree_remove). */
     idata->newdata = node->data;
     if (node->left == NULL && node->right == NULL) {
         /* 1) deleting a node with no children: remove the node */
@@ -719,14 +719,14 @@ static int              avltree_visit_remove(
         (*parent) = NULL;
         avltree_node_free(tree, node);
         idata->newnode = node;
-        idata->prev_child = parent;
+        idata->prev_nodep = parent;
     } else if (node->left == NULL || node->right == NULL) {
         /* 2) deleting a node with one child: remove the node and replace it with its child */
         LOG_DEBUG(g_vlib_log, "avltree_remove(%ld): case 2 (1 child)", (long)(idata->newdata));
         (*parent) = (node->left != NULL ? node->left : node->right);
         avltree_node_free(tree, node);
         idata->newnode = node;
-        idata->prev_child = parent;
+        idata->prev_nodep = parent;
     } else {
         /* 3) deleting a node(N) with 2 children: do not delete N:
          *    choose infix successor as replacement (R), copy value of R to N.*/
@@ -737,7 +737,7 @@ static int              avltree_visit_remove(
             preplace = &((*preplace)->left);
         }
         replace = *preplace;
-        idata->prev_child = preplace;
+        idata->prev_nodep = preplace;
         LOG_DEBUG(g_vlib_log, "avltree_remove(%ld): case 3%c (2 children), replace:%ld(%ld:%ld)",
                   (long)(node->data), replace->right == NULL ? 'a' : 'b',
                   (long)(replace->data),
