@@ -30,6 +30,8 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <stdarg.h>
+#include <limits.h>
+#include <fnmatch.h>
 
 #include "version.h"
 
@@ -45,6 +47,7 @@
 
 #include "vlib/options.h"
 #include "vlib/util.h"
+#include "vlib/log.h"
 
 /* ** OPTIONS *********************************************************************************/
 
@@ -191,23 +194,36 @@ static int opt_usage_filter(const char * filter, int i_opt, int i_section,
     const char * next = filter, * token, * longopt;
     const char * section = i_section >= 0 ? opt_config->opt_desc[i_section].arg : NULL;
     size_t len;
+    char token0[PATH_MAX];
 
     if (filter == NULL)
         return 1;
 
     longopt = is_opt_section(opt->short_opt) ? NULL : opt->long_opt;
 
-    while ((len = strtok_ro_r(&token, ",:|;&", &next, NULL, 0)) > 0 || *next) {
+    while ((len = strtok_ro_r(&token, ",|;&", &next, NULL, 0)) > 0 || *next) {
         if (!len)
             continue ;
 
+        /* copy token into 0-terminated char[] */
+        strn0cpy(token0, token, len, sizeof(token0) / sizeof (char));
+
+        /* check option description (prefixed by ':') */
+        if (len > 1 && *token == ':') {
+            if (fnmatch(token0 + 1, opt->desc ? opt->desc : "", FNM_CASEFOLD) == 0) {
+                return 1;
+            }
+            continue ;
+        }
+
         /* check long-option alias */
-        if (longopt && (strncasecmp(longopt, token, len) || longopt[len] != 0)) {
+        if (longopt && fnmatch(token0, longopt, FNM_CASEFOLD)) {
             for (const opt_options_desc_t * opt2 = opt + 1; !is_opt_end(opt2); ++opt2) {
                 if (opt2->short_opt == opt->short_opt && opt2->long_opt
-                && !strncasecmp(opt2->long_opt, token, len) && opt2->long_opt[len] == 0) {
+                && !fnmatch(token0, opt2->long_opt, FNM_CASEFOLD)) {
                     token = opt->long_opt;
                     len = strlen(token);
+                    strn0cpy(token0, token, len, sizeof(token0) / sizeof (char));
                 }
             }
         }
@@ -215,15 +231,14 @@ static int opt_usage_filter(const char * filter, int i_opt, int i_section,
         /* there is a match if short_opt, or long_opt, or 'all' or current section is given */
         if ((len == 1 && *token == opt->short_opt)
         ||  (len == 3 && !strncasecmp(token, "all", 3))
-        ||  (longopt && !strncasecmp(token, longopt, len) && longopt[len] == 0)
-        ||  (section && !strncasecmp(token, section, len) && section[len] == 0)) {
+        ||  (longopt && !fnmatch(token0, longopt, FNM_CASEFOLD))
+        ||  (section && !fnmatch(token0, section, FNM_CASEFOLD))) {
             return 1;
         }
     }
 
     return 0;
 }
-#include "vlib/log.h"
 
 static size_t opt_newline(FILE * out, const opt_config_t * opt_config, int print_header) {
     fputc('\n', out);
@@ -648,7 +663,9 @@ int opt_describe_filter(int short_opt, const char * arg, int * i_argv,
             n += (ret = snprintf((char *)arg + n, *i_argv - n, ",%s", opt->arg)) > 0 ? ret : 0;
         }
     }
-    n += (ret = snprintf((char *)arg + n, *i_argv - n, ",<shortopt>,<longopt>'")) > 0 ? ret : 0;
+    n += (ret = snprintf((char *)arg + n, *i_argv - n,
+                         ",<shortopt>,<longopt>,:<option-description>' (shell patterns allowed)"
+                        )) > 0 ? ret : 0;
     *i_argv = n;
     return OPT_CONTINUE(1);
 }
