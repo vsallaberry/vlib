@@ -694,11 +694,11 @@ const char * vlib_get_version() {
 }
 
 #ifndef APP_INCLUDE_SOURCE
-const char *const* vlib_get_source() {
-    static const char * const source[] = {
-        BUILD_APPNAME " source not included in this build.\n", NULL
-    };
-    return source;
+# define APP_NO_SOURCE_STRING "\n/* #@@# FILE #@@# " BUILD_APPNAME "/* */\n" \
+                              BUILD_APPNAME " source not included in this build.\n"
+int vlib_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx) {
+    return vdecode_buffer(out, buffer, buffer_size, ctx,
+                          APP_NO_SOURCE_STRING, sizeof(APP_NO_SOURCE_STRING) - 1);
 }
 #endif
 
