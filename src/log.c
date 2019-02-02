@@ -84,6 +84,11 @@ int log_describe_option(char * buffer, int * size, const char *const* modules,
     int     n = 0, ret;
     char    sep[3] = { 0, ' ' , 0 };
 
+    /* sanity checks */
+    if (buffer == NULL || size == NULL) {
+        return OPT_ERROR(OPT_EFAULT);
+    }
+
     /* describe log levels */
     n += (ret = snprintf(buffer + n, *size - n, "\nlevels: '")) > 0 ? ret : 0;
     for (int lvl = LOG_LVL_NONE + 1; lvl < LOG_LVL_NB; ++lvl, *sep = ',') {

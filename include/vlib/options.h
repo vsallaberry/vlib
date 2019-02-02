@@ -103,6 +103,7 @@ typedef struct opt_config_s opt_config_t;
  *            * or (opt|OPT_DESCRIBE_OPTION) to give dynamic information
  *              about usage of this option (used for --help - opt_usage())
  *              In this case, arg is the buffer and i_argv the in/out buffer size.
+ *              Dynamic information is used if the callback returns OPT_CONTINUE(..).
  *
  * @param arg NULL or the option argument or simple program argument (opt=OPT_ID_ARG).
  *            the way arg is given depends on the 'arg' value in opt_options_desc_t.

@@ -210,7 +210,17 @@ static int opt_usage_filter(const char * filter, int i_opt, int i_section,
 
         /* check option description (prefixed by ':') */
         if (len > 1 && *token == ':') {
-            if (fnmatch(token0 + 1, opt->desc ? opt->desc : "", FNM_CASEFOLD) == 0) {
+            char    desc[PATH_MAX];
+            int     i_descsz        = sizeof(desc);
+            char *  end             = stpcpy(desc, opt->desc ? opt->desc : "");
+
+            i_descsz -= (end - desc);
+            if (opt_config->callback == NULL || !OPT_IS_CONTINUE(
+                  opt_config->callback(OPT_DESCRIBE_OPTION | opt->short_opt,
+                                       (const char *) end, &i_descsz, opt_config))) {
+                *end = 0;
+            }
+            if (fnmatch(token0 + 1, desc, FNM_CASEFOLD) == 0) {
                 return 1;
             }
             continue ;
@@ -637,13 +647,19 @@ int opt_parse_options(const opt_config_t * opt_config) {
 
 int opt_parse_options_2pass(opt_config_t * opt_config, opt_option_callback_t callback2) {
     int ret;
+
+    if (opt_config == NULL) {
+        return OPT_ERROR(OPT_EFAULT);
+    }
     for (int i = 0; i < 2; i++) {
         if (i == 0) {
             opt_config->flags |= OPT_FLAG_SILENT;
         } else {
-            ret = opt_config->callback(OPT_ID_END, NULL, NULL, opt_config);
-            if (!OPT_IS_CONTINUE(ret))
-                return ret;
+            if (opt_config->callback != NULL) {
+                ret = opt_config->callback(OPT_ID_END, NULL, NULL, opt_config);
+                if (!OPT_IS_CONTINUE(ret))
+                    return ret;
+            }
             opt_config->flags &= ~OPT_FLAG_SILENT;
             opt_config->callback = callback2;
         }
@@ -657,6 +673,9 @@ int opt_describe_filter(int short_opt, const char * arg, int * i_argv,
     int n = 0, ret;
     (void) short_opt;
 
+    if (opt_config == NULL || i_argv == NULL || arg == NULL) {
+        return OPT_ERROR(OPT_EFAULT);
+    }
     n += (ret = snprintf((char *)arg, *i_argv - n, "filter:'all")) > 0 ? ret : 0;
     for (const opt_options_desc_t * opt = opt_config->opt_desc; opt->short_opt || opt->desc; ++opt) {
         if (is_opt_section(opt->short_opt)) {
