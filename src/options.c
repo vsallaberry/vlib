@@ -477,7 +477,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
         }
         /* parsing option descriptions, splitting them into words and fix alignment */
         while (1) {
-            if ((len = strtok_ro_r(&token, " \n-,;:/?=+*\\", &next, psize,
+            if ((len = strtok_ro_r(&token, " \n-,;:/?=+*&|\\", &next, psize,
                                    VLIB_STRTOK_INCLUDE_SEP)) <= 0) {
                 if (desc_size > 0 && psize == NULL) {
                     /* switch to dynamic buffer if static buffer is finished */
