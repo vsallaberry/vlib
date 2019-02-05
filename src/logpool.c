@@ -353,8 +353,8 @@ log_t *             logpool_add(
     pthread_rwlock_wrlock(&pool->rwlock);
     // FIXME: forbid doubles
     if (avltree_insert(pool->logs, logentry) == NULL) {
-        pthread_rwlock_unlock(&pool->rwlock);
         logpool_entry_free(logentry);
+        pthread_rwlock_unlock(&pool->rwlock);
         return NULL;
     }
     /* if path not given, use ';fd;' as path, else use given path. */
@@ -377,8 +377,9 @@ log_t *             logpool_add(
     }
     logentry->file = pfile;
     ++pfile->use_count;
+    log = &(logentry->log);
     pthread_rwlock_unlock(&pool->rwlock);
-    return &(logentry->log);
+    return log;
 }
 
 /* ************************************************************************ */
@@ -443,8 +444,8 @@ log_t *             logpool_getlog(
     ref.prefix = (char *) prefix;
 
     //FIXME: think about optimization here to acquire only a read lock in some cases
-    //pthread_rwlock_rdlock(&pool->rwlock);
-    pthread_rwlock_wrlock(&pool->rwlock);
+    pthread_rwlock_rdlock(&pool->rwlock);
+    //pthread_rwlock_wrlock(&pool->rwlock);
 
     /* look for the requested log instance */
     if ((entry = avltree_find(pool->logs, &ref)) == NULL) {
@@ -467,7 +468,9 @@ log_t *             logpool_getlog(
         /* duplicate log and put requested prefix */
         memcpy(&ref, result, sizeof(ref));
         ref.prefix = prefix;
+        /*FIXME: bad thing */ pthread_rwlock_unlock(&pool->rwlock);
         result = logpool_add(pool, &ref, entry->file->path);
+        return result;
     }
 
     pthread_rwlock_unlock(&pool->rwlock);
