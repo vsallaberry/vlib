@@ -169,6 +169,9 @@ log_t * log_set_vlib_instance(log_t * log) {
         flockfile(out);
         fflush(out);
     }
+    if (log == NULL) {
+        log = &s_vlib_log_default;
+    }
     g_vlib_log = log;
     if (out)
         funlockfile(out);

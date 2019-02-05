@@ -181,7 +181,7 @@ void        log_close(log_t * log);
 void        log_destroy(void * vlog);
 
 /** set internal vlib log instance, shared between vlib components
- * @param log the new vlib log instance
+ * @param log the new vlib log instance. If NULL, default will be used.
  * @return the previous vlib log instance
  */
 log_t *     log_set_vlib_instance(log_t * log);
