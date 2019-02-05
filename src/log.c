@@ -55,7 +55,7 @@ static struct {
     char            datetime[LOG_DATETIME_SZ];
 } g_vlib_log_global_ctx = { .mutex = PTHREAD_MUTEX_INITIALIZER, .last_timet = 0 };
 
-/** internal log level strings */
+/** internal log level strings (IN SAME ORDER as log_level_t) */
 static const char * s_log_levels_str[] = {
     "---",
     "ERR",
@@ -67,16 +67,51 @@ static const char * s_log_levels_str[] = {
     "+++"
 };
 
+/** internal log flags strings */
+static struct { log_flag_t flag; const char * name; } s_log_flag_str[] = {
+    { LOG_FLAG_NONE,        "None" },
+    { LOG_FLAG_DATETIME,    "DateTime" },
+    { LOG_FLAG_MODULE,      "Module" },
+    { LOG_FLAG_LEVEL,       "Level" },
+    { LOG_FLAG_PID,         "Pid" },
+    { LOG_FLAG_TID,         "Tid" },
+    { LOG_FLAG_FILE,        "File" },
+    { LOG_FLAG_FUNC,        "Func" },
+    { LOG_FLAG_LINE,        "Line" },
+    { LOG_FLAG_LOC_TAIL,    "LocTail" },
+    { LOG_FLAG_LOC_ERR,     "LocErr" },
+    { LOG_FLAG_ABS_TIME,    "AbsTime" },
+};
+#define LOG_FLAG_STR_NB (sizeof(s_log_flag_str) / sizeof(*s_log_flag_str))
+
 const char * log_level_name(log_level_t level) {
     return s_log_levels_str[level > LOG_LVL_NB ? LOG_LVL_NB : level];
 }
 
 log_level_t log_level_from_name(const char * name) {
     for (int i = 0; i < LOG_LVL_NB; ++i) {
-        if (!strcmp(name, s_log_levels_str[i]))
+        if (!strcasecmp(name, s_log_levels_str[i]))
             return i;
     }
     return LOG_LVL_NONE;
+}
+
+const char * log_flag_name(log_flag_t flag) {
+    for (unsigned int i = 0; i < LOG_FLAG_STR_NB; ++i) {
+        if (flag == s_log_flag_str[i].flag) {
+            return s_log_flag_str[i].name;
+        }
+    }
+    return NULL;
+}
+
+log_flag_t log_flag_from_name(const char * name) {
+    for (unsigned int i = 0; i < LOG_FLAG_STR_NB; ++i) {
+        if (!strcasecmp(name, s_log_flag_str[i].name)) {
+            return s_log_flag_str[i].flag;
+        }
+    }
+    return LOG_FLAG_NONE;
 }
 
 int log_describe_option(char * buffer, int * size, const char *const* modules,
@@ -90,10 +125,19 @@ int log_describe_option(char * buffer, int * size, const char *const* modules,
     }
 
     /* describe log levels */
-    n += (ret = snprintf(buffer + n, *size - n, "\nlevels: '")) > 0 ? ret : 0;
+    n += (ret = snprintf(buffer + n, *size - n, "\nlevels : '")) > 0 ? ret : 0;
     for (int lvl = LOG_LVL_NONE + 1; lvl < LOG_LVL_NB; ++lvl, *sep = ',') {
         n += (ret = snprintf(buffer + n, *size - n, "%s%d|%s",
                     sep, lvl, s_log_levels_str[lvl])) > 0 ? ret : 0;
+    }
+    n += (ret = snprintf((buffer) + n, *size - n, "'")) > 0 ? ret : 0;
+
+    /* describe log flags */
+    *sep = 0; sep[1] = 0;
+    n += (ret = snprintf(buffer + n, *size - n, "\nflags  : '")) > 0 ? ret : 0;
+    for (unsigned int i = 0; i < LOG_FLAG_STR_NB; ++i, *sep = '|') {
+        n += (ret = snprintf(buffer + n, *size - n, "%s%s",
+                    sep, s_log_flag_str[i].name)) > 0 ? ret : 0;
     }
     n += (ret = snprintf((buffer) + n, *size - n, "'")) > 0 ? ret : 0;
 
@@ -465,7 +509,9 @@ void log_destroy(void * vlog) {
             free(log->prefix);
         }
         log->prefix = NULL;
-        free(log);
+        if ((log->flags & LOG_FLAG_FREELOG) != 0) {
+            free(log);
+        }
     }
 }
 

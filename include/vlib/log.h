@@ -65,12 +65,14 @@ typedef enum {
     LOG_FLAG_LOC_TAIL   = 1 << 8,   /* append file,func,line at the end of log line */
     LOG_FLAG_LOC_ERR    = 1 << 9,   /* print file,func,line only on levels err,wrn,>=debug */
     LOG_FLAG_ABS_TIME   = 1 << 10,  /* insert absolute monotonic timestamp */
-    LOG_FLAG_CLOSEFILE  = 1 << 29,  /* the file will be closed by destroy/close if not std* */
-    LOG_FLAG_FREEPREFIX = 1 << 30,  /* log_t.prefix is considered allocated and freed on destroy */
+    LOG_FLAG_CLOSEFILE  = 1 << 16,  /* the file will be closed by destroy/close if not std* */
+    LOG_FLAG_FREEPREFIX = 1 << 17,  /* log_t.prefix is considered allocated and freed on destroy */
+    LOG_FLAG_FREELOG    = 1 << 18,  /* the log will be freed on log_destroy() */
+    LOG_FLAG_CUSTOM     = 1 << 24,  /* first bit available for log custom flags */
     LOG_FLAG_DEFAULT    = LOG_FLAG_DATETIME | LOG_FLAG_MODULE | LOG_FLAG_LEVEL
                         | LOG_FLAG_LOC_ERR | LOG_FLAG_LOC_TAIL
                         | LOG_FLAG_FILE | LOG_FLAG_FUNC | LOG_FLAG_LINE
-                        | LOG_FLAG_CLOSEFILE
+                        | LOG_FLAG_CLOSEFILE | LOG_FLAG_FREELOG
 } log_flag_t;
 
 /** log context */
@@ -159,6 +161,12 @@ const char *log_level_name(log_level_t level);
 
 /** get log level from name */
 log_level_t log_level_from_name(const char * name);
+
+/** get name of a given flag */
+const char *log_flag_name(log_flag_t flag);
+
+/** get log flag from name */
+log_flag_t log_flag_from_name(const char * name);
 
 /** default function describing the log-level command-line option
  *  to be called from opt_callback_t option handler -
