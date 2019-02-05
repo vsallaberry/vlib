@@ -30,6 +30,12 @@ extern "C" {
 #endif
 
 /*****************************************************************************/
+typedef enum {
+    LOGPOOL_FLAG_DEFAULT        = LOG_FLAG_CUSTOM << 0,
+    LOGPOOL_FLAG_TEMPLATE       = LOG_FLAG_CUSTOM << 1,
+} logpool_flag_t;
+
+/*****************************************************************************/
 
 /** opaque struct logpool_s */
 typedef struct logpool_s    logpool_t;
@@ -54,10 +60,15 @@ void                logpool_free(
                         logpool_t *         pool);
 
 /** logpool_add()
- * @return 0 on success, -1 otherwise */
-int                 logpool_add(
+ * Add a copy of log to the pool.
+ * @param pool the logpool
+ * @param log the log to duplicate and add in pool
+ * @param path the file to be used for log or NULL to use log->out.
+ * @return the new added log_t* on success, NULL otherwise */
+log_t *             logpool_add(
                         logpool_t *         pool,
-                        log_t *             log);
+                        log_t *             log,
+                        const char *        path);
 
 /** logpool_remove()
  * @return 0 on success, -1 otherwise */
@@ -70,6 +81,29 @@ int                 logpool_remove(
 log_t *             logpool_find(
                         logpool_t *         pool,
                         const char *        prefix);
+
+/** logpool_getlog() flags */
+typedef enum {
+    LPG_NONE        = 0,
+    LPG_NODEFAULT   = 1 << 0,
+    LPG_TRUEPREFIX  = 1 << 1,
+    LPG_DEFAULT     = LPG_TRUEPREFIX
+} logpool_getlog_flags_t;
+
+/** logpool_getlog()
+ * Look for a compatible log into pool and return it duplicated or not.
+ * @param pool the log pool
+ * @param prefix the log prefix to look for.
+ * @param flags
+ *        + LPG_NO_DEFAULT: return NULL rather than default log if not found
+ *        + LPG_DUPLICATE: if found log is has not same prefix, return a copy of it,
+ *                         with updated prefix.
+ * @return log entry if found, NULL otherwise */
+log_t *             logpool_getlog(
+                        logpool_t *         pool,
+                        const char *        prefix,
+                        int                 flags);
+
 
 /*****************************************************************************/
 

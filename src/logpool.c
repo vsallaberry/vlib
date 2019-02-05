@@ -24,6 +24,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <errno.h>
+#include <limits.h>
 
 #include "vlib/logpool.h"
 #include "vlib/avltree.h"
@@ -39,17 +40,23 @@ struct logpool_s {
     pthread_rwlock_t    rwlock;
 };
 
-/** internal file structure */
+/** internal file structure (data of logpool->files) */
 typedef struct {
     char *      path;
     FILE *      file;
     int         use_count;
 } logpool_file_t;
 
+/** internal logpool entry (data of logpool->logs) */
+typedef struct {
+    log_t               log;
+    logpool_file_t *    file;
+} logpool_entry_t;
+
 /* ************************************************************************ */
 int logpool_prefixcmp(const void * vpool1_data, const void * vpool2_data) {
-    const log_t * log1 = (const log_t *) vpool1_data;
-    const log_t * log2 = (const log_t *) vpool2_data;
+    const logpool_entry_t * log1 = (const logpool_entry_t *) vpool1_data;
+    const logpool_entry_t * log2 = (const logpool_entry_t *) vpool2_data;
 
     if (log1 == NULL || log2 == NULL) {
         if (log1 == log2) {
@@ -60,16 +67,16 @@ int logpool_prefixcmp(const void * vpool1_data, const void * vpool2_data) {
         }
         return 1;
     }
-    if (log1->prefix == NULL || log2->prefix == NULL) {
-        if (log1->prefix == log2->prefix) {
+    if (log1->log.prefix == NULL || log2->log.prefix == NULL) {
+        if (log1->log.prefix == log2->log.prefix) {
             return 0;
         }
-        if (log1->prefix == NULL) {
+        if (log1->log.prefix == NULL) {
             return -1;
         }
         return 1;
     }
-    return strcmp(log1->prefix, log2->prefix);
+    return strcmp(log1->log.prefix, log2->log.prefix);
 }
 
 /* ************************************************************************ */
@@ -86,7 +93,6 @@ int logpool_pathcmp(const void * vpool1_data, const void * vpool2_data) {
         }
         return 1;
     }
-    //TODO: use fileno() for comparison
     if (file1->path == NULL || file2->path == NULL) {
         if (file1->path == file2->path) {
             return 0;
@@ -124,6 +130,8 @@ static void logpool_file_free(void * vfile) {
     if (pool_file != NULL) {
         if (pool_file->file && pool_file->file != stderr && pool_file->file != stdout) {
             fclose(pool_file->file);
+        } else {
+            fflush(pool_file->file);
         }
         if (pool_file->path != NULL) {
             free(pool_file->path);
@@ -133,8 +141,22 @@ static void logpool_file_free(void * vfile) {
 }
 
 /* ************************************************************************ */
+static void logpool_entry_free(void * ventry) {
+    logpool_entry_t * logentry = (logpool_entry_t *) ventry;
+
+    if (logentry != NULL) {
+        if (&(logentry->log) == g_vlib_log) {
+            log_set_vlib_instance(NULL);
+        }
+        log_destroy(&logentry->log);
+        free(logentry);
+    }
+}
+
+/* ************************************************************************ */
 logpool_t *         logpool_create() {
-    logpool_t * pool = malloc(sizeof(logpool_t));
+    logpool_t * pool    = malloc(sizeof(logpool_t));
+    log_t       log     = { LOG_LVL_INFO, stderr, LOG_FLAG_DEFAULT, NULL };
 
     if (pool == NULL) {
         return NULL;
@@ -145,7 +167,7 @@ logpool_t *         logpool_create() {
         return NULL;
     }
     if (NULL == (pool->logs = avltree_create(AFL_DEFAULT | AFL_SHARED_STACK,
-                                             logpool_prefixcmp, log_destroy))
+                                             logpool_prefixcmp, NULL))
     ||  NULL == (pool->files = avltree_create(AFL_DEFAULT & ~AFL_SHARED_STACK,
                                               logpool_pathcmp, logpool_file_free))) {
         LOG_ERROR(g_vlib_log, "error avltree_create(logs | files) : %s", strerror(errno));
@@ -157,6 +179,9 @@ logpool_t *         logpool_create() {
     /* use the same stack for logs and files */
     pool->files->stack = pool->logs->stack;
 
+    /* add a default log instance */ //TODO
+    logpool_add(pool, &log, NULL);
+
     return pool;
 }
 
@@ -166,6 +191,7 @@ void                logpool_free(
     if (pool != NULL) {
         pthread_rwlock_wrlock(&pool->rwlock);
         avltree_free(pool->files);
+        pool->logs->free = logpool_entry_free;
         avltree_free(pool->logs); /* must be last : it will free the rbuf stack */
         pthread_rwlock_unlock(&pool->rwlock);
         pthread_rwlock_destroy(&pool->rwlock);
@@ -178,118 +204,275 @@ logpool_t *         logpool_create_from_cmdline(
                         logpool_t *         pool,
                         const char *        log_levels,
                         const char *const*  modules) {
-    // FIXME: work in progress, PARSING OK, using it is TODO
-    pool = logpool_create();
-    if (pool == NULL) {
+    (void)modules; //FIXME
+    size_t          maxlen;
+    size_t          len;
+    const char *    next_tok;
+    char *          token;
+    log_t           log;
+    size_t          argsz = PATH_MAX;
+    char *          arg;
+
+    /* sanity checks and initializations */
+    if (pool == NULL && (pool = logpool_create())) {
+        LOG_ERROR(g_vlib_log, "error: cannot create logpool: %s", strerror(errno));
         return NULL;
     }
     if (log_levels == NULL) {
-        return NULL;
+        return pool;
     }
-    //char            prefix[LOG_PREFIX_SZ];
-    //char            log_path[PATH_MAX];
-    //const char *    next_mod_lvl;
-    //log_t       default_log = { .level = LOG_LVL_DEFAULT, .out = stderr, .prefix = "main", .flags = 0};
-    (void)modules;
+    if ((arg = malloc(argsz * sizeof(char))) == NULL) {
+        LOG_ERROR(g_vlib_log, "error: cannot malloc buffer for log level parsing: %s.",
+                              strerror(errno));
+        return pool;
+    }
 
     /* Parse log levels string with strtok_ro_r/strcspn instead of strtok_r or strsep
      * as those cool libc functions change the token by replacing sep with 0 */
-    //const char * next = log_levels;
-    size_t maxlen;
-    size_t len;
-    const char * next_tok;
-    const char * mod_name;
-    const char * mod_lvl;
-    const char * mod_file;
     for (const char *next = log_levels; next && *next; /* no_incr */) {
+        char sep;
+        char * mod_file = NULL;
+
         /* Get the following LOG configuration separated by ',' used for next loop */
         maxlen = strtok_ro_r(&next_tok, ",", &next, NULL, 0);
-        LOG_DEBUG_BUF(NULL, next_tok, maxlen, "log_line ");
+        LOG_DEBUG_BUF(g_vlib_log, next_tok, maxlen, "log_line ");
+
+        /* copy line into a buffer, so that end-of-string can be added */
+        if (maxlen + 1 > argsz) {
+            char * new = realloc(arg, sizeof(char) * (maxlen + 1));
+            if (new != NULL) {
+                arg = new;
+                argsz = maxlen + 1;
+            } else {
+                LOG_WARN(g_vlib_log, "warning: cannot realloc buffer for log level parsing: %s.",
+                                     strerror(errno));
+                maxlen = argsz - 1;
+            }
+        }
+        strncpy(arg, next_tok, maxlen);
+        arg[maxlen] = 0;
+        next_tok = arg;
 
         /* Get the Module Name that must be followed by '=' */
-        len = strtok_ro_r(&mod_name, "=", &next_tok, &maxlen, 1);
+        len = strtok_ro_r(&token, "=", &next_tok, &maxlen, 1);
+        if (len > 0) {
+            token[len] = 0;
+            log.prefix = token;
+        } else {
+            log.prefix = "*";
+        }
         //fprintf(stderr, "'%c'(%d)\n", *next_tok, *next_tok);
         //if (maxlen == 0) { maxlen += len; next = mod_name; len = 0; }
-        LOG_DEBUG_BUF(NULL, mod_name, len, "mod_name ");
+        LOG_DEBUG_BUF(g_vlib_log, token, len, "mod_name ");
 
-        /* Get the Module Level that can be followed by '@' or end of string. */
-        len = strtok_ro_r(&mod_lvl, "@", &next_tok, &maxlen, 0);
-        LOG_DEBUG_BUF(NULL, mod_lvl, len, "mod_lvl ");
+        /* Get the Module Level that can be followed by '@', ':' or end of string. */
+        len = strtok_ro_r(&token, "@:", &next_tok, &maxlen, 0);
+        LOG_DEBUG_BUF(g_vlib_log, token, len, "mod_lvl ");
+        sep = token[len];
+        if (len > 0) {
+            char * endptr;
+            token[len] = 0;
+            errno = 0;
+            log.level = strtol(token, &endptr, 0);
+            if (errno != 0 || !endptr || *endptr != 0) {
+                log.level = log_level_from_name(token);
+            }
+        } else {
+            log.level = LOG_LVL_INFO; //FIXME
+        }
 
-        //len = strtok_ro_r(&mod_file, "\0", &next_tok, &maxlen, 0);
-        mod_file = next_tok;
+        /* Get the the Log File */
+        if (sep == '@') {
+            len = strtok_ro_r(&token, ":", &next_tok, &maxlen, 0);
+            LOG_DEBUG_BUF(g_vlib_log, token, len, "mod_file ");
+            if (len > 0) {
+                token[len] = 0;
+                log.out = NULL;
+                mod_file = token;
+            } else {
+                log.out = stderr;
+            }
+        } else {
+            LOG_DEBUG_BUF(g_vlib_log, token, 0, "mod_file ");
+            log.out = stderr;
+        }
+
+        /* Get the Log flags */
+        token = next_tok;
         len = maxlen;
-        LOG_DEBUG_BUF(NULL, mod_file, len, "mod_file ");
+        LOG_DEBUG_BUF(g_vlib_log, token, len, "mod_flags ");
+        if (len > 0) {
+            token[len] = 0;
+            log.flags = log_flag_from_name(token);
+        } else {
+            log.flags = LOG_FLAG_DEFAULT | LOGPOOL_FLAG_TEMPLATE;
+        }
+
+        /* add the log to the pool */
+        if (logpool_add(pool, &log, mod_file) == NULL) {
+            LOG_ERROR(g_vlib_log, "error: logpool_add(pref:%s,lvl:%s,flg:%d,path:%s) error.",
+                                  log.prefix ? log.prefix : "<null>",
+                                  log_level_name(log.level),
+                                  log.flags,
+                                  mod_file ? mod_file : "<null>");
+        }
+        else {
+            LOG_VERBOSE(g_vlib_log, "Log ADDED pref:<%s> lvl:%s flags:%x out=%p path:%s",
+                        log.prefix, log_level_name(log.level), log.flags, log.out, mod_file);
+        }
     }
+    free(arg);
     return pool;
 }
 
 /* ************************************************************************ */
-int                 logpool_add(
+log_t *             logpool_add(
                         logpool_t *         pool,
-                        log_t *             log) {
-    logpool_file_t  file, * pfile;
-    char            path[20];
+                        log_t *             log,
+                        const char *        path) {
+    logpool_file_t      tmpfile, * pfile;
+    logpool_entry_t *   logentry;
+    char                tmppath[20];
 
     if (pool == NULL || log == NULL) {
-        return -1;
+        return NULL;
     }
+    if ((logentry = malloc(sizeof(logpool_entry_t))) == NULL) {
+        return NULL;
+    }
+    /* copy the log data to the allocated logentry. prefix is duplicated,
+     * and the log_destroy will not free the log or close the file */
+    memcpy(&logentry->log, log, sizeof(logentry->log));
+    logentry->log.flags &= ~(LOG_FLAG_CLOSEFILE | LOG_FLAG_FREELOG);
+    logentry->log.flags |= LOG_FLAG_FREEPREFIX;
+    if (log->prefix != NULL) {
+        logentry->log.prefix = strdup(log->prefix);
+    }
+    logentry->file = NULL;
+
     pthread_rwlock_wrlock(&pool->rwlock);
-    if (avltree_insert(pool->logs, log) == NULL) {
+    // FIXME: forbid doubles
+    if (avltree_insert(pool->logs, logentry) == NULL) {
         pthread_rwlock_unlock(&pool->rwlock);
-        return -1;
+        logpool_entry_free(logentry);
+        return NULL;
     }
-    //TODO manage file.path
-    if (log->out == NULL) {
-        strcpy(path, "-1");
-    } else {
-        snprintf(path, sizeof(path), "%d", fileno(log->out));
+    /* if path not given, use ';fd;' as path, else use given path. */
+    if (path == NULL) {
+        snprintf(tmppath, sizeof(tmppath), ";%d;", log->out ? fileno(log->out) : -1);
+        path = tmppath;
     }
-    file.path = path;
-    file.file = log->out;
-    if ((pfile = avltree_find(pool->files, &file)) == NULL) {
-        pfile = logpool_file_create(file.path, file.file);
+    /* look for already openned file */
+    tmpfile.path = (char *) path;
+    tmpfile.file = log->out;
+    if ((pfile = avltree_find(pool->files, &tmpfile)) == NULL) {
+        pfile = logpool_file_create(tmpfile.path, tmpfile.file);
         if (pfile == NULL || avltree_insert(pool->files, pfile) == NULL) {
             logpool_file_free(pfile);
             avltree_remove(pool->logs, log);
+            logpool_entry_free(pfile);
             pthread_rwlock_unlock(&pool->rwlock);
-            return -1;
+            return NULL;
         }
     }
+    logentry->file = pfile;
     ++pfile->use_count;
     pthread_rwlock_unlock(&pool->rwlock);
-    return 0;
+    return &(logentry->log);
 }
 
 /* ************************************************************************ */
 int                 logpool_remove(
                         logpool_t *         pool,
                         log_t *             log) {
+    logpool_entry_t *   logentry;
+
     if (pool == NULL || log == NULL) {
         return -1;
     }
+
     pthread_rwlock_wrlock(&pool->rwlock);
-    //TODO
+    //TODO: don't remove templates
+    if ((logentry = avltree_remove(pool->logs, log)) != NULL) {
+        if (logentry->file != NULL && --logentry->file->use_count == 0) {
+            avltree_remove(pool->files, logentry->file);
+        }
+        logpool_entry_free(logentry);
+    }
     pthread_rwlock_unlock(&pool->rwlock);
-    return -1;
+
+    return logentry == NULL ? -1 : 0;
 }
 
 /* ************************************************************************ */
 log_t *             logpool_find(
                         logpool_t *         pool,
                         const char *        prefix) {
-    log_t *     result;
-    log_t       ref;
+    log_t *             result = NULL;
+    logpool_entry_t *   entry;
+    log_t               ref;
 
-    if (pool == NULL || prefix == NULL) {
+    if (pool == NULL) {
         return NULL;
     }
+
     pthread_rwlock_rdlock(&pool->rwlock);
+
     ref.prefix = (char *) prefix;
-    result = avltree_find(pool->logs, &ref);
+    if ((entry = avltree_find(pool->logs, &ref)) != NULL) {
+        result = &(entry->log);
+    }
+
     pthread_rwlock_unlock(&pool->rwlock);
+
     return result;
 }
 
+/* ************************************************************************ */
+log_t *             logpool_getlog(
+                        logpool_t *         pool,
+                        const char *        prefix,
+                        int                 flags) {
+    log_t *             result = NULL;
+    logpool_entry_t *   entry;
+    log_t               ref;
+
+    if (pool == NULL) {
+        return NULL;
+    }
+    ref.prefix = (char *) prefix;
+
+    //FIXME: think about optimization here to acquire only a read lock in some cases
+    //pthread_rwlock_rdlock(&pool->rwlock);
+    pthread_rwlock_wrlock(&pool->rwlock);
+
+    /* look for the requested log instance */
+    if ((entry = avltree_find(pool->logs, &ref)) == NULL) {
+        if ((flags & LPG_NODEFAULT) != 0) {
+            /* don't use default if flag forbids it */
+            pthread_rwlock_unlock(&pool->rwlock);
+            return NULL;
+        }
+        /* look for a default log instance */
+        ref.prefix = NULL;
+        entry = avltree_find(pool->logs, &ref);
+    }
+    if (entry != NULL) {
+        result = &(entry->log);
+    }
+
+    if (entry != NULL && (flags & LPG_TRUEPREFIX) != 0
+            //FIXME: rework non-working logic below
+    &&  (result->prefix == NULL || prefix == NULL || strcmp(result->prefix, prefix))) {
+        /* duplicate log and put requested prefix */
+        memcpy(&ref, result, sizeof(ref));
+        ref.prefix = prefix;
+        result = logpool_add(pool, &ref, entry->file->path);
+    }
+
+    pthread_rwlock_unlock(&pool->rwlock);
+
+    return result;
+}
 /* ************************************************************************ */
 
