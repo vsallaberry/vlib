@@ -38,10 +38,10 @@
 
 /** internal vlib log instance */
 static log_t s_vlib_log_default = {
-    .level = LOG_LVL_INFO,
-    .out = NULL,
-    .flags = LOG_FLAG_DEFAULT,
-    .prefix = "vlib"
+    .level      = LOG_LVL_INFO,
+    .out        = NULL,
+    .flags      = LOG_FLAG_DEFAULT,
+    .prefix     = "vlib"
 };
 
 /** global internal vlib log instance, shared between vlib components */
@@ -93,7 +93,7 @@ log_level_t log_level_from_name(const char * name) {
         if (!strcasecmp(name, s_log_levels_str[i]))
             return i;
     }
-    return LOG_LVL_NONE;
+    return LOG_LVL_NB;
 }
 
 const char * log_flag_name(log_flag_t flag) {
@@ -111,7 +111,7 @@ log_flag_t log_flag_from_name(const char * name) {
             return s_log_flag_str[i].flag;
         }
     }
-    return LOG_FLAG_NONE;
+    return LOG_FLAG_UNKNOWN;
 }
 
 int log_describe_option(char * buffer, int * size, const char *const* modules,
@@ -126,7 +126,7 @@ int log_describe_option(char * buffer, int * size, const char *const* modules,
 
     /* describe log levels */
     n += (ret = snprintf(buffer + n, *size - n, "\nlevels : '")) > 0 ? ret : 0;
-    for (int lvl = LOG_LVL_NONE + 1; lvl < LOG_LVL_NB; ++lvl, *sep = ',') {
+    for (int lvl = LOG_LVL_NONE; lvl < LOG_LVL_NB; ++lvl, *sep = ',') {
         n += (ret = snprintf(buffer + n, *size - n, "%s%d|%s",
                     sep, lvl, s_log_levels_str[lvl])) > 0 ? ret : 0;
     }
@@ -163,7 +163,7 @@ int log_describe_option(char * buffer, int * size, const char *const* modules,
 
 log_t * log_set_vlib_instance(log_t * log) {
     log_t * old_log = g_vlib_log;
-    FILE * out = g_vlib_log ? g_vlib_log->out : NULL;
+    FILE * out = g_vlib_log && g_vlib_log->out ? g_vlib_log->out : stderr;
 
     if (out) {
         flockfile(out);
@@ -207,7 +207,7 @@ static int xvlog(log_level_t level, log_t * log,
     int n = 0;
 	if (log == NULL || log->level >= level)
 	{
-        FILE *          out = log ? log->out : stderr;
+        FILE *          out = log && log->out ? log->out : stderr;
         log_flag_t      flags = log ? log->flags : LOG_FLAG_DEFAULT;
         const char *    file = "?", * func = "?";
         int             line = 0;
@@ -370,7 +370,7 @@ int	vlog(log_level_t level, log_t * log,
 
 	if (log == NULL || log->level >= level)
 	{
-        FILE *      out = log ? log->out : stderr;
+        FILE *      out = log && log->out ? log->out : stderr;
         log_flag_t  flags = log ? log->flags : LOG_FLAG_DEFAULT;
         va_list     arg;
         int         n;
@@ -410,7 +410,7 @@ int	log_buffer(log_level_t level, log_t * log,
 
 	if (log == NULL || log->level >= level)
 	{
-        FILE *          out = log ? log->out : stderr;
+        FILE *          out = log && log->out ? log->out : stderr;
     	va_list         arg;
         const size_t    chars_per_line = 16;
         const char *    buffer = (const char *) pbuffer;

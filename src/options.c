@@ -384,7 +384,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
         return exit_status;
     }
 
-    if (opt_config->log != NULL) {
+    if (opt_config->log != NULL && opt_config->log->out != NULL) {
         out = opt_config->log->out;
     } else {
         out = stdout;
@@ -392,7 +392,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
 
     /* if this is an error: use stderr and put a blank between error message and usage */
     if (OPT_IS_ERROR(exit_status) != 0) {
-        if (opt_config->log == NULL)
+        if (opt_config->log == NULL || opt_config->log->out == NULL)
             out = stderr;
         flockfile(out);
         opt_newline(out, opt_config, 0);

@@ -53,6 +53,7 @@ typedef enum {
 
 /** Supported Log Flags */
 typedef enum {
+    LOG_FLAG_UNKNOWN    = -1,
     LOG_FLAG_NONE       = 0,
     LOG_FLAG_DATETIME   = 1 << 0,   /* insert date/time */
     LOG_FLAG_MODULE     = 1 << 1,   /* insert module name (log_t.prefix) */
@@ -159,13 +160,16 @@ int	        log_buffer(log_level_t  level,
 /** get name of a given level */
 const char *log_level_name(log_level_t level);
 
-/** get log level from name */
+/** get log level from name
+ * @return level or LOG_LVL_NB if not found. */
 log_level_t log_level_from_name(const char * name);
 
-/** get name of a given flag */
+/** get name of a given flag
+ * @return string representing flag or NULL if unknown. */
 const char *log_flag_name(log_flag_t flag);
 
-/** get log flag from name */
+/** get log flag from name
+ * @return flag or LOG_FLAG_UNKNOWN if not found. */
 log_flag_t log_flag_from_name(const char * name);
 
 /** default function describing the log-level command-line option
