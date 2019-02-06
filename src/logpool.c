@@ -180,7 +180,9 @@ logpool_t *         logpool_create() {
         if (pool->logs != NULL) {
             avltree_free(pool->logs);
         }
+        pthread_rwlock_destroy(&pool->rwlock);
         free(pool);
+        return NULL;
     }
     /* use the same stack for logs and files */
     pool->files->stack = pool->logs->stack;
@@ -520,7 +522,7 @@ log_t *             logpool_getlog(
         /* duplicate log and put requested prefix */
         memcpy(&ref, result, sizeof(ref));
         ref.prefix = (char *) prefix;
-        result = logpool_add(pool, &ref, entry->file->path);
+        result = logpool_add_unlocked(pool, &ref, entry->file->path);
     }
 
     pthread_rwlock_unlock(&pool->rwlock);
