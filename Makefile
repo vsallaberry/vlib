@@ -905,7 +905,7 @@ $(SRCINC_STR): $(SRCINC_CONTENT)
 	               print "\"" blk "\\n\","; \
 	           } { \
 		       if (curfile != FILENAME) { \
-		           curfile="/* #@@# FILE #@@# $(NAME)/" FILENAME " */"; blk=blk "\n" curfile; curfile=FILENAME; \
+		           curfile="/* #@@# FILE #@@# $(NAME)/" FILENAME " */"; if (blk != "") blk = blk "\n"; blk=blk "\n" curfile; curfile=FILENAME; \
 	               } if (length($$0 " " blk) > 500) { \
 	                   printblk(); blk=$$0; \
                        } else \
