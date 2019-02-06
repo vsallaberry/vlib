@@ -85,26 +85,45 @@ typedef struct {
 } log_t;
 
 # define    LOG_USE_VA_ARGS
+# define    LOG_CHECK_LVL_BEFORE_CALL
 /**
  * The are the MACROS to use for logging.
- * See xlog() doc below for details, parameters, return value.
+ * See vlog() doc below for details, parameters, return value.
  */
 # ifdef LOG_USE_VA_ARGS
-#  define   LOG_ERROR(log,...)      vlog(LOG_LVL_ERROR,log,   __FILE__,__func__,__LINE__,__VA_ARGS__)
-#  define   LOG_WARN(log,...)       vlog(LOG_LVL_WARN,log,    __FILE__,__func__,__LINE__,__VA_ARGS__)
-#  define   LOG_INFO(log,...)       vlog(LOG_LVL_INFO,log,    __FILE__,__func__,__LINE__,__VA_ARGS__)
-#  define   LOG_VERBOSE(log,...)    vlog(LOG_LVL_VERBOSE,log, __FILE__,__func__,__LINE__,__VA_ARGS__)
-#  define   LOG_BUFFER(lvl,log,buf,sz,...) \
-                log_buffer(lvl, log, buf, sz, __FILE__,__func__,__LINE__,__VA_ARGS__);
-#  ifdef _DEBUG
-#   define  LOG_DEBUG(log,...)      vlog(LOG_LVL_DEBUG,log,   __FILE__,__func__,__LINE__,__VA_ARGS__)
-#   define  LOG_SCREAM(log,...)     vlog(LOG_LVL_SCREAM,log,  __FILE__,__func__,__LINE__,__VA_ARGS__)
-#   define  LOG_DEBUG_BUF(log,buf,sz,...) \
-                LOG_BUFFER(LOG_LVL_DEBUG,log,buf,sz,__VA_ARGS__)
+#  ifdef LOG_CHECK_LVL_BEFORE_CALL
+    /* check if level is OK before to make the call */
+#   define   LOG_CHECK_LOG(log, lvl, ...)                                           \
+                ( ((log) == NULL || ((log_t*)(log))->level >= (lvl))                \
+                  ? vlog((lvl), (log), __FILE__, __func__, __LINE__, __VA_ARGS__)   \
+                  : 0)
+#   define   LOG_CHECK_LOGBUF(log, lvl, buf, sz, ...)                               \
+                ( ((log) == NULL || ((log_t*)(log))->level >= (lvl))                \
+                  ? log_buffer((lvl),(log),(buf),(sz),__FILE__,__func__,__LINE__,__VA_ARGS__) \
+                  : 0)
 #  else
-#   define  LOG_DEBUG(log,...)
-#   define  LOG_DEBUG_BUF(log,...)
-#   define  LOG_SCREAM(log,...)
+    /* let the function check the level */
+#   define   LOG_CHECK_LOG(log, lvl, ...)                                           \
+                vlog((lvl), (log), __FILE__, __func__, __LINE__, __VA_ARGS__)
+#   define   LOG_CHECK_LOGBUF(log, lvl, buf, sz, ...)                               \
+                log_buffer((lvl),(log),(buf),(sz),__FILE__,__func__,__LINE__,__VA_ARGS__)
+#  endif /* ! ifdef LOG_CHECK_BEFORE_CALL */
+
+#  define   LOG_ERROR(log,...)      LOG_CHECK_LOG(log, LOG_LVL_ERROR,   __VA_ARGS__)
+#  define   LOG_WARN(log,...)       LOG_CHECK_LOG(log, LOG_LVL_WARN,    __VA_ARGS__)
+#  define   LOG_INFO(log,...)       LOG_CHECK_LOG(log, LOG_LVL_INFO,    __VA_ARGS__)
+#  define   LOG_VERBOSE(log,...)    LOG_CHECK_LOG(log, LOG_LVL_VERBOSE, __VA_ARGS__)
+#  define   LOG_BUFFER(lvl,log,buf,sz,...) \
+                LOG_CHECK_LOGBUF(log,lvl,buf,sz,__FILE__,__func__,__LINE__,__VA_ARGS__);
+#  ifdef _DEBUG
+#   define  LOG_DEBUG(log,...)      LOG_CHECK_LOG(log, LOG_LVL_DEBUG,   __VA_ARGS__)
+#   define  LOG_SCREAM(log,...)     LOG_CHECK_LOG(log, LOG_LVL_SCREAM,  __VA_ARGS__)
+#   define  LOG_DEBUG_BUF(log,buf,sz,...) \
+                                    LOG_BUFFER(LOG_LVL_DEBUG,log,buf,sz,__VA_ARGS__)
+#  else
+#   define  LOG_DEBUG(log,...)      0
+#   define  LOG_DEBUG_BUF(log,...)  0
+#   define  LOG_SCREAM(log,...)     0
 #  endif /* ! _DEBUG */
 # else /*! LOG_USE_VA_ARGS */
 int     log_error(log_t * log, const char * fmt, ...);
