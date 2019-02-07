@@ -176,6 +176,9 @@ void *                  vlib_thread_stop(
     if ((priv->state & (VTS_CREATED | VTS_CREATING)) != 0) {
         ret = pthread_cond_signal(&priv->cond);
         LOG_DEBUG(vthread->log, "pthread_cond_signal ret %d", ret);
+#      ifndef _DEBUG
+        (void)ret;
+#      endif
     }
 
     /* signal the running thread about configuration change */
