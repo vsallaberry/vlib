@@ -96,8 +96,8 @@ typedef enum {
  * @param prefix the log prefix to look for.
  * @param flags
  *        + LPG_NO_DEFAULT: return NULL rather than default log if not found
- *        + LPG_DUPLICATE: if found log is has not same prefix, return a copy of it,
- *                         with updated prefix.
+ *        + LPG_DUPLICATE: if matching log has not the same prefix, return a
+ *                         copy of it, with updated prefix.
  * @return log entry if found, NULL otherwise */
 log_t *             logpool_getlog(
                         logpool_t *         pool,
