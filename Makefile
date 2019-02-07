@@ -612,8 +612,9 @@ $(CLEANDIRS):
 distclean: cleanme $(DISTCLEANDIRS)
 	$(RM) $(BIN) $(LIB) $(BUILDINC) $(BUILDINCJAVA) valgrind_*.log
 	$(RM) -R $(BIN).dSYM || true
-	$(RM) `$(FIND) . -name '.*.swp' -or -name '.*.swo' -or -name '*~' -or -name '\#*' $(NO_STDERR)`
-	@$(cmd_TESTBSDOBJ) && { del=; for f in $(BIN) $(LIB) $(JAR); do $(TEST) -n "$$f" && del="$$del $(.CURDIR)/$$f"; done; \
+	$(RM) `$(FIND) . -name '.*.sw?' -or -name '*~' -or -name '\#*' $(NO_STDERR)`
+	@$(cmd_TESTBSDOBJ) && { del=; for f in $(BIN) $(LIB) $(JAR) $(BUILDINC) $(BUILDINCJAVA); do \
+	                                  $(TEST) -n "$$f" && del="$$del $(.CURDIR)/$$f"; done; \
 		                for f in $(VERSIONINC) $(README) $(LICENSE); do del="$$del $(.OBJDIR)/$$f"; done; echo "$(RM) $$del"; $(RM) $$del $(NO_STDERR); } || true
 	@$(TEST) "$(BUILDDIR)" != "$(SRCDIR)" && $(RMDIR) `$(FIND) $(BUILDDIR) -type d | $(SORT) -r` $(NO_STDERR) || true
 	@$(PRINTF) "$(NAME): distclean done, debug & test disabled.\n"
@@ -905,7 +906,8 @@ $(SRCINC_STR): $(SRCINC_CONTENT)
 	               print "\"" blk "\\n\","; \
 	           } { \
 		       if (curfile != FILENAME) { \
-		           curfile="/* #@@# FILE #@@# $(NAME)/" FILENAME " */"; if (blk != "") blk = blk "\n"; blk=blk "\n" curfile; curfile=FILENAME; \
+		           fname=FILENAME; if ("$(.OBJDIR)" != "$(.CURDIR)" && index(fname, "$(.CURDIR)") == 1) { fname=substr(fname,length("$(.CURDIR)")+2); }; \
+		           curfile="/* #@@# FILE #@@# $(NAME)/" fname " */"; if (blk != "") blk = blk "\n"; blk=blk "\n" curfile; curfile=FILENAME; \
 	               } if (length($$0 " " blk) > 500) { \
 	                   printblk(); blk=$$0; \
                        } else \
@@ -946,7 +948,8 @@ $(SRCINC_Z): $(SRCINC_CONTENT)
 	                  "static const unsigned char s_program_source[] = {" \
 	    > $@ ; \
 	 dumpsrc() { for f in $$input; do \
-	     $(PRINTF) "\n/* #@@# FILE #@@# $(NAME)/$$f */\n"; \
+	     $(cmd_TESTBSDOBJ) && fname=`echo "$$f" | sed -e 's|^$(.CURDIR)/||' -e 's|^$(.OBJDIR)/||'` || fname=$$f; \
+	     $(PRINTF) "\n/* #@@# FILE #@@# $(NAME)/$$fname */\n"; \
 	     cat $$f; \
 	     done; }; dumpsrc | $(GZIP) -c | $(OD) -An -tuC | $(SED) -e 's/[[:space:]][[:space:]]*0*\([0-9][0-9]*\)/\1,/g' >> $@; \
 	 sha=`$(WHICH) shasum sha256 sha256sum $(NO_STDERR) | $(HEADN1)`; case "$$sha" in */shasum) sha="$$sha -a256";; esac; \
@@ -981,8 +984,12 @@ $(VERSIONINC):
 # the files which depends on them.
 $(BUILDINC): update-$(BUILDINC)
 	@true
+$(BUILDINCJAVA): update-$(BUILDINC)
+	@true
 create-$(BUILDINC): $(VERSIONINC) $(ALLMAKEFILES) .EXEC
-	@if ! $(TEST) -e $(BUILDINC); then \
+	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$(BUILDINC)" "$(.CURDIR)"; ln -sf "$(.OBJDIR)/$(BUILDINCJAVA)" "$(.CURDIR)"; \
+		               else $(TEST) -L $(BUILDINC) && $(RM) $(BUILDINC); $(TEST) -L $(BUILDINCJAVA) && $(RM) $(BUILDINCJAVA) || true; fi; \
+	 if ! $(TEST) -e $(BUILDINC); then \
 	     $(cmd_TESTBSDOBJ) && ! $(TEST) -e "$(VERSIONINC)" && ln -sf "$(.CURDIR)/$(VERSIONINC)" .; \
 	     echo "$(NAME): create $(BUILDINC)"; \
 	     build=`$(SED) -n -e 's/^[[:space:]]*#define[[:space:]]APP_BUILD_NUMBER[[:space:]][[:space:]]*\([0-9][0-9]*\).*/\1/p' $(VERSIONINC)`; \
