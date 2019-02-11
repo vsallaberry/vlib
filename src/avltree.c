@@ -288,7 +288,7 @@ size_t              avltree_memorysize(
         return 0;
     }
     size = sizeof(avltree_t);
-    if (tree->stack != NULL) {
+    if (tree->stack != NULL && (tree->flags & AFL_SHARED_STACK) != 0) {
        size += rbuf_memorysize(tree->stack);
     }
     return size + (avltree_count(tree) * sizeof(avltree_node_t));
