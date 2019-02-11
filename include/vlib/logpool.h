@@ -104,6 +104,12 @@ log_t *             logpool_getlog(
                         const char *        prefix,
                         int                 flags);
 
+/** logpool_memorysize()
+ * complexity: O(1)
+ * @return estimation of memory used by the logpool (except size of FILE structures)
+ *         or 0 on error with errno set (errno is NOT changed on success). */
+size_t              logpool_memorysize(
+                        logpool_t *         pool);
 
 /*****************************************************************************/
 

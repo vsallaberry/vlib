@@ -529,5 +529,61 @@ log_t *             logpool_getlog(
 
     return result;
 }
-/* ************************************************************************ */
 
+/* ************************************************************************ */
+static avltree_visit_status_t   logpool_filesz_visit(
+                                    avltree_t *                         tree,
+                                    avltree_node_t *                    node,
+                                    const avltree_visit_context_t *     context,
+                                    void *                              user_data) {
+    logpool_file_t *    file = (logpool_file_t *) node->data;
+    size_t *            psz = (size_t *) user_data;
+    (void) tree;
+    (void) context;
+
+    if (psz != NULL && file != NULL) {
+        *psz += (file->path != NULL ? strlen(file->path) : 0);// + sizeof(FILE);
+    }
+    return AVS_CONTINUE;
+}
+/* ************************************************************************ */
+static avltree_visit_status_t   logpool_logsz_visit(
+                                    avltree_t *                         tree,
+                                    avltree_node_t *                    node,
+                                    const avltree_visit_context_t *     context,
+                                    void *                              user_data) {
+    logpool_entry_t *   entry = (logpool_entry_t *) node->data;
+    size_t *            psz = (size_t *) user_data;
+    (void) tree;
+    (void) context;
+
+    if (psz != NULL && entry != NULL && entry->log.prefix != NULL) {
+        *psz += strlen(entry->log.prefix);
+    }
+    return AVS_CONTINUE;
+}
+/* ************************************************************************ */
+size_t              logpool_memorysize(
+                        logpool_t *         pool) {
+    size_t  datas_size = 0;
+
+    if (pool == NULL) {
+        errno = EINVAL;
+        return 0;
+    }
+    LOG_VERBOSE(g_vlib_log, "LOGPOOL nbr of files : %lu", avltree_count(pool->files));
+    LOG_VERBOSE(g_vlib_log, "LOGPOOL nbr of logs  : %lu", avltree_count(pool->logs));
+
+    datas_size += avltree_count(pool->files) * sizeof(logpool_file_t);
+    datas_size += avltree_count(pool->logs)  * sizeof(logpool_entry_t);
+
+    avltree_visit(pool->files, logpool_filesz_visit, &datas_size, AVH_PREFIX);
+    avltree_visit(pool->logs,  logpool_logsz_visit,  &datas_size, AVH_PREFIX);
+
+    return sizeof(logpool_t)
+           + avltree_memorysize(pool->logs)
+           + avltree_memorysize(pool->files)
+           + datas_size;
+}
+
+/* ************************************************************************ */
