@@ -74,9 +74,10 @@ static inline avltree_node_t * avltree_node_alloc(avltree_t * tree) {
 }
 
 /*****************************************************************************/
-static inline void avltree_node_free(avltree_t * tree, avltree_node_t * node) {
+static inline void avltree_node_free(
+                        avltree_t * tree, avltree_node_t * node, int freedata) {
     if (tree && node) {
-        if (tree->free) {
+        if (freedata && tree->free) {
             tree->free(node->data);
         }
         free(node);
@@ -717,14 +718,14 @@ static int              avltree_visit_remove(
         /* 1) deleting a node with no children: remove the node */
         LOG_DEBUG(g_vlib_log, "avltree_remove(%ld): case 1 (no child)", (long)(idata->newdata));
         (*parent) = NULL;
-        avltree_node_free(tree, node);
+        avltree_node_free(tree, node, (tree->flags & AFL_REMOVE_NOFREE) == 0);
         idata->newnode = node;
         idata->prev_nodep = parent;
     } else if (node->left == NULL || node->right == NULL) {
         /* 2) deleting a node with one child: remove the node and replace it with its child */
         LOG_DEBUG(g_vlib_log, "avltree_remove(%ld): case 2 (1 child)", (long)(idata->newdata));
         (*parent) = (node->left != NULL ? node->left : node->right);
-        avltree_node_free(tree, node);
+        avltree_node_free(tree, node, (tree->flags & AFL_REMOVE_NOFREE) == 0);
         idata->newnode = node;
         idata->prev_nodep = parent;
     } else {
@@ -748,7 +749,7 @@ static int              avltree_visit_remove(
         node->data = replace->data;
         replace->data = idata->newdata;
         *preplace = replace->right;
-        avltree_node_free(tree, replace);
+        avltree_node_free(tree, replace, (tree->flags & AFL_REMOVE_NOFREE) == 0);
         idata->newnode = replace;
     }
 
@@ -769,7 +770,7 @@ static int          avltree_visit_free(
     (void) context;
     (void) user_data;
 
-    avltree_node_free(tree, node);
+    avltree_node_free(tree, node, 1);
     return AVS_CONTINUE;
 }
 

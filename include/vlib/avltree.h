@@ -51,6 +51,7 @@ typedef enum {
      * tree operations will use the stack even without AFL_SHARED_STACK,
      * allowing sharing a stack between several trees. */
     AFL_SHARED_STACK    = 1 << 0,
+    AFL_REMOVE_NOFREE   = 1 << 1,   /* don't call tree->free() on remove, caller must free data */
     AFL_DEFAULT         = AFL_SHARED_STACK,
 } avltree_flags_t;
 
