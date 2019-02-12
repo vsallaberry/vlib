@@ -52,6 +52,8 @@ typedef enum {
      * allowing sharing a stack between several trees. */
     AFL_SHARED_STACK    = 1 << 0,
     AFL_REMOVE_NOFREE   = 1 << 1,   /* don't call tree->free() on remove, caller must free data */
+    AFL_INSERT_REPLACE  = 1 << 2,   /* replace an already existing element on insert (cmp==0) */
+    AFL_INSERT_NODOUBLE = 1 << 3,   /* return error when inserting existing element (cmp==0) */
     AFL_DEFAULT         = AFL_SHARED_STACK,
 } avltree_flags_t;
 
@@ -137,8 +139,12 @@ avltree_node_t *    avltree_node_create(
 
 /** avltree_insert()
  * complexity: O(log2(n))
- * @return inserted node or NULL on error with errno set */
-avltree_node_t *    avltree_insert(
+ * @return inserted element if not replaced,
+ *         or previous element if it has been replaced (AFL_INSERT_REPLACE),
+ *           previous element is freed with tree->free if AFL_REMOVE_NOFREE is OFF.
+ *         or NULL on error with errno set.
+ *         (on success, errno is only set to 0 if element is NULL). */
+void *              avltree_insert(
                         avltree_t *                 tree,
                         void *                      data);
 

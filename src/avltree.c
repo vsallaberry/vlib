@@ -137,7 +137,7 @@ avltree_node_t *    avltree_node_create(
  * avltree_insert(): for now, the avltree_visit(AVH_PREFIX|AVH_SUFFIX) is
  * used. lets see later for optimization, but at the moment, this allows
  * debugging and optimizing avltree_visit */
-avltree_node_t *    avltree_insert(
+void *              avltree_insert(
                         avltree_t *                 tree,
                         void *                      data) {
     avltree_visit_insert_t    insert_data;
@@ -155,10 +155,13 @@ avltree_node_t *    avltree_insert(
             return NULL;
         }
         ++tree->n_elements;
+        if (data == NULL) {
+            errno = 0;
+        }
         LOG_DEBUG(g_vlib_log, "created root 0x%lx data 0x%ld left:0x%lx right:0x%lx\n",
                   (unsigned long)tree->root, (long)tree->root->data,
                   (unsigned long)tree->root->left, (unsigned long)tree->root->right);
-        return tree->root;
+        return data;
     }
     insert_data.newdata = data;
     insert_data.newnode = NULL;
@@ -166,11 +169,14 @@ avltree_node_t *    avltree_insert(
     insert_data.new_balance = 0;
     if (avltree_visit(tree, avltree_visit_insert, &insert_data, AVH_PREFIX | AVH_SUFFIX)
             == AVS_FINISHED) {
-        ++tree->n_elements;
-        if (insert_data.newnode == NULL) {
+        if (insert_data.new_balance != 0) {
+            /* new_balance is 0 when node has been replaced with AFL_INSERT_REPLACE) */
+            ++tree->n_elements;
+        }
+        if (insert_data.newdata == NULL) {
             errno = 0;
         }
-        return insert_data.newnode;
+        return insert_data.newdata;
     }
     if (errno == 0) {
         errno = EAGAIN;
@@ -631,6 +637,7 @@ static int          avltree_visit_insert(
     avltree_visit_insert_t *    idata = (avltree_visit_insert_t *) user_data;
     avltree_node_t *            new;
     avltree_node_t **           parent;
+    int                         cmp;
 
     if (context->state == AVH_SUFFIX) {
         return avltree_visit_rebalance(tree, node, context, user_data);
@@ -645,7 +652,23 @@ static int          avltree_visit_insert(
               context->state, context->how,
               (unsigned long) node, (unsigned long)node->left, (unsigned long)node->right);
 
-    if (tree->cmp(idata->newdata, node->data) <= 0) {
+    cmp = tree->cmp(idata->newdata, node->data);
+    if (cmp == 0 && (tree->flags & (AFL_INSERT_NODOUBLE | AFL_INSERT_REPLACE)) != 0) {
+        if ((tree->flags & AFL_INSERT_REPLACE) == 0) {
+            /* having doubles is forbidden in this tree: return error */
+            return AVS_ERROR;
+        }
+        /* double detected: replace data in the node and stop insertion */
+        void * prevdata = node->data;
+        if (tree->free != NULL && (tree->flags & AFL_REMOVE_NOFREE) == 0) {
+            tree->free(prevdata);
+        }
+        node->data = idata->newdata;
+        idata->newnode = node;
+        idata->newdata = prevdata;
+        idata->new_balance = 0;
+        return AVS_FINISHED;
+    } else if (cmp <= 0) {
         /* go left */
         if (node->left != NULL) {
             /* continue with left node */
