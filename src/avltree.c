@@ -143,11 +143,15 @@ avltree_node_t *    avltree_insert(
     avltree_visit_insert_t    insert_data;
 
     if (tree == NULL) {
+        errno = EINVAL;
         return NULL;
     }
     if (tree->root == NULL) {
         /* particular case when root is NULL : allocate it here without visiting */
         if ((tree->root = avltree_node_create(tree, data, NULL, NULL)) == NULL) {
+            if (errno == 0) {
+                errno = ENOMEM;
+            }
             return NULL;
         }
         ++tree->n_elements;
@@ -163,7 +167,13 @@ avltree_node_t *    avltree_insert(
     if (avltree_visit(tree, avltree_visit_insert, &insert_data, AVH_PREFIX | AVH_SUFFIX)
             == AVS_FINISHED) {
         ++tree->n_elements;
+        if (insert_data.newnode == NULL) {
+            errno = 0;
+        }
         return insert_data.newnode;
+    }
+    if (errno == 0) {
+        errno = EAGAIN;
     }
     return NULL;
 }
@@ -198,6 +208,9 @@ void *              avltree_find(
     while (node) {
         cmp = tree->cmp(data, node->data);
         if (cmp == 0) {
+            if (node->data == NULL) {
+                errno = 0;
+            }
             return node->data;
         } else if (cmp < 0) {
             node = node->left;
@@ -227,6 +240,9 @@ void *              avltree_find_min(
     while (node->left != NULL) {
         node = node->left;
     }
+    if (node->data == NULL) {
+        errno = 0;
+    }
     return node->data;
 }
 
@@ -246,6 +262,9 @@ void *              avltree_find_max(
     node = tree->root;
     while (node->right != NULL) {
         node = node->right;
+    }
+    if (node->data == NULL) {
+        errno = 0;
     }
     return node->data;
 }
@@ -269,6 +288,9 @@ unsigned int        avltree_find_depth(
             node = node->left;
         }
     }
+    if (depth == 0) {
+        errno = 0;
+    }
     return depth;
 }
 /*****************************************************************************/
@@ -277,6 +299,9 @@ size_t              avltree_count(
     if (tree == NULL) {
         errno = EINVAL;
         return 0;
+    }
+    if (tree->n_elements == 0) {
+        errno = 0;
     }
     return tree->n_elements;
 }
@@ -292,6 +317,7 @@ size_t              avltree_memorysize(
     if (tree->stack != NULL && (tree->flags & AFL_SHARED_STACK) != 0) {
        size += rbuf_memorysize(tree->stack);
     }
+    /* return value cannot be 0, no need to set errno */
     return size + (avltree_count(tree) * sizeof(avltree_node_t));
 }
 
@@ -492,6 +518,9 @@ void *              avltree_remove(
     if (avltree_visit(tree, avltree_visit_remove, &insert_data, AVH_PREFIX | AVH_SUFFIX)
             == AVS_FINISHED) {
         --tree->n_elements;
+        if (insert_data.newdata == NULL) {
+            errno = 0;
+        }
         return insert_data.newdata;
     }
     errno = ENOENT;

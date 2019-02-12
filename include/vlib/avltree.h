@@ -110,6 +110,13 @@ typedef int         (*avltree_visitfun_t) (
 
 /*****************************************************************************/
 
+/* General information about inserted data and functions returned values:
+ * As NULL values can be inserted in avltree, some get functions can return NULL
+ * on success. When the returned value is NULL, errno is set to 0 in the function,
+ * and when an error occurs, NULL is returned with errno != 0.
+ * When user inserts NULL values, he must test errno as below:
+ * 'if (avltree_find(tree, data) == NULL && errno != 0) perror("find");' */
+
 /** AVLNODE : shortcut for avltree_node_create() */
 #define AVLNODE(value, left, right)     avltree_node_create(NULL, value, left, right)
 
@@ -129,7 +136,8 @@ avltree_node_t *    avltree_node_create(
                         avltree_node_t *            right);
 
 /** avltree_insert()
- * complexity: O(log2(n)) */
+ * complexity: O(log2(n))
+ * @return inserted node or NULL on error with errno set */
 avltree_node_t *    avltree_insert(
                         avltree_t *                 tree,
                         void *                      data);
@@ -141,40 +149,45 @@ void                avltree_free(
 
 /** avltree_find()
  * complexity: O(log2(n))
- * @return the element or NULL on error with errno set (errno is NOT changed on success). */
+ * @return the element (errno is only set to 0 if element is NULL),
+ *         or NULL on error with errno set. */
 void *              avltree_find(
                         avltree_t *                 tree,
                         const void *                data);
 
 /** avltree_find_min()
  * complexity: O(log2(n))
- * @return the min element or NULL on error with errno set (errno is NOT changed on success). */
+ * @return the min element (errno is only set to 0 if element is NULL),
+ *         or NULL on error with errno set. */
 void *              avltree_find_min(
                         avltree_t *                 tree);
 
 /** avltree_find_max()
  * complexity: O(log2(n))
- * @return the max element or NULL on error with errno set (errno is NOT changed on success). */
+ * @return the max element (errno is only set to 0 if element is NULL),
+ *         or NULL on error with errno set. */
 void *              avltree_find_max(
                         avltree_t *                 tree);
 
 /** avltree_find_depth()
  * complexity: O(log2(n))
- * @return the depth of tree or 0 on error with errno set (errno is NOT changed on success). */
+ * @return the depth of tree (errno is only set to 0 if depth is 0),
+ *             or 0 on error with errno set. */
 unsigned int        avltree_find_depth(
                         avltree_t *                 tree);
 
 /** avltree_count()
  * complexity: O(1)
- * @return number of elements in the tree
- *         or 0 on error with errno set (errno is NOT changed on success). */
+ * @return number of elements in the tree (errno is only set to 0 if count is 0),
+ *         or 0 on error with errno set. */
 size_t              avltree_count(
                         avltree_t *                 tree);
 
 /** avltree_memorysize()
  * complexity: O(1)
- * @return estimation of memory used by the tree (except size of nodes datas)
- *         or 0 on error with errno set (errno is NOT changed on success). */
+ * @return estimation of memory used by the tree (except size of nodes datas,
+ *           errno is only set to 0 if size is 0),
+ *         or 0 on error with errno set. */
 size_t              avltree_memorysize(
                         avltree_t *                 tree);
 
@@ -192,9 +205,10 @@ int                 avltree_visit(
 
 /** avltree_remove()
  * complexity: O(log2(n))
- * @return the removed data. Warning: depending on the avltree_freefun_t function
- *                           given in avltree_create, the returned value might be freed.
- *         or NULL on error with errno set (errno is NOT changed on success). */
+ * @return the removed element, (errno is only set to 0 if element is NULL).
+ *          ! Warning: depending on the avltree_freefun_t function and the flag
+ *          ! AFL_REMOVE_NOFREE given in avltree_create, returned value might be freed.
+ *         or NULL on error with errno set. */
 void *              avltree_remove(
                         avltree_t *                 tree,
                         const void *                data);

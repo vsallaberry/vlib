@@ -107,10 +107,14 @@ size_t          rbuf_size(
         return 0;
     }
     if (RBUF_IS_EMPTY(rbuf)) {
+        errno = 0;
         return 0;
     }
     if ((size = 1 + rbuf->end - rbuf->start) <= 0) {
         size += rbuf->max_size;
+    }
+    if (size == 0) {
+        errno = 0;
     }
     return size;
 }
@@ -121,6 +125,9 @@ size_t          rbuf_maxsize(
         errno = EINVAL;
         return 0;
     }
+    if (rbuf->max_size == 0) {
+        errno = 0;
+    }
     return rbuf->max_size;
 }
 /*****************************************************************************/
@@ -130,6 +137,7 @@ size_t          rbuf_memorysize(
         errno = EINVAL;
         return 0;
     }
+    /* return value cannot be 0, no need to set errno */
     return sizeof(rbuf_t) + (rbuf->max_size * sizeof(void *));
 }
 /*****************************************************************************/
@@ -186,6 +194,8 @@ int             rbuf_push(
 /*****************************************************************************/
 void *          rbuf_top(
                     const rbuf_t *  rbuf) {
+    void * ret;
+
     if (rbuf == NULL || rbuf->start >= rbuf->max_size) {
         errno = EINVAL;
         return NULL;
@@ -194,7 +204,11 @@ void *          rbuf_top(
         errno = ENOENT;
         return NULL;
     }
-    return rbuf->tab[rbuf->end];
+    ret = rbuf->tab[rbuf->end];
+    if (ret == NULL) {
+        errno = 0;
+    }
+    return ret;
 }
 /*****************************************************************************/
 void *          rbuf_pop(
@@ -213,16 +227,23 @@ void *          rbuf_pop(
     if (rbuf->end == rbuf->start) {
         rbuf->end = RBUF_EMPTY;
         //rbuf->start = 0;
+        if (ret == NULL) {
+            errno = 0;
+        }
         return ret;
     }
     if (rbuf->end-- == 0) {
         rbuf->end = rbuf->max_size - 1;
+    }
+    if (ret == NULL) {
+        errno = 0;
     }
     return ret;
 }
 /*****************************************************************************/
 void *          rbuf_bottom(
                     const rbuf_t *  rbuf) {
+    void * ret;
     if (rbuf == NULL || rbuf->start >= rbuf->max_size) {
         errno = EINVAL;
         return NULL;
@@ -231,7 +252,11 @@ void *          rbuf_bottom(
         errno = ENOENT;
         return NULL;
     }
-    return rbuf->tab[rbuf->start];
+    ret = rbuf->tab[rbuf->start];
+    if (ret == NULL) {
+        errno = 0;
+    }
+    return ret;
 }
 /*****************************************************************************/
 void *          rbuf_dequeue(
@@ -254,10 +279,16 @@ void *          rbuf_dequeue(
     if (rbuf->end == rbuf->start) {
         rbuf->end = RBUF_EMPTY;
         //rbuf->start = 0;
+        if (ret == NULL) {
+            errno = 0;
+        }
         return ret;
     }
     if (++rbuf->start >= rbuf->max_size) {
         rbuf->start = 0;
+    }
+    if (ret == NULL) {
+        errno = 0;
     }
     return ret;
 }
@@ -265,6 +296,8 @@ void *          rbuf_dequeue(
 void *          rbuf_get(
                     const rbuf_t *  rbuf,
                     size_t          index) {
+    void * ret;
+
     if (rbuf == NULL || rbuf->start >= rbuf->max_size) {
         errno = EINVAL;
         return NULL;
@@ -273,7 +306,11 @@ void *          rbuf_get(
         errno = ENOENT;
         return NULL;
     }
-    return rbuf->tab[(rbuf->start + index) % rbuf->max_size];
+    ret = rbuf->tab[(rbuf->start + index) % rbuf->max_size];
+    if (ret == NULL) {
+        errno = 0;
+    }
+    return ret;
 }
 /*****************************************************************************/
 int             rbuf_set(

@@ -51,6 +51,13 @@ typedef struct rbuf_s   rbuf_t;
 
 /*****************************************************************************/
 
+/* General information about inserted data and functions returned values:
+ * As NULL values can be inserted in rbuf, some get functions can return NULL
+ * on success. When the returned value is NULL, errno is set to 0 in the function,
+ * and when an error occurs, NULL is returned with errno != 0.
+ * When user inserts NULL values, he must test errno as below:
+ * 'if (rbuf_pop(rbuf) == NULL && errno != 0) perror("pop");' */
+
 /** create a ring buffer of initial size <max_size>.
  * unless RBF_OVERWRITE is ON, max_size is doubled in rbuf_push() if buffer is full
  * @param max_size the maximum number of elements in the buffer, which can increase if
@@ -73,23 +80,24 @@ void            rbuf_free(
 
 /** number of elements in the buffer
  * @param rbuf the buffer
- * @return number of elements in the buffer
- *         or 0 on error with errno set (errno is NOT changed on success). */
+ * @return number of elements in the buffer (errno is only set to 0 if number is 0),
+ *         or 0 on error with errno set. */
 size_t          rbuf_size(
                     const rbuf_t *  rbuf);
 
 /** current maximum size for the buffer
  *  (note: it can increase if not created with RBF_OVERWRITE)
  * @param rbuf the buffer
- * @return current maximum size of buffer
- *         or 0 on error with errno set (errno is NOT changed on success). */
+ * @return current maximum size of buffer (errno is only set to 0 if size is 0),
+ *         or 0 on error with errno set. */
 size_t          rbuf_maxsize(
                     const rbuf_t *  rbuf);
 
 /** estimation of memory used by the buffer
  * @param rbuf the buffer
  * @return current estimation of memory used by the buffer
- *         or 0 on error with errno set (errno is NOT changed on success). */
+ *           (errno is only set to 0 if element is NULL),
+ *         or 0 on error with errno set. */
 size_t          rbuf_memorysize(
                     const rbuf_t *  rbuf);
 
@@ -102,27 +110,32 @@ int             rbuf_push(
                     void *          data);
 
 /** Last element. This one would be returned by rbuf_pop()
- * @return the last element or NULL on error with errno set (errno is NOT changed on success). */
+ * @return the last element (errno is only set to 0 if element is NULL),
+ *         or NULL on error with errno set. */
 void *          rbuf_top(
                     const rbuf_t *  rbuf);
 
 /** remove and return last element of the buffer : LIFO(stack) mode.
- * @return the popped element or NULL with errno set (errno is NOT changed on success). */
+ * @return the popped element (errno is only set to 0 if element is NULL),
+ *             or NULL on error with errno set. */
 void *          rbuf_pop(
                     rbuf_t *        rbuf);
 
 /** First element. This one would be returned by rbuf_dequeue()
- * @return the first element or NULL with errno set (errno is NOT changed on success). */
+ * @return the first element (errno is only set to 0 if element is NULL),
+ *         or NULL or error with errno set. */
 void *          rbuf_bottom(
                     const rbuf_t *  rbuf);
 
 /** remove and return first element of the buffer : FIFO(queue) mode.
- * @return the dequeued element or NULL with errno set (errno is NOT changed on success). */
+ * @return the dequeued element (errno is only set to 0 if element is NULL),
+ *         or NULL with errno set. */
 void *          rbuf_dequeue(
                     rbuf_t *        rbuf);
 
 /** get the index-th element of the buffer
- * @return the index-th element or NULL with errno set (errno is NOT changed on success). */
+ * @return the index-th element (errno is only set to 0 if element is NULL),
+ *         or NULL with errno set. */
 void *          rbuf_get(
                     const rbuf_t *  rbuf,
                     size_t          index);
