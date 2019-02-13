@@ -539,7 +539,7 @@ static void * vlib_thread_body(void * data) {
         }
 
         /* -------------------------------------------- */
-        LOG_DEBUG(vthread->log, "start select timeout=%d exit_signal ismember ? %d",
+        LOG_DEBUG(vthread->log, "start select timeout=%ld exit_signal ismember ? %d",
                   priv->process_timeout, sigismember(&select_sigset, priv->exit_signal));
 
         priv->state |= VTS_WAITING;

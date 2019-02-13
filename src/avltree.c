@@ -806,8 +806,8 @@ static int              avltree_visit_remove(
     }
 
     idata->new_balance = -1;
-    LOG_DEBUG(g_vlib_log, "DELETED node %ld (0x%lx)",
-              (long)idata->newdata, idata->newnode);
+    LOG_DEBUG(g_vlib_log, "DELETED node %ld (0x%p)",
+              (long)idata->newdata, (void *) idata->newnode);
 
     /* skip this node and stop prefix visit and switch to suffix visit */
     return AVS_NEXTVISIT | AVS_SKIP;

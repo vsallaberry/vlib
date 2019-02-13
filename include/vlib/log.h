@@ -166,17 +166,24 @@ int     log_scream(log_t * log, const char * fmt, ...);
  *
  * @return the number of written chars.
  */
-int         vlog(log_level_t level, log_t * log,
-                 const char * file, const char * func, int line,
-                 const char * fmt, ...);
+int         vlog(
+                log_level_t     level,
+                log_t *         log,
+                const char *    file,
+                const char *    func,
+                int             line,
+                const char * fmt, ...) __attribute__((format(printf,6,7)));
 
 /** Log a buffer with hex and ascii data. See vlog() */
-int	        log_buffer(log_level_t  level,
-                       log_t *      log,
-                       const void * pbuffer,
-                       size_t       len,
-                       const char * file, const char * func, int line,
-                       const char * fmt_header, ...);
+int	        log_buffer(
+                log_level_t     level,
+                log_t *         log,
+                const void *    pbuffer,
+                size_t          len,
+                const char *    file,
+                const char *    func,
+                int             line,
+                const char *    fmt_header, ...) __attribute__((format(printf,8,9)));
 
 /** get name of a given level */
 const char *log_level_name(log_level_t level);
