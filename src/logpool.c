@@ -571,8 +571,8 @@ size_t              logpool_memorysize(
         errno = EINVAL;
         return 0;
     }
-    LOG_VERBOSE(g_vlib_log, "LOGPOOL nbr of files : %lu", avltree_count(pool->files));
-    LOG_VERBOSE(g_vlib_log, "LOGPOOL nbr of logs  : %lu", avltree_count(pool->logs));
+    LOG_VERBOSE(g_vlib_log, "LOGPOOL nbr of files : %zu", avltree_count(pool->files));
+    LOG_VERBOSE(g_vlib_log, "LOGPOOL nbr of logs  : %zu", avltree_count(pool->logs));
 
     datas_size += avltree_count(pool->files) * sizeof(logpool_file_t);
     datas_size += avltree_count(pool->logs)  * sizeof(logpool_entry_t);

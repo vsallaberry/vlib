@@ -95,11 +95,11 @@ typedef struct {
     /* check if level is OK before to make the call
      * the cast ((void*)(log) avoids &log==NULL warning on gcc */
 #   define   LOG_CHECK_LOG(log, lvl, ...)                                           \
-                ( ((void*)(log) == NULL || ((log_t*)(log))->level >= (lvl))         \
+                ( ((void*)(log) == NULL || (int)((log_t*)(log))->level >= (lvl))    \
                   ? vlog((lvl), (log), __FILE__, __func__, __LINE__, __VA_ARGS__)   \
                   : 0)
 #   define   LOG_CHECK_LOGBUF(log, lvl, buf, sz, ...)                               \
-                ( ((void*)(log) == NULL || ((log_t*)(log))->level >= (lvl))         \
+                ( ((void*)(log) == NULL || (int)((log_t*)(log))->level >= (lvl))    \
                   ? log_buffer((lvl),(log),(buf),(sz),__FILE__,__func__,__LINE__,__VA_ARGS__) \
                   : 0)
 #  else
