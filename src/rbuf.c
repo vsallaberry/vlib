@@ -148,8 +148,8 @@ int             rbuf_push(
         errno = EINVAL;
         return -1;
     }
-    LOG_SCREAM(g_vlib_log, "rbuf_push(%lx) start:%lu end:%lu maxsize:%lu",
-              (size_t)data, rbuf->start, rbuf->end, rbuf->max_size);
+    LOG_SCREAM(g_vlib_log, "rbuf_push(%p) start:%zu end:%zu maxsize:%zu",
+              (void *) data, rbuf->start, rbuf->end, rbuf->max_size);
 
     if (RBUF_IS_EMPTY(rbuf)) {
         rbuf->tab[(rbuf->end = rbuf->start)] = data;
@@ -170,8 +170,8 @@ int             rbuf_push(
             rbuf->tab = new;
             if (rbuf->end > 0) {
                 /* start == end but end > 0 meaning that data in range [0,end-1] must be moved */
-                LOG_SCREAM(g_vlib_log, "memcpy realloc psh:%lx start:%lu end:%lu maxsz:%lu",
-                          (size_t) data, rbuf->start, rbuf->end, rbuf->max_size);
+                LOG_SCREAM(g_vlib_log, "memcpy realloc psh:%p start:%zu end:%zu maxsz:%zu",
+                          (void *) data, rbuf->start, rbuf->end, rbuf->max_size);
                 memcpy(rbuf->tab + rbuf->max_size, rbuf->tab, rbuf->end * sizeof(void *));
             }
             rbuf->end = rbuf->max_size + rbuf->end;
@@ -186,8 +186,8 @@ int             rbuf_push(
     }
     rbuf->tab[rbuf->end] = data;
 
-    LOG_SCREAM(g_vlib_log, "rbuf_push(%lx) PUSHED. start:%lu end:%lu maxsize:%lu",
-              (size_t)data, rbuf->start, rbuf->end, rbuf->max_size);
+    LOG_SCREAM(g_vlib_log, "rbuf_push(%p) PUSHED. start:%zu end:%zu maxsize:%zu",
+              (void *) data, rbuf->start, rbuf->end, rbuf->max_size);
 
     return 0;
 }
@@ -273,8 +273,8 @@ void *          rbuf_dequeue(
     }
     ret = rbuf->tab[rbuf->start];
 
-    LOG_SCREAM(g_vlib_log, "rbuf_dequeue = %lu start:%lu end:%lu maxsize:%lu",
-              (size_t)ret, rbuf->start, rbuf->end, rbuf->max_size);
+    LOG_SCREAM(g_vlib_log, "rbuf_dequeue = %zd start:%zu end:%zu maxsize:%zu",
+              (ssize_t) ret, rbuf->start, rbuf->end, rbuf->max_size);
 
     if (rbuf->end == rbuf->start) {
         rbuf->end = RBUF_EMPTY;

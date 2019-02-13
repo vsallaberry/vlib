@@ -353,7 +353,8 @@ logpool_t *         logpool_create_from_cmdline(
         }
         else {
             LOG_VERBOSE(g_vlib_log, "Log ADDED pref:<%s> lvl:%s flags:%x out=%p path:%s",
-                        log.prefix, log_level_name(log.level), log.flags, log.out, mod_file);
+                        log.prefix, log_level_name(log.level),
+                        log.flags, (void *) log.out, mod_file);
         }
     }
     pthread_rwlock_unlock(&pool->rwlock);
