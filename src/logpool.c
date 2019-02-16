@@ -172,9 +172,10 @@ logpool_t *         logpool_create() {
         free(pool);
         return NULL;
     }
-    if (NULL == (pool->logs = avltree_create(AFL_DEFAULT | AFL_SHARED_STACK,
-                                             logpool_prefixcmp, NULL))
-    ||  NULL == (pool->files = avltree_create(AFL_DEFAULT & ~AFL_SHARED_STACK,
+    if (NULL == (pool->logs = avltree_create(AFL_DEFAULT | AFL_SHARED_STACK
+                                             | AFL_INSERT_REPLACE | AFL_REMOVE_NOFREE,
+                                             logpool_prefixcmp, logpool_entry_free))
+    ||  NULL == (pool->files = avltree_create((AFL_DEFAULT & ~AFL_SHARED_STACK) | AFL_INSERT_NODOUBLE,
                                               logpool_pathcmp, logpool_file_free))) {
         LOG_ERROR(g_vlib_log, "error avltree_create(logs | files) : %s", strerror(errno));
         if (pool->logs != NULL) {
@@ -199,7 +200,6 @@ void                logpool_free(
     if (pool != NULL) {
         pthread_rwlock_wrlock(&pool->rwlock);
         avltree_free(pool->files);
-        pool->logs->free = logpool_entry_free;
         avltree_free(pool->logs); /* must be last : it will free the rbuf stack */
         pthread_rwlock_unlock(&pool->rwlock);
         pthread_rwlock_destroy(&pool->rwlock);
@@ -386,7 +386,7 @@ static log_t *      logpool_add_unlocked(
                         log_t *             log,
                         const char *        path) {
     logpool_file_t      tmpfile, * pfile;
-    logpool_entry_t *   logentry;
+    logpool_entry_t *   logentry, * preventry;
     char                tmppath[20];
 
     if (pool == NULL || log == NULL) {
@@ -405,8 +405,8 @@ static log_t *      logpool_add_unlocked(
     }
     logentry->file = NULL;
 
-    // FIXME: forbid doubles
-    if (avltree_insert(pool->logs, logentry) == NULL) {
+    /* insert logentry and get previous one if any */
+    if ((preventry = avltree_insert(pool->logs, logentry)) == NULL) {
         logpool_entry_free(logentry);
         return NULL;
     }
@@ -421,12 +421,40 @@ static log_t *      logpool_add_unlocked(
     if ((pfile = avltree_find(pool->files, &tmpfile)) == NULL) {
         pfile = logpool_file_create(tmpfile.path, tmpfile.file);
         if (pfile == NULL || avltree_insert(pool->files, pfile) == NULL) {
+            if (preventry != logentry) {
+                if (--preventry->file->use_count == 0) {
+                    avltree_remove(pool->files, preventry->file);
+                }
+                logpool_entry_free(preventry);
+            }
             logpool_file_free(pfile);
             avltree_remove(pool->logs, log);
-            logpool_entry_free(pfile);
+            logpool_entry_free(logentry);
             return NULL;
         }
     }
+    /* checks whether the logentry has replaced a previous one */
+    if (preventry != logentry) {
+        LOG_DEBUG(g_vlib_log, "LOGENTRY <%s> REPLACED by <%s>",
+                  preventry->log.prefix, logentry->log.prefix);
+        if (preventry->file != pfile) { /* pointer comparison OK as doubles are forbiden. */
+            /* the new logentry has a different file */
+            LOG_DEBUG(g_vlib_log, "LOGENTRY REPLACED: FILE <%s> replaced by <%s>",
+                      preventry->file->path, pfile->path);
+            if (--preventry->file->use_count == 0) {
+                LOG_DEBUG(g_vlib_log, "LOGENTRY REPLACED: previous file <%s> is NO LONGER USED",
+                          preventry->file->path);
+                /* the file of previous logentry is no longer used -> remove it. */
+                avltree_remove(pool->files, preventry->file);
+            }
+        } else {
+            LOG_DEBUG(g_vlib_log, "LOGENTRY REPLACED: SAME FILE <%s>", pfile->path);
+            /* new log has the same file as previous: decrement because ++use_count later. */
+            --preventry->file->use_count;
+        }
+        logpool_entry_free(preventry);
+    }
+    /* finish logentry initialization and return */
     logentry->file = pfile;
     logentry->log.out = pfile->file;
     ++pfile->use_count;
