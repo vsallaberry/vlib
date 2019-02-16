@@ -33,21 +33,12 @@
 #include <limits.h>
 #include <fnmatch.h>
 
-#include "version.h"
-
-#ifndef BUILD_CURSES
-# define BUILD_CURSES 0
-#endif
-#if BUILD_CURSES
-# include <dlfcn.h>
-//# include <curses.h>
-//# include <term.h>
-//# include <termios.h>
-#endif
-
 #include "vlib/options.h"
 #include "vlib/util.h"
 #include "vlib/log.h"
+
+#include "version.h"
+#include "vlib_private.h"
 
 /* ** OPTIONS *********************************************************************************/
 
@@ -152,46 +143,6 @@ static int opt_error(int exit_code, const opt_config_t * opt_config, int show_us
     }
     return exit_code;
 }
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wpedantic"
-static unsigned int get_max_columns(FILE * out, const opt_config_t * opt_config) {
-    unsigned int max_columns = 80;
-    (void) opt_config;
-#if BUILD_CURSES
-    if (isatty(fileno(out))) {
-        int ret;
-        void * lib = NULL;
-        int (*setup)(char*, int, int*);
-        int (*getnum)(char*);
-        char * libs[] = { "libncurses.so", "libcurses.so", "libncurses.dylib", "libcurses.dylib",
-                          "libtinfo.so", "libtinfo.dylib",
-                          "libncurses.so.5", "libcurses.so.5", "libtinfo.so.5", NULL };
-        for (char ** path = libs; *path && (lib = dlopen(*path, RTLD_LAZY)) == NULL; path++)
-            ; /* loop */
-        if (lib) {
-            if ((setup = (int(*)(char*,int,int*)) dlsym(lib, "setupterm"))
-            &&  (getnum = (int(*)(char*)) dlsym(lib, "tigetnum"))) {
-                if (setup(NULL, fileno(out), &ret) < 0) {
-                    /* maybe not needed to printf error, could use column=80 silently */
-                    if      (ret == 1)  fprintf(out, "setupterm(): term is hardcopy.\n");
-                    else if (ret == 0)  fprintf(out, "setupterm(): term not found.\n");
-                    else if (ret == -1) fprintf(out, "setupterm(): term db not found.\n");
-                    else                fprintf(out, "setupterm(): unknown error.\n");
-                } else if (((ret = getnum("cols")) > 0
-                            || (ret = getnum("columns")) > 0
-                            || (ret = getnum("COLUMNS")) > 0)
-                           && ret > OPT_USAGE_OPT_PAD + 10) {
-                    max_columns = ret;
-                }
-            }
-            dlclose(lib);
-        }
-    }
-#endif
-    return max_columns;
-}
-#pragma GCC diagnostic pop
 
 static int opt_usage_filter(const char * filter, int i_opt, int i_section,
                             const opt_config_t * opt_config) {
@@ -400,7 +351,11 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
         flockfile(out);
 
     /* get max columns usable for display */
-    max_columns = get_max_columns(out, opt_config);
+    if ((i_opt = vterm_get_columns(fileno(out))) < OPT_USAGE_OPT_PAD + 10) {
+        max_columns = 80;
+    } else {
+        max_columns = i_opt;
+    }
     if (opt_config->log != NULL && opt_config->log->level >= LOG_USAGE_LEVEL) {
         i_opt = log_header(LOG_USAGE_LEVEL, opt_config->log, NULL, NULL, 0);
         if (isatty(fileno(out))) {

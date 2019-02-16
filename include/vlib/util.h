@@ -97,6 +97,12 @@ ssize_t     vdecode_buffer(
                 const char *    inbuf,
                 size_t          inbufsz);
 
+/** get number of columns of terminal.
+ * @return columns
+ *         or 0 if fd is not a terminal
+ *         or -1 on error */
+int         vterm_get_columns(int fd);
+
 #ifdef __cplusplus
 }
 #endif
