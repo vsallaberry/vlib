@@ -209,6 +209,22 @@ int                 avltree_visit(
                         void *                      user_data,
                         avltree_visit_how_t         how);
 
+/** avltree_visit_range()
+ * The given function will be called in infix order on each node of given range.
+ * @param tree the tree to visit
+ * @param min the minimum element of the range
+ * @param max the maximum element of the range
+ * @param visit the visit function (avltree_visitfun_t)
+ * @param user_data the specific user_data to give to visit function
+ * @param how_RFU RFU */
+int                 avltree_visit_range(
+                        avltree_t *                 tree,
+                        void *                      min,
+                        void *                      max,
+                        avltree_visitfun_t          visit,
+                        void *                      user_data,
+                        avltree_visit_how_t         how_RFU);
+
 /** avltree_remove()
  * complexity: O(log2(n))
  * @return the removed element, (errno is only set to 0 if element is NULL).

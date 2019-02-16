@@ -34,12 +34,21 @@
 /*****************************************************************************/
 #define AVLTREE_STACK_SZ    32 /* 10^5 elts:depth=20, 10^6:24, 10^7:28 */
 
+/** visit data used for deletion and insertion visitors */
 typedef struct {
     void *              newdata;        /* IN  : value of new node */
     avltree_node_t *    newnode;        /* OUT : pointer to new created node */
     char                new_balance;    /* OUT : new balance of inserted node */
     avltree_node_t **   prev_nodep;     /* internal: previous node (prefix:parent, suffix:child) */
 } avltree_visit_insert_t;
+
+/** visit data used for range visitor */
+typedef struct {
+    void *              min;
+    void *              max;
+    avltree_visitfun_t  visit;
+    void *              user_data;
+} avltree_visit_range_t;
 
 /*****************************************************************************/
 static avltree_node_t * avltree_rotate_left(avltree_t * tree, avltree_node_t * node, int update);
@@ -62,6 +71,11 @@ static int              avltree_visit_remove(
                             const avltree_visit_context_t * context,
                             void *                          user_data);
 static int              avltree_visit_free(
+                            avltree_t *                     tree,
+                            avltree_node_t *                node,
+                            const avltree_visit_context_t * context,
+                            void *                          user_data);
+static int              avltree_visit_find_range(
                             avltree_t *                     tree,
                             avltree_node_t *                node,
                             const avltree_visit_context_t * context,
@@ -158,7 +172,7 @@ void *              avltree_insert(
         if (data == NULL) {
             errno = 0;
         }
-        LOG_DEBUG(g_vlib_log, "created root 0x%lx data 0x%ld left:0x%lx right:0x%lx\n",
+        LOG_DEBUG(g_vlib_log, "created root 0x%lx data 0x%ld left:0x%lx right:0x%lx",
                   (unsigned long)tree->root, (long)tree->root->data,
                   (unsigned long)tree->root->left, (unsigned long)tree->root->right);
         return data;
@@ -500,6 +514,8 @@ int                 avltree_visit(
     } else {
         rbuf_free(stack);
     }
+    LOG_DEBUG(g_vlib_log, "avltree_visit: EXITING with status %d",
+              ret != AVS_ERROR ? AVS_FINISHED : AVS_ERROR);
     return ret != AVS_ERROR ? AVS_FINISHED : AVS_ERROR;
 }
 
@@ -531,6 +547,20 @@ void *              avltree_remove(
     }
     errno = ENOENT;
     return NULL;
+}
+
+/*****************************************************************************/
+int                 avltree_visit_range(
+                        avltree_t *                 tree,
+                        void *                      min,
+                        void *                      max,
+                        avltree_visitfun_t          visit,
+                        void *                      user_data,
+                        avltree_visit_how_t         how_RFU) {
+    avltree_visit_range_t rangedata = { min, max, visit, user_data };
+    (void) how_RFU;
+
+    return avltree_visit(tree, avltree_visit_find_range, &rangedata, AVH_PREFIX | AVH_INFIX);
 }
 
 /*****************************************************************************/
@@ -824,6 +854,34 @@ static int          avltree_visit_free(
 
     avltree_node_free(tree, node, 1);
     return AVS_CONTINUE;
+}
+
+/*****************************************************************************/
+static int              avltree_visit_find_range(
+                            avltree_t *                     tree,
+                            avltree_node_t *                node,
+                            const avltree_visit_context_t * context,
+                            void *                          user_data) {
+    avltree_visit_range_t * rangedata = (avltree_visit_range_t *) user_data;
+
+    if (context->state == AVH_PREFIX) {
+        if (tree->cmp(node->data, rangedata->min) < 0) {
+            return AVS_GO_RIGHT;
+        }
+        return AVS_GO_LEFT;
+    } else if (context->state == AVH_INFIX) {
+        if (tree->cmp(node->data, rangedata->min) < 0) {
+            return AVS_CONTINUE;
+        }
+        if (tree->cmp(node->data, rangedata->max) > 0) {
+            return AVS_FINISHED;
+        }
+        if (rangedata->visit == NULL) {
+            return AVS_CONTINUE;
+        }
+        return rangedata->visit(tree, node, context, rangedata->user_data);
+    }
+    return AVS_ERROR;
 }
 
 /*****************************************************************************/
