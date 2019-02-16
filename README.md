@@ -10,7 +10,7 @@
 * [License](#license)
 
 ## Overview
-**vlib** is a simple C library for simple programs including log, command-line, hash, list.
+**vlib** is a simple C library for simple programs including log, command-line, hash, list, avltree.
 
 ## System requirements
 - A somewhat capable compiler (gcc/clang), 
