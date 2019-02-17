@@ -168,13 +168,13 @@ static int opt_usage_filter(const char * filter, int i_opt, int i_section,
         if (len > 1 && *token == ':') {
             char    desc[PATH_MAX];
             int     i_descsz        = sizeof(desc);
-            char *  end             = stpcpy(desc, opt->desc ? opt->desc : "");
+            size_t  end             = strn0cpy(desc, opt->desc, i_descsz, i_descsz);
 
-            i_descsz -= (end - desc);
+            i_descsz -= end;
             if (opt_config->callback == NULL || !OPT_IS_CONTINUE(
                   opt_config->callback(OPT_DESCRIBE_OPTION | opt->short_opt,
-                                       (const char *) end, &i_descsz, opt_config))) {
-                *end = 0;
+                                       desc + end, &i_descsz, opt_config))) {
+                desc[end] = 0;
             }
             if (fnmatch(token0 + 1, desc, FNM_CASEFOLD) == 0) {
                 return 1;
