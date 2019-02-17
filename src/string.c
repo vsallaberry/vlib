@@ -21,18 +21,44 @@
  */
 #include "vlib/util.h"
 
-int strn0cpy(char *dst, const char *src, size_t len, size_t maxlen) {
-    if (maxlen == 0 || dst == NULL || src == NULL) {
+size_t str0cpy(char *dst, const char *src, size_t maxlen) {
+    size_t len;
+
+    if (maxlen == 0 || dst == NULL) {
+        return 0;
+    }
+    if (src == NULL) {
+        *dst = 0;
+        return 0;
+    }
+    len = stpncpy(dst, src, maxlen - 1) - dst;
+    if (len >= maxlen) { /* should not happend */
+        *dst = 0;
+        return 0;
+    }
+    dst[len] = 0;
+    return len;
+}
+
+size_t strn0cpy(char *dst, const char *src, size_t len, size_t maxlen) {
+    if (maxlen == 0 || dst == NULL) {
+        return 0;
+    }
+    if (src == NULL) {
+        *dst = 0;
         return 0;
     }
     if (len >= maxlen) {
         len = maxlen - 1;
     }
-    strncpy(dst, src, len);
+    len = stpncpy(dst, src, len) - dst;
+    if (len >= maxlen) { /* should not happend */
+        *dst = 0;
+        return 0;
+    }
     dst[len] = 0;
     return len;
 }
-
 
 size_t strtok_ro_r(const char ** token, const char * seps,
                    const char ** next, size_t * maxlen,

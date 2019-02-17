@@ -35,12 +35,24 @@ extern "C" {
 #endif
 
 /**
+ * This will copy at maximum <maxlen-1> bytes of <src> in <dst>.
+ * dst will always be terminated by 0, causing possibe src truncation.
+ * This is the same as strlcpy with in addition handling of NULL for dst & src.
+ * @return the length of <dst> after copy
+ *         or 0 if src or maxlen is NULL
+ *         or 0 with NUL char in *dst if src is NULL. */
+size_t      str0cpy(char *dst, const char *src, size_t maxlen);
+
+/**
  * This will copy at maximum <len> bytes of <src> in <dst>.
  * dst whose size is <maxlen> will always be terminated by 0,
  * causing possibe src truncation.
- * @return the length of <dst> after copy.
- */
-int         strn0cpy(char *dst, const char *src, size_t len, size_t maxlen);
+ * This is the same as strlcpy with in addition handling of NULL for dst & src and
+ * possibility to copy only a part of src (len, which could be greater than dst size).
+ * @return the length of <dst> after copy
+ *         or 0 if src or maxlen is NULL
+ *         or 0 with NUL char in *dst if src is NULL. */
+size_t      strn0cpy(char *dst, const char *src, size_t len, size_t maxlen);
 
 /** strtok_ro_r flags */
 #define VLIB_STRTOK_MANDATORY_SEP   (1 << 0)    /* token not found (len=0) if sep no found */
