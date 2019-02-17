@@ -219,8 +219,6 @@ LIBS_TEST	= $(LIBS_RELEASE)
 MACROS_TEST	?= $(MACROS_RELEASE) -D_TEST
 cmd_RELEASEMODE = $(SED) -n -e 's/^[[:space:]]*\#[[:space:]]*define[[:space:]][[:space:]]*BUILD_APPRELEASE[[:space:]]*"\([^"]*\).*/\1/p' \
        		     $(BUILDINC) $(NO_STDERR) || echo RELEASE
-#cmd_RELEASEMODE	= $(GREP) -Eq '^[[:space:]]*\#[[:space:]]*define BUILD_DEBUG([[:space:]]|$$)'
-#				$(BUILDINC) $(NO_STDERR) && echo DEBUG || echo TEST #RELEASE
 tmp_RELEASEMODE	!= $(cmd_RELEASEMODE)
 tmp_RELEASEMODE	?= $(shell $(cmd_RELEASEMODE))
 RELEASE_MODE	:= $(tmp_RELEASEMODE)
@@ -412,7 +410,7 @@ cmd_HAVEZLIBH	= for d in /usr/include /usr/include/zlib /usr/local/include /usr/
 		           /opt/local/include /opt/local/include/zlib; do \
 	 	    $(TEST) -e "$$d/zlib.h" && break; done
 cmd_SRCINC	= $(cmd_FINDBSDOBJ); ! $(TEST) -e $(VERSIONINC) \
-		  || $(GREP) -Eq '^[[:space:]]*\#[[:space:]]*define APP_INCLUDE_SOURCE([[:space:]]|$$)' \
+		  || $(GREP) -Eq '^[[:space:]]*\#[[:space:]]*define[[:space:]][[:space:]]*APP_INCLUDE_SOURCE([[:space:]]|$$)' \
 	                                $(VERSIONINC) $(NO_STDERR) \
 		       && { $(cmd_HAVEVLIB) && $(cmd_HAVEZLIBH) \
 		            && $(TEST) -x "`$(WHICH) \"$(OD)\" | $(HEADN1) $(NO_STDERR)`" \
@@ -622,8 +620,6 @@ $(DISTCLEANDIRS):
 
 # --- debug : set DEBUG flag in build.h and rebuild
 debug: update-$(BUILDINC) $(DEBUGDIRS)
-#	@{ $(GREP) -Ev '^[[:space:]]*\#[[:space:]]*define[[:space:]]+(BUILD_DEBUG|BUILD_TEST)([[:space:]]|$$)' $(BUILDINC) $(NO_STDERR);
-#		$(PRINTF) "#define BUILD_DEBUG\n#define BUILD_TEST\n"; } > $(BUILDINC).tmp && $(MV) $(BUILDINC).tmp $(BUILDINC)
 	@if $(TEST) "$(RELEASE_MODE)" '!=' "DEBUG"; then \
 	     { $(SED) -e 's/^\([[:space:]]*\#[[:space:]]*define[[:space:]][[:space:]]*BUILD_APPRELEASE[[:space:]]\).*/\1 "DEBUG"/' \
 	          $(BUILDINC) $(NO_STDERR); } > $(BUILDINC).tmp && $(MV) $(BUILDINC).tmp $(BUILDINC) || true; \
@@ -647,10 +643,6 @@ test-build: update-$(BUILDINC) $(TESTBUILDDIRS)
 	 if $(TEST) -n "$(SUBMODROOTDIR)"; then "$(MAKE)" SUBMODROOTDIR="$(SUBMODROOTDIR)"; else "$(MAKE)"; fi
 $(TESTBUILDDIRS):
 	@recdir=$(@:-test-build=); rectarget=test-build; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} test-build
-
-# Code to disable debug without deleting BUILDINC:
-# @$(GREP) -Ev '^[[:space:]]*\#[[:space:]]*define[[:space:]]+(BUILD_DEBUG|BUILD_TEST)([[:space:]]|$$)' $(BUILDINC) \
-#	    > $(BUILDINC).tmp && $(MV) $(BUILDINC).tmp $(BUILDINC)
 
 # --- doc : generate doc
 doc: $(DOCDIRS)
@@ -870,17 +862,21 @@ YACCCXX_CMD	= opt='-p'; args=`$(BCOMPAT_SED_YYPREFIX)`; \
 #@#cd "$(DISTDIR)" && ($(ZIP) -q -r "$${distname}.zip" "$${distname}" || true)
 dist:
 	@$(cmd_TESTBSDOBJ) && cd $(.CURDIR) || true; \
-	 version=`$(GREP) -E '^[[:space:]]*\#define APP_VERSION[[:space:]][[:space:]]*"' $(VERSIONINC) | $(SED) -e 's/^.*"\([^"]*\)".*/\1/'` \
+	 version=`$(GREP) -E '^[[:space:]]*\#[[:space:]]*define[[:space:]][[:space:]]*APP_VERSION[[:space:]][[:space:]]*"' \
+	            $(VERSIONINC) | $(SED) -e 's/^.*"\([^"]*\)".*/\1/'` \
 	 && distname="$(NAME)_$${version}_`$(DATE) '+%Y-%m-%d_%Hh%M'`" \
 	 && topdir=`pwd` \
 	 && $(MKDIR) -p "$(DISTDIR)/$${distname}" \
-	 && cp -Rf . "$(DISTDIR)/$${distname}" \
-	 && $(RM) -R `$(FIND) "$(DISTDIR)/$${distname}" -type d -and \( -name '.git' -or -name 'CVS' -or -name '.hg' -or -name '.svn' \) $(NO_STDERR)` \
+	 && $(PRINTF) "$(NAME): creating '$(DISTDIR)/$${distname}'...\n" \
+	 && { $(TAR) c --exclude='.git' --exclude='CVS/' --exclude='.hg/' --exclude='.svn/' --exclude='*.o' --exclude='*.d' \
+	               --exclude='obj/' --exclude='$(NAME)' . | $(TAR) x -C "$(DISTDIR)/$${distname}" $(NO_STDERR) \
+	      || { cp -Rf . "$(DISTDIR)/$${distname}" \
+	           && $(RM) -R `$(FIND) "$(DISTDIR)/$${distname}" -type d -and \( -name '.git' -or -name 'CVS' -or -name '.hg' -or -name '.svn' \) $(NO_STDERR)`; }; } \
 	 && { for d in . $(SUBDIRS); do ver="$(DISTDIR)/$${distname}/$$d/$(VERSIONINC)"; cd "$$d" && "$(MAKE)" update-$(BUILDINC); cd "$${topdir}"; \
 	      pat=`$(SED) -n -e "s|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*BUILD_\(GIT[^[:space:]]*\)[[:space:]]*\"\(.*\)|-e 's,DIST_\1 .*,DIST_\1 \"?-from:\2,'|p" \
 	           "$$d/$(BUILDINC)" | $(TR) '\n' ' '`; \
 	      mv "$${ver}" "$${ver}.tmp" && eval "$(SED) $$pat $${ver}.tmp" > "$${ver}" && $(RM) "$${ver}.tmp"; done; } \
-	 && $(PRINTF) "$(NAME): building dist...\n" \
+	 && $(PRINTF) "$(NAME): building '$(DISTDIR)/$${distname}'...\n" \
 	 && cd "$(DISTDIR)/$${distname}" && "$(MAKE)" distclean && "$(MAKE)" && "$(MAKE)" distclean && cd "$$topdir" \
 	 && cd "$(DISTDIR)" && { $(TAR) czf "$${distname}.tar.gz" "$${distname}" && targz=true || targz=false; \
      			         $(TAR) cJf "$${distname}.tar.xz" "$${distname}" || $${targz}; } && cd "$$topdir" \
@@ -972,10 +968,12 @@ $(README):
 
 $(VERSIONINC):
 	@$(cmd_TESTBSDOBJ) && $(TEST) -e "$(.CURDIR)/$@" || echo "$(NAME): create $@"
-	@$(PRINTF) "%s\n" "#ifndef APP_VERSION_H" "#define APP_VERSION_H" "#define APP_VERSION \"0.1\"" \
-			  "#define APP_INCLUDE_SOURCE" "#define APP_BUILD_NUMBER 1" "#define DIST_GITREV \"unknown\"" \
-			  "#define DIST_GITREVFULL \"unknown\"" "#define DIST_GITREMOTE \"unknown\"" \
-			  "#include \"build.h\"" "#endif" >> $@
+	@$(PRINTF) "%s\n" "#ifndef APP_VERSION_H" "# define APP_VERSION_H" \
+		          "# define APP_COMMENT__ \"PUT ONLY LINES STARTING WITH '#' IN THIS FILE.\"" \
+			  "# undef APP_COMMENT__" "# define APP_VERSION \"0.1\"" \
+			  "# define APP_INCLUDE_SOURCE" "# define APP_BUILD_NUMBER 1" "# define DIST_GITREV \"unknown\"" \
+			  "# define DIST_GITREVFULL \"unknown\"" "# define DIST_GITREMOTE \"unknown\"" \
+			  "# include \"build.h\"" "#endif" >> $@
 	@if $(cmd_TESTBSDOBJ); then $(TEST) -e "$(.CURDIR)/$@" || mv "$@" "$(.CURDIR)"; ln -sf "$(.CURDIR)/$@" .; fi
 
 # As defined above, everything depends on $(BUILDINC), and we want they wait for update-$(BUILDINC)
@@ -1198,11 +1196,14 @@ help:
 	  "  FLAGS_GCJ    [$(FLAGS_GCJ)]" \
 	  "  ..." \
 	  "" \
-  	  "make info" \
+	  "make clean / distclean" \
+	  "  clean intermediary files / clean generated files" \
+	  "" \
+	  "make info" \
 	  "  display makefile variables" \
 	  "" \
-	  "make debug" \
-	  "  enable debug compile flags and rebuild" \
+	  "make debug / make test-build" \
+	  "  enable debug/tests compile flags and rebuild" \
 	  "" \
 	  "make valgrind" \
 	  "  run valgrind with:" \
