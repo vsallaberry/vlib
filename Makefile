@@ -71,19 +71,23 @@ DISTDIR		= ../../dist
 PREFIX		= /usr/local
 INSTALL_FILES	= $(LIB) include
 
+#CONFIG_CHECK	= all zlib ncurses libcrypto applecrypto openssl sigqueue sigrtmin
+#	          libcrypt crypt.h crypt_gnu crypt_des_ext
+CONFIG_CHECK	= zlib ncurses
+
 # Project specific Flags (system specific flags are set in $(sys_{LIBS,WARN,INCS,OPTI,DEBUG})
 # if you set LIBS_<system>, or similar. They are added here to make you control the order of arguments).
 # Choice between <flag>_RELEASE/_DEBUG/_TEST is done according to BUILDINC / make debug / make test
-WARN_RELEASE	= -Wall -W -pedantic $(sys_WARN) # -Wno-ignored-attributes -Wno-attributes
-ARCH_RELEASE	= -march=native # -arch i386 -arch x86_64
+WARN_RELEASE	= -Wall -W -pedantic $(sys_WARN)
+ARCH_RELEASE	= -march=native
 OPTI_COMMON	= -pipe -fstack-protector
 OPTI_RELEASE	= -O3 $(OPTI_COMMON) $(sys_OPTI)
 INCS_RELEASE	= $(sys_INCS)
-LIBS_RELEASE	= $(SUBLIBS) $(sys_LIBS) -lpthread
+LIBS_RELEASE	= $(SUBLIBS) $(sys_LIBS) -lpthread -lz
 MACROS_RELEASE	=
-WARN_DEBUG	= $(WARN_RELEASE) # -Werror
+WARN_DEBUG	= $(WARN_RELEASE)
 ARCH_DEBUG	= $(ARCH_RELEASE)
-OPTI_DEBUG	= -O0 -g $(OPTI_COMMON) #-gdwarf -g3
+OPTI_DEBUG	= -O0 -g $(OPTI_COMMON)
 INCS_DEBUG	= $(INCS_RELEASE)
 LIBS_DEBUG	= $(LIBS_RELEASE)
 MACROS_DEBUG	= -D_DEBUG -D_TEST
@@ -93,6 +97,7 @@ FLAGS_CXX	= -D_GNU_SOURCE -Wno-variadic-macros
 FLAGS_OBJC	= -std=c99
 FLAGS_OBJCXX	=
 FLAGS_GCJ	=
+# Some other flags: ARCH(-arch i386 -arch x86_64), WARN(-Werror), OPTI(-gdwarf -g3), ...
 
 # FLAGS_<lang>_<file> is specific to one file (eg:'FLAGS_CXX_Big.cc=-O0','FLAGS_C_src/a.c=-O1')
 
@@ -204,6 +209,8 @@ BUILDINC	= build.h
 BUILDINCJAVA	= Build.java
 VERSIONINC	= version.h
 SYSDEPDIR	= sysdeps
+CONFIGLOG	= configure.log
+CONFIGMAKE	= build.make
 
 # SRCINC containing source code is included if APP_INCLUDE_SOURCE is defined in VERSIONINC.
 SRCINCDIR	= $(BUILDDIR)
@@ -554,7 +561,7 @@ include $(SINCLUDEDEPS)
 
 ############################################################################################
 
-ALLMAKEFILES	= Makefile
+ALLMAKEFILES	= Makefile $(CONFIGMAKE)
 LICENSE		= LICENSE
 README		= README.md
 CLANGCOMPLETE	= .clang_complete
@@ -571,6 +578,7 @@ TESTDIRS	= $(SUBDIRS:=-test)
 DEBUGDIRS	= $(SUBDIRS:=-debug)
 DOCDIRS		= $(SUBDIRS:=-doc)
 TESTBUILDDIRS	= $(SUBDIRS:=-test-build)
+CONFIGUREDIRS	= $(SUBDIRS:=-configure)
 
 # RECURSEMAKEARGS, see doc for SUBMODROOTDIR above. When SUBMODROOTDIR is not empty,
 # if the submodule is fetched alone, it will use its own submodules, if it is fetched as a
@@ -607,10 +615,10 @@ $(CLEANDIRS):
 
 # --- distclean : remove objects, binaries and remove DEBUG flag in build.h
 distclean: cleanme $(DISTCLEANDIRS)
-	$(RM) $(BIN) $(LIB) $(BUILDINC) $(BUILDINCJAVA) valgrind_*.log
+	$(RM) $(BIN) $(LIB) $(BUILDINC) $(BUILDINCJAVA) $(CONFIGLOG) $(CONFIGMAKE) valgrind_*.log
 	$(RM) -R $(BIN).dSYM || true
 	$(RM) `$(FIND) . -name '.*.sw?' -or -name '*~' -or -name '\#*' $(NO_STDERR)`
-	@$(cmd_TESTBSDOBJ) && { del=; for f in $(BIN) $(LIB) $(JAR) $(BUILDINC) $(BUILDINCJAVA); do \
+	@$(cmd_TESTBSDOBJ) && { del=; for f in $(BIN) $(LIB) $(JAR) $(BUILDINC) $(BUILDINCJAVA) $(CONFIGMAKE); do \
 	                                  $(TEST) -n "$$f" && del="$$del $(.CURDIR)/$$f"; done; \
 		                for f in $(VERSIONINC) $(README) $(LICENSE); do del="$$del $(.OBJDIR)/$$f"; done; echo "$(RM) $$del"; $(RM) $$del $(NO_STDERR); } || true
 	@$(TEST) "$(BUILDDIR)" != "$(SRCDIR)" && $(RMDIR) `$(FIND) $(BUILDDIR) -type d | $(SORT) -r` $(NO_STDERR) || true
@@ -983,7 +991,7 @@ $(BUILDINC): update-$(BUILDINC)
 	@true
 $(BUILDINCJAVA): update-$(BUILDINC)
 	@true
-create-$(BUILDINC): $(VERSIONINC) $(ALLMAKEFILES) .EXEC
+create-$(BUILDINC): $(VERSIONINC) Makefile .EXEC
 	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$(BUILDINC)" "$(.CURDIR)"; ln -sf "$(.OBJDIR)/$(BUILDINCJAVA)" "$(.CURDIR)"; \
 		               else $(TEST) -L $(BUILDINC) && $(RM) $(BUILDINC); $(TEST) -L $(BUILDINCJAVA) && $(RM) $(BUILDINCJAVA) || true; fi; \
 	 if ! $(TEST) -e $(BUILDINC); then \
@@ -1002,7 +1010,7 @@ create-$(BUILDINC): $(VERSIONINC) $(ALLMAKEFILES) .EXEC
 	       "int $(NAME)_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx);" "#ifdef __cplusplus" "}" "#endif" >> $(BUILDINC); \
 	 fi;
 #fullgitrev=`$(GIT) describe --match "v[0-9]*" --always --tags --dirty --abbrev=0 $(NO_STDERR)`
-update-$(BUILDINC): create-build.h .EXEC
+update-$(BUILDINC): create-$(BUILDINC) $(CONFIGMAKE) .EXEC
 	@if gitstatus=`$(GIT) status --untracked-files=no --ignore-submodules=untracked --short --porcelain $(NO_STDERR)`; then \
 	     i=0; for rev in `$(GIT) show --quiet --ignore-submodules=untracked --format="%h %H" HEAD $(NO_STDERR)`; do \
 	         case $$i in 0) gitrev="$$rev";; 1) fullgitrev="$$rev" ;; esac; \
@@ -1020,7 +1028,6 @@ update-$(BUILDINC): create-build.h .EXEC
 	 $(TEST) -n "$(BISON3)" && bison3=1 || bison3=0; \
 	 $(TEST) -n "$(SRCINC)" && appsource=true || appsource=false; \
 	 $(cmd_HAVEVLIB) && vlib=1 || vlib=0; \
-	 zlib=0; zlib_h=0; $(cmd_HAVEZLIBH) && zlib_h=1 && zlib=1; \
 	 if $(SED) -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREV[[:space:]]\).*|\1$${gitrev}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREVFULL[[:space:]]\).*|\1$${fullgitrev}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREMOTE[[:space:]]\).*|\1$${gitremote}|" \
@@ -1044,8 +1051,6 @@ update-$(BUILDINC): create-build.h .EXEC
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_LEX[[:space:]]\).*|\1$${lex}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_BISON3[[:space:]]\).*|\1$${bison3}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_VLIB[[:space:]]\).*|\1$${vlib}|" \
-	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_ZLIB[[:space:]]\).*|\1$${zlib}|" \
-		-e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_ZLIB_H[[:space:]]\).*|\1$${zlib_h}|" \
 	        $(BUILDINC) > $(BUILDINC).tmp \
 	 ; then \
 	    if $(DIFF) -q $(BUILDINC) $(BUILDINC).tmp $(NO_STDOUT); then $(RM) $(BUILDINC).tmp; \
@@ -1067,11 +1072,98 @@ update-$(BUILDINC): create-build.h .EXEC
 	    fi; \
 	 fi
 
+configure: $(CONFIGUREDIRS)
+	@$(RM) -f $(CONFIGMAKE) $(INCLUDEDEPS)
+	@$(MAKE) $(CONFIGMAKE)
+$(CONFIGUREDIRS):
+	@recdir=$(@:-configure=); rectarget=test-build; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} configure
+$(CONFIGMAKE): Makefile .EXEC
+	 @if ! $(TEST) -s "$(CONFIGMAKE)"; then \
+	  if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$(CONFIGMAKE)" "$(.CURDIR)"; \
+		                else $(TEST) -L "$(CONFIGMAKE)" && $(RM) "$(CONFIGMAKE)" || true; fi; \
+	  $(PRINTF) "$(NAME): generate $(CONFIGMAKE)\n"; \
+	  log() { $(PRINTF) "$$@"; $(PRINTF) "$$@" >> "$${configlog}"; }; \
+	  gcctest() { \
+	    plabel=$$1; shift; lcode=$$@; binout=; \
+	    case " $(CONFIG_CHECK) " in *" $${plabel} "*|*" all "*) ;; *) return 1;; esac; \
+	    logheader="$(NAME): checking $${plabel}"; \
+	    tmpname=`mktemp "$${mytmpdir}/gcctest_XXXXXXXX"`; \
+	    $(TEST) -n "$${cflags}" && logheader="$${logheader} ($${cflags})"; \
+	    $(TEST) -n "$${libs}" && logheader="$${logheader} ($${libs})"; \
+	    logheader="$${logheader}... "; \
+	    $(PRINTF) "$${lcode}" > "$${tmpname}.c"; \
+	    gccout=`$(CC) $${cflags} -o "$${tmpname}" "$${tmpname}.c" $${libs} 2>&1` \
+		&& binout=`"$${tmpname}"` && ret=0 || ret=1; \
+	    $(RM) -f "$${tmpname}" $(NO_STDERR); \
+	    $(PRINTF) -- "\n------------------------------------------------------\n" >> "$${configlog}"; \
+	    $(TEST) "$${ret}" = "0" && log "$${logheader}yes $${binout}\n" || log "$${logheader}no\n"; \
+	    $(TEST) -n "$${gccout}" && $(PRINTF) -- "*********** $(CC) $${cflags} $${libs}\n$${gccout}\n" >> "$${configlog}"; \
+	    $(PRINTF) -- "\n>>>>>>>>>> $${tmpname}.c <<<<<<<<\n" >> "$${configlog}"; \
+	    $(CAT) "$${tmpname}.c" >> "$${configlog}"; \
+	    $(RM) -f "$${tmpname}.c" $(NO_STDERR); \
+	    $(RM) -Rf "$${tmpname}.dSYM" $(NO_STDERR); \
+	    libs=; cflags=; \
+	    $(TEST) "$${ret}" = "0"; \
+	}; \
+	mytmpdir=.; configlog=$(CONFIGLOG); $(PRINTF) "" > $${configlog}; \
+	$(GREP) -Ev 'BUILD_ZLIB|BUILD_ZLIB_H|BUILD_CURSES|BUILD_CURSES_H|BUILD_LIBCRYPTO|BUILD_APPLECRYPTO|BUILD_OPENSSL|BUILD_SIGQUEUE|BUILD_SIGRTMIN|BUILD_LIBCRYPT|BUILD_CRYPT_H|BUILD_CRYPT_GNU|BUILD_CRYPT_DES_EXT' \
+	       $(BUILDINC) > $(BUILDINC).tmp $(NO_STDERR) && $(MV) $(BUILDINC).tmp $(BUILDINC); \
+	$(PRINTF) 'default_rule: $(DEFAULT_RULE_DEPENDENCIES)\n' > $(CONFIGMAKE); \
+	lib="-lz"; cflags='' libs="$${lib}" gcctest "zlib" "#include <stdio.h>\n#include <zlib.h>\n\
+	    unsigned char inbuf[] = { 31,139,8,0,239,31,168,90,0,3,51,228,2,0,83,252,81,103,2,0,0,0 };\n \
+	int main() { unsigned char out[2] = {0,0}; z_stream z; z.next_in = inbuf; z.next_out=out; z.avail_out = 2; z.avail_in = sizeof(inbuf); z.opaque = 0; \
+	        z.zalloc = 0; z.zfree = 0; if(inflateInit2(&z, 31) == 0 && inflate(&z, Z_NO_FLUSH) == 1 && *out == '1') return 0; printf(\"%%u\", *out);return 1; }\n" \
+	    && $(PRINTF) "#define BUILD_ZLIB 1\n#define BUILD_ZLIB_H 1\n" >> $(BUILDINC) && $(PRINTF) "BUILD_LIBZLIB=$${lib}\n" >> $(CONFIGMAKE) \
+	|| { cflags='' libs="$${lib}" gcctest "zlib" "#include <stdio.h>\n\
+	    typedef struct { unsigned char *next_in; unsigned avail_in; unsigned long total_in; unsigned char * next_out; unsigned avail_out; \
+	      unsigned long total_out; char *msg; void *state; int(*zalloc)(void*,unsigned,unsigned); int(*zfree)(void*,void*); \
+	      void * opaque; int data_type; unsigned long adler; unsigned long reserved; \n\
+	    } z_stream; const char * zlibVersion(); int inflateInit2_(z_stream*, int, const char *, int); int inflate(z_stream*, int);\n\
+	    unsigned char inbuf[] = { 31,139,8,0,239,31,168,90,0,3,51,228,2,0,83,252,81,103,2,0,0,0 };\n \
+	    int main() { unsigned char out[2] = {0,0}; z_stream z; z.next_in = inbuf; z.next_out=out; z.avail_out = 2; z.avail_in = sizeof(inbuf); z.opaque = 0; \
+	        z.zalloc = 0; z.zfree = 0; \
+	        if(inflateInit2_(&z, 31, zlibVersion(), sizeof(z_stream)) == 0 && inflate(&z, 0) == 1 && *out == '1') return 0; printf(\"%%u\", *out);return 1; }\n" \
+	    && $(PRINTF) "#define BUILD_ZLIB 1\n" >> $(BUILDINC) && $(PRINTF) "BUILD_LIBZLIB=$${lib}\n" >> $(CONFIGMAKE); } || true; \
+	for lib in "-lncurses" "-lcurses" "-ltinfo" "-lncurses -ltinfo" "-lcurses -ltinfo"; do \
+	    cflags='' libs="$${lib}" gcctest "ncurses" "#include <curses.h>\n#include <term.h>\nint main() { setupterm(0, 1, 0); tigetnum(\"cols\"); return 0; }\n" \
+	        && $(PRINTF) "#define BUILD_CURSES 1\n#define BUILD_CURSES_H 1\n" >> $(BUILDINC) && $(PRINTF) "BUILD_LIBNCURSES=$${lib}\n" >> $(CONFIGMAKE) && break \
+	    || { cflags='' libs="$${lib}" gcctest "ncurses" "int main() { setupterm(0, 1, 0); tigetnum(\"cols\"); return 0; }\n" \
+	        && $(PRINTF) "#define BUILD_CURSES 1\n" >> $(BUILDINC) && $(PRINTF) "BUILD_LIBNCURSES=$${lib}\n" >> $(CONFIGMAKE) && break; } || true; \
+	done; \
+	lib="-lcrypto"; cflags='' libs="$${lib}" gcctest "libcrypto" "int SHA256_Init(void *);\nint main() { long n[128]; SHA256_Init(&n); return 0; }\n" \
+	    && $(PRINTF) "#define BUILD_LIBCRYPTO 1\n" >> $(BUILDINC) && $(PRINTF) "BUILD_LIBCRYPTO=$${lib}\n" >> $(CONFIGMAKE) || true; \
+	cflags='' libs='' gcctest "applecrypto" "#define COMMON_DIGEST_FOR_OPENSSL\n#include <CommonCrypto/CommonDigest.h>\nint main() { SHA256_CTX n; SHA256_Init(&n); return 0; }\n" \
+	    && $(PRINTF) "#define BUILD_APPLECRYPTO 1\n" >> $(BUILDINC) || true; \
+        for prefix in '' '/opt/local' '/usr/local'; do \
+	    if $(TEST) -n "$${prefix}"; then cflag="-I$${prefix}/include"; lib="-L$${prefix}/lib -lcrypto"; else clfag=; lib="-lcrypto"; fi; \
+	    cflags="$${cflag}" libs="$${lib}" gcctest "openssl" "#include <openssl/sha.h>\nint main() { SHA256_CTX n; SHA256_Init(&n); return 0; }\n" \
+	    && $(PRINTF) "#define BUILD_OPENSSL 1\n" >> $(BUILDINC) && $(PRINTF) "BUILD_INCOPENSSL=$${cflag}\nBUILD_LIBOPENSSL=$${lib}\n" >> $(CONFIGMAKE) && break || true; \
+	done; \
+	cflags='' libs='' gcctest "sigqueue" '#include <signal.h>\nint main(void) { sigqueue(0,0,0); return 0; }\n' \
+	    && $(PRINTF) "#define BUILD_SIGQUEUE 1\n" >> $(BUILDINC) || true; \
+	cflags='' libs='' gcctest "sigrtmin" '#include <signal.h>\n#include <stdio.h>\nint main(void) { printf("%%d", SIGRTMIN); return 0; }\n' \
+	    && $(PRINTF) "#define BUILD_SIGRTMIN ${gccout}\n" >> $(BUILDINC) || true; \
+	lib="-lcrypt"; cflags='' libs="$${lib}" gcctest "libcrypt" "int main(void) { return 0; }\n" \
+	    && $(PRINTF) "BUILD_LIBCRYPT=$${lib}\n" >> $(CONFIGMAKE) || true; \
+	cflags='' libs='' gcctest "crypt.h" '#include <crypt.h>\nint main(void) { return 0; }\n' \
+	    && $(PRINTF) '#define BUILD_CRYPT_H 1\n' >> $(BUILDINC) || true; \
+	cflags='' libs='' gcctest "crypt_gnu" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n\
+	        #include \"$$PWD/$(BUILDINC)\"\n#ifdef BUILD_CRYPT_H\n#include <crypt.h>\n#endif\n\
+		int main(void) { int ret=1; int f=0; int i; char *s=strdup(\"\$$1\$$abcdefgh\$$\");\nfor(i=1; i <= 9; i++) \
+		    {s[1]='0'+i; if (!strncmp(s, crypt(\"toto\", s), strlen(s))) { \nret=0; f |= 1 << (i-1); } } \
+		    printf(\"0x%%02x\", f); return ret; }\n" \
+	    && $(PRINTF) "#define BUILD_CRYPT_GNU $${gccout}\n" >> $(BUILDINC) || true; \
+	cflags='' libs='' gcctest "crypt_des_ext" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n#include \"$$PWD/$(BUILDINC)\"\n\
+	        #ifdef BUILD_CRYPT_H\n#include <crypt.h>\n#endif\nint main(void) { char *s=\"_1200Salt\";\n\
+		return strncmp(s, crypt(\"toto\", s), strlen(s)); }\n" \
+	    && $(PRINTF) '#define BUILD_CRYPT_DES_EXT 1\n' >> $(BUILDINC) || true; \
+	fi
+
 .gitignore:
 	@$(cmd_TESTBSDOBJ) && cd $(.CURDIR) && build=`echo $(.OBJDIR) | $(SED) -e 's|^$(.CURDIR)||'`/ || build=; \
 	 { cat .gitignore $(NO_STDERR); \
 	   for f in $(LIB) $(JAR) $(GENSRC) $(GENJAVA) $(GENINC) $(SRCINC_Z) $(SRCINC_STR) \
-	            $(BUILDINC) $(BUILDINCJAVA) $(CLANGCOMPLETE) obj/ \
+	            $(BUILDINC) $(BUILDINCJAVA) $(CLANGCOMPLETE) $(CONFIGLOG) $(CONFIGMAKE) obj/ \
 	            `$(TEST) -n "$(BIN)" && echo "$(BIN)" "$(BIN).dSYM" "$(BIN).core" "core" "core.[0-9]*[0-9]" || true` \
 	            `echo "$(FLEXLEXER_LNK)" | $(SED) -e 's|^\./||' || true`; do \
 	       $(TEST) -n "$$f" && $(PRINTF) "/$$f\n" | $(SED) -e 's|^/\./|/|' || true; done; \
@@ -1196,8 +1288,8 @@ help:
 	  "  FLAGS_GCJ    [$(FLAGS_GCJ)]" \
 	  "  ..." \
 	  "" \
-	  "make clean / distclean" \
-	  "  clean intermediary files / clean generated files" \
+	  "make clean / distclean / configure" \
+	  "  clean intermediary files / clean generated files / reconfigure" \
 	  "" \
 	  "make info" \
 	  "  display makefile variables" \
@@ -1273,6 +1365,7 @@ info:
 	  "DISTDIR          : $(DISTDIR)" \
 	  "BUILDDIR         : $(BUILDDIR)" \
 	  "PREFIX           : $(PREFIX)" \
+	  "CONFIG_CHECK     : $(CONFIG_CHECK)" \
 	  "BIN              : $(BIN)" \
 	  "LIB              : $(LIB)" \
 	  "METASRC          : $(METASRC)" \
@@ -1296,8 +1389,9 @@ rinfo: info
 .PHONY: subdirs $(DEBUGDIRS)
 .PHONY: subdirs $(TESTBUILDDIRS)
 .PHONY: subdirs $(DOCDIRS)
+.PHONY: subdirs $(CONFIGUREDIRS)
 .PHONY: default_rule all build_all cleanme clean distclean dist test info rinfo \
 	doc installme install debug gentags update-$(BUILDINC) create-$(BUILDINC) \
 	.gitignore merge-makefile debug-makefile valgrind help test-build \
-	subsubmodules
+	subsubmodules configure
 
