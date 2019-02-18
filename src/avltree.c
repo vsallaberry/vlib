@@ -26,7 +26,6 @@
 
 #include "vlib/avltree.h"
 #include "vlib/log.h"
-#include "vlib/slist.h"
 #include "vlib/rbuf.h"
 
 #include "vlib_private.h"
