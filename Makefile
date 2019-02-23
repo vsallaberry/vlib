@@ -112,15 +112,15 @@ LIBS_darwin	= -framework IOKit -framework Foundation $(LIBS_GNUCXX_XTRA_$(UNAME_
 LIBS_linux	= -lrt -ldl
 
 # TESTS and DEBUG parameters
-# VALGRIND_RUN_PROGRAM: how to run the program with valgrind (can be used to pass arguments to valgrind)
+# VALGRIND_RUN: how to run the program with valgrind (can be used to pass arguments to valgrind)
 #   (eg: './$(BIN) arguments', '--trace-children=no ./$(BIN) arguments')
-VALGRIND_RUN_PROGRAM = ./$(BIN)
+VALGRIND_RUN	= ./$(BIN)
 # VALGRIND_MEM_IGNORE_PATTERN: awk regexp to ignore keyworks in LEAKS reports (sure valgrind --suppressions=<file> is better)
 #VALGRIND_MEM_IGNORE_PATTERN = ImageLoader::recursiveInitialization|ImageLoaderMachO::doInitialization|ImageLoaderMachO::instantiateFromFile|_objc_init|_NSInitializePlatform
 VALGRIND_MEM_IGNORE_PATTERN =
-# TEST_RUN_PROGRAM: what to run with 'make test' (eg: 'true', './test.sh $(BIN)', './$(BIN) --test'
-#   if tests are only built with macro _TEST, you can insert 'make debug' or 'make test-build'
-TEST_RUN_PROGRAM = @echo "vlib tests are in https://github.com/vsallaberry/vsensorsdemo"
+# CHECK_RUN: what to run with 'make check' (eg: 'true', './test.sh $(BIN)', './$(BIN) --test'
+#   if tests are only built with macro _TEST, you can insert 'make debug' or 'make test'
+CHECK_RUN	= @echo "vlib tests are in https://github.com/vsallaberry/vsensorsdemo"
 
 ############################################################################################
 # GENERIC PART - in most cases no need to change anything below until end of file
