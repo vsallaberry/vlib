@@ -224,8 +224,9 @@ BUILDINC	= build.h
 BUILDINCJAVA	= Build.java
 VERSIONINC	= version.h
 SYSDEPDIR	= sysdeps
-CONFIGLOG	= configure.log
-CONFIGMAKE	= build.make
+CONFIGLOG	= config.log
+CONFIGMAKE	= config.make
+CONFIGINC	= config.h
 
 # SRCINC containing source code is included if APP_INCLUDE_SOURCE is defined in VERSIONINC.
 SRCINCDIR	= $(BUILDDIR)
@@ -415,14 +416,15 @@ cmd_INCLUDES	= $(cmd_FINDBSDOBJ); \
 		    $(find_AND_NOGEN) $(find_AND_NOGEN2) \
 		    -and \! -path $(VERSIONINC) -and \! -path ./$(VERSIONINC) \
 		    -and \! \( -path $(FLEXLEXER_LNK) -and -type l \) \
-		    -and \! -path $(BUILDINC) -and \! -path ./$(BUILDINC) $(find_AND_SYSDEP) \
-		    -print $(NO_STDERR) | $(SED) -e 's|^\./||'
+		    -and \! -path $(BUILDINC) -and \! -path ./$(BUILDINC) \
+		    -and \! -path $(CONFIGINC) -and \! -path ./$(CONFIGINC) \
+		    $(find_AND_SYSDEP) -print $(NO_STDERR) | $(SED) -e 's|^\./||'
 
 # INCLUDE VARIABLE, filled from the 'find' command (cmd_INCLUDES) defined above.
 tmp_INCLUDES	!= $(cmd_INCLUDES)
 tmp_INCLUDES	?= $(shell $(cmd_INCLUDES))
 tmp_INCLUDES	:= $(tmp_INCLUDES)
-INCLUDES	:= $(VERSIONINC) $(BUILDINC) $(tmp_INCLUDES)
+INCLUDES	:= $(VERSIONINC) $(BUILDINC) $(CONFIGINC) $(tmp_INCLUDES)
 
 # SRCINC containing source code is included if APP_INCLUDE_SOURCE is defined in VERSIONINC.
 # SRCINC_Z (compressed) is used if zlib.h,vlib,gzip,od are present, otherwise SRCINC_STR is used.
@@ -630,12 +632,13 @@ $(CLEANDIRS):
 
 # --- distclean : remove objects, binaries and remove DEBUG flag in build.h
 distclean: cleanme $(DISTCLEANDIRS)
-	$(RM) $(BIN) $(LIB) $(BUILDINC) $(BUILDINCJAVA) $(CONFIGLOG) $(CONFIGMAKE) valgrind_*.log
+	$(RM) $(BIN) $(LIB) $(BUILDINC) $(BUILDINCJAVA) $(CONFIGLOG) $(CONFIGMAKE) $(CONFIGINC) valgrind_*.log
 	$(RM) -R $(BIN).dSYM || true
 	$(RM) `$(FIND) . -name '.*.sw?' -or -name '*~' -or -name '\#*' $(NO_STDERR)`
-	@$(cmd_TESTBSDOBJ) && { del=; for f in $(BIN) $(LIB) $(JAR) $(BUILDINC) $(BUILDINCJAVA) $(CONFIGMAKE); do \
+	@$(cmd_TESTBSDOBJ) && { del=; for f in $(BIN) $(LIB) $(JAR) $(BUILDINC) $(BUILDINCJAVA) $(CONFIGMAKE) $(CONFIGINC); do \
 	                                  $(TEST) -n "$$f" && del="$$del $(.CURDIR)/$$f"; done; \
-		                for f in $(VERSIONINC) $(README) $(LICENSE); do del="$$del $(.OBJDIR)/$$f"; done; echo "$(RM) $$del"; $(RM) $$del $(NO_STDERR); } || true
+	                        for f in $(VERSIONINC) $(README) $(LICENSE); do del="$$del $(.OBJDIR)/$$f"; done; \
+	                        echo "$(RM) $$del"; $(RM) $$del $(NO_STDERR); } || true
 	@$(TEST) "$(BUILDDIR)" != "$(SRCDIR)" && $(RMDIR) `$(FIND) $(BUILDDIR) -type d | $(SORT) -r` $(NO_STDERR) || true
 	@$(PRINTF) "$(NAME): distclean done, debug & test disabled.\n"
 $(DISTCLEANDIRS):
@@ -730,7 +733,7 @@ $(JAVAOBJ): $(JAVASRC)
 	       || { $(MKDIR) -p "$(BUILDDIR)/$$dir"; mv "$$f" "$(BUILDDIR)/$$dir"; }; \
 	 done; $(RM) -Rf "$(TMPCLASSESDIR)"
 	$(GCJ) $(JFLAGS) -d $(BUILDDIR) -c -o $@ $(CLASSES:.class=*.class)
-$(JCNIINC): $(ALLMAKEFILES) $(BUILDINC)
+$(JCNIINC): $(ALLMAKEFILES) $(BUILDINC) $(CONFIGINC)
 
 #$(JCNISRC:.cc=.o) : $(JCNIINC) # usefull without -MD
 #$(JCNIOBJ): $(JCNIINC) # Useful without -MD
@@ -758,11 +761,11 @@ $(JAR): $(JAVASRC) $(SUBLIBS) $(MANIFEST) $(ALLMAKEFILES)
 #$(YACCGENJAVA): $(ALLMAKEFILES) $(BUILDINC)
 
 ### WITH -MD
-$(OBJ): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC)
+$(OBJ): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(CONFIGINC)
 $(OBJ_NOJAVA): $(OBJDEPS_$(SINCLUDEDEPS))
-$(GENSRC): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC)
-$(GENJAVA): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC)
-$(CLASSES): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC)
+$(GENSRC): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(CONFIGINC)
+$(GENJAVA): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(CONFIGINC)
+$(CLASSES): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(CONFIGINC)
 
 # Implicit rules: old-fashionned double suffix rules to be compatible with most make.
 # -----------
@@ -1004,12 +1007,13 @@ $(BUILDINC): update-$(BUILDINC)
 	@true
 $(BUILDINCJAVA): update-$(BUILDINC)
 	@true
-create-$(BUILDINC): $(VERSIONINC) Makefile .EXEC
+#fullgitrev=`$(GIT) describe --match "v[0-9]*" --always --tags --dirty --abbrev=0 $(NO_STDERR)`
+update-$(BUILDINC): $(CONFIGMAKE) .EXEC
 	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$(BUILDINC)" "$(.CURDIR)"; ln -sf "$(.OBJDIR)/$(BUILDINCJAVA)" "$(.CURDIR)"; \
-		               else $(TEST) -L $(BUILDINC) && $(RM) $(BUILDINC); $(TEST) -L $(BUILDINCJAVA) && $(RM) $(BUILDINCJAVA) || true; fi; \
+	 else $(TEST) -L $(BUILDINC) && $(RM) $(BUILDINC); $(TEST) -L $(BUILDINCJAVA) && $(RM) $(BUILDINCJAVA) || true; fi; \
 	 if ! $(TEST) -e $(BUILDINC); then \
-	     $(cmd_TESTBSDOBJ) && ! $(TEST) -e "$(VERSIONINC)" && ln -sf "$(.CURDIR)/$(VERSIONINC)" .; \
 	     echo "$(NAME): create $(BUILDINC)"; \
+	     $(cmd_TESTBSDOBJ) && ! $(TEST) -e "$(VERSIONINC)" && ln -sf "$(.CURDIR)/$(VERSIONINC)" .; \
 	     build=`$(SED) -n -e 's/^[[:space:]]*#define[[:space:]]APP_BUILD_NUMBER[[:space:]][[:space:]]*\([0-9][0-9]*\).*/\1/p' $(VERSIONINC)`; \
 	     $(PRINTF) "%s\n" "#define BUILD_APPNAME \"\"" "#define BUILD_NUMBER $$build" "#define BUILD_PREFIX \"\"" \
 	       "#define BUILD_GITREV \"\"" "#define BUILD_GITREVFULL \"\"" "#define BUILD_GITREMOTE \"\"" \
@@ -1017,13 +1021,10 @@ create-$(BUILDINC): $(VERSIONINC) Makefile .EXEC
 	       "#define BUILD_MAKE \"\"" "#define BUILD_CC_CMD \"\"" "#define BUILD_CXX_CMD \"\"" "#define BUILD_OBJC_CMD \"\"" \
 	       "#define BUILD_GCJ_CMD \"\"" "#define BUILD_CCLD_CMD \"\"" "#define BUILD_SRCPATH \"\"" \
 	       "#define BUILD_JAVAOBJ 0" "#define BUILD_JAR 0" "#define BUILD_BIN 0" "#define BUILD_LIB 0" \
-	       "#define BUILD_YACC 0" "#define BUILD_LEX 0" "#define BUILD_BISON3 0" \
-	       "#define BUILD_VLIB 0" "#define BUILD_ZLIB 0" "#define BUILD_ZLIB_H 0" "#define BUILD_CURSES 1" \
-	       "#include <stdio.h>" "#ifdef __cplusplus" "extern \"C\" {" "#endif" \
-	       "int $(NAME)_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx);" "#ifdef __cplusplus" "}" "#endif" >> $(BUILDINC); \
-	 fi;
-#fullgitrev=`$(GIT) describe --match "v[0-9]*" --always --tags --dirty --abbrev=0 $(NO_STDERR)`
-update-$(BUILDINC): create-$(BUILDINC) $(CONFIGMAKE) .EXEC
+	       "#define BUILD_YACC 0" "#define BUILD_LEX 0" "#define BUILD_BISON3 0" "#include \"$(CONFIGINC)\"" \
+	       "#include <stdio.h>" "#ifdef __cplusplus" "extern \"C\" " "#endif" \
+	       "int $(NAME)_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx);" >> $(BUILDINC); \
+	 fi
 	@if gitstatus=`$(GIT) status --untracked-files=no --ignore-submodules=untracked --short --porcelain $(NO_STDERR)`; then \
 	     i=0; for rev in `$(GIT) show --quiet --ignore-submodules=untracked --format="%h %H" HEAD $(NO_STDERR)`; do \
 	         case $$i in 0) gitrev="$$rev";; 1) fullgitrev="$$rev" ;; esac; \
@@ -1074,7 +1075,7 @@ update-$(BUILDINC): create-$(BUILDINC) $(CONFIGMAKE) .EXEC
 	        $(SED) -n -e 's|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*\(BUILD_GIT[^[:space:]]*\)[[:space:]][[:space:]]*\(.*\).*|    public static final String  \1 = \2;|p' \
 	                  -e 's|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*\([^[:space:]]*\)[[:space:]][[:space:]]*\(".*"\).*|    public static final String  \1 = \2;|p' \
 	                  -e 's|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*\([^[:space:]]*\)[[:space:]][[:space:]]*\([^[:space:]]*\).*|    public static final int     \1 = \2;|p' \
-	                   $(VERSIONINC) $(BUILDINC) \
+	                   $(VERSIONINC) $(BUILDINC) $(CONFIGINC) \
 	        && $(PRINTF) "%s\n" "    public static final String  BUILD_SYS = \"$(UNAME_SYS)\";" \
 	                            "    public static final boolean BUILD_DEBUG = $$debug;" \
 	                            "    public static final boolean BUILD_TEST = $$test;" \
@@ -1090,10 +1091,10 @@ configure: $(CONFIGUREDIRS)
 	@$(MAKE) $(CONFIGMAKE)
 $(CONFIGUREDIRS):
 	@recdir=$(@:-configure=); rectarget=configure; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} configure
-$(CONFIGMAKE): Makefile .EXEC
-	 @if ! $(TEST) -s "$(CONFIGMAKE)"; then \
-	  if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$(CONFIGMAKE)" "$(.CURDIR)"; \
-		                else $(TEST) -L "$(CONFIGMAKE)" && $(RM) "$(CONFIGMAKE)" || true; fi; \
+$(CONFIGINC): $(CONFIGMAKE)
+$(CONFIGMAKE): Makefile
+	 @if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$(CONFIGMAKE)" "$(.CURDIR)" && ln -sf "$(.OBJDIR)/$(CONFIGINC)" "$(.CURDIR)"; \
+		                else $(TEST) -L "$(CONFIGMAKE)" && $(RM) "$(CONFIGMAKE)"; $(TEST) -L "$(CONFIGINC)" && $(RM) "$(CONFIGINC)" || true; fi; \
 	  $(PRINTF) "$(NAME): generate $(CONFIGMAKE)\n"; \
 	  log() { $(PRINTF) "$$@"; $(PRINTF) "$$@" >> "$${configlog}"; }; \
 	  gcctest() { \
@@ -1119,64 +1120,76 @@ $(CONFIGMAKE): Makefile .EXEC
 	    $(TEST) "$${ret}" = "0"; \
 	}; \
 	mytmpdir=.; configlog=$(CONFIGLOG); $(PRINTF) "" > $${configlog}; \
-	$(GREP) -Ev 'BUILD_ZLIB|BUILD_ZLIB_H|BUILD_CURSES|BUILD_CURSES_H|BUILD_LIBCRYPTO|BUILD_APPLECRYPTO|BUILD_OPENSSL|BUILD_SIGQUEUE|BUILD_SIGRTMIN|BUILD_LIBCRYPT|BUILD_CRYPT_H|BUILD_CRYPT_GNU|BUILD_CRYPT_DES_EXT' \
-	       $(BUILDINC) > $(BUILDINC).tmp $(NO_STDERR) && $(MV) $(BUILDINC).tmp $(BUILDINC); \
-	$(PRINTF) 'default_rule: $(DEFAULT_RULE_DEPENDENCIES)\n' > $(CONFIGMAKE); \
+	$(PRINTF) 'default_rule: $(DEFAULT_RULE_DEPENDENCIES)\n' > $(CONFIGMAKE); $(PRINTF) '' > $(CONFIGINC); \
 	lib="-lz"; cflags='' libs="$${lib}" gcctest "zlib" "#include <stdio.h>\n#include <zlib.h>\n\
 	    unsigned char inbuf[] = { 31,139,8,0,239,31,168,90,0,3,51,228,2,0,83,252,81,103,2,0,0,0 };\n \
-	int main() { unsigned char out[2] = {0,0}; z_stream z; z.next_in = inbuf; z.next_out=out; z.avail_out = 2; z.avail_in = sizeof(inbuf); z.opaque = 0; \
-	        z.zalloc = 0; z.zfree = 0; if(inflateInit2(&z, 31) == 0 && inflate(&z, Z_NO_FLUSH) == 1 && *out == '1') return 0; printf(\"%%u\", *out);return 1; }\n" \
-	    && $(PRINTF) "#define BUILD_ZLIB 1\n#define BUILD_ZLIB_H 1\n" >> $(BUILDINC) && $(PRINTF) "BUILD_LIBZLIB=$${lib}\n" >> $(CONFIGMAKE) \
+	    int main() { unsigned char out[2] = {0,0}; z_stream z; z.next_in = inbuf; z.next_out=out;\n\
+	        z.avail_out = 2; z.avail_in = sizeof(inbuf); z.opaque = 0; z.zalloc = 0; z.zfree = 0;\n\
+	      if(inflateInit2(&z, 31) == 0 && inflate(&z, Z_NO_FLUSH) == 1 && *out == '1') return 0;\n\
+	      printf(\"%%u\", *out);return 1; }\n" \
+	  && $(PRINTF) "#define CONFIG_ZLIB 1\n#define CONFIG_ZLIB_H 1\n" >> $(CONFIGINC) \
+	  && $(PRINTF) "CONFIG_LIBZLIB=$${lib}\n" >> $(CONFIGMAKE) \
 	|| { cflags='' libs="$${lib}" gcctest "zlib" "#include <stdio.h>\n\
-	    typedef struct { unsigned char *next_in; unsigned avail_in; unsigned long total_in; unsigned char * next_out; unsigned avail_out; \
-	      unsigned long total_out; char *msg; void *state; int(*zalloc)(void*,unsigned,unsigned); int(*zfree)(void*,void*); \
-	      void * opaque; int data_type; unsigned long adler; unsigned long reserved; \n\
+	    typedef struct { unsigned char *next_in; unsigned avail_in; unsigned long total_in; unsigned char * next_out;\n\
+	        unsigned avail_out; unsigned long total_out; char *msg; void *state; int(*zalloc)(void*,unsigned,unsigned);\n\
+	        int(*zfree)(void*,void*); void * opaque; int data_type; unsigned long adler; unsigned long reserved;\n\
 	    } z_stream; const char * zlibVersion(); int inflateInit2_(z_stream*, int, const char *, int); int inflate(z_stream*, int);\n\
 	    unsigned char inbuf[] = { 31,139,8,0,239,31,168,90,0,3,51,228,2,0,83,252,81,103,2,0,0,0 };\n \
-	    int main() { unsigned char out[2] = {0,0}; z_stream z; z.next_in = inbuf; z.next_out=out; z.avail_out = 2; z.avail_in = sizeof(inbuf); z.opaque = 0; \
-	        z.zalloc = 0; z.zfree = 0; \
-	        if(inflateInit2_(&z, 31, zlibVersion(), sizeof(z_stream)) == 0 && inflate(&z, 0) == 1 && *out == '1') return 0; printf(\"%%u\", *out);return 1; }\n" \
-	    && $(PRINTF) "#define BUILD_ZLIB 1\n" >> $(BUILDINC) && $(PRINTF) "BUILD_LIBZLIB=$${lib}\n" >> $(CONFIGMAKE); } || true; \
+	    int main() { unsigned char out[2] = {0,0}; z_stream z; z.next_in = inbuf; z.next_out=out;\n\
+	            z.avail_out = 2; z.avail_in = sizeof(inbuf); z.opaque = 0; z.zalloc = 0; z.zfree = 0;\n\
+	        if(inflateInit2_(&z, 31, zlibVersion(), sizeof(z_stream)) == 0 && inflate(&z, 0) == 1 && *out == '1') return 0;\n\
+	        printf(\"%%u\", *out);return 1; }\n" \
+	    && $(PRINTF) "#define CONFIG_ZLIB 1\n" >> $(CONFIGINC) \
+	    && $(PRINTF) "CONFIG_LIBZLIB=$${lib}\n" >> $(CONFIGMAKE); } || true; \
 	for lib in "-lncurses" "-lcurses" "-ltinfo" "-lncurses -ltinfo" "-lcurses -ltinfo"; do \
-	    cflags='' libs="$${lib}" gcctest "ncurses" "#include <curses.h>\n#include <term.h>\nint main() { setupterm(0, 1, 0); tigetnum(\"cols\"); return 0; }\n" \
-	        && $(PRINTF) "#define BUILD_CURSES 1\n#define BUILD_CURSES_H 1\n" >> $(BUILDINC) && $(PRINTF) "BUILD_LIBNCURSES=$${lib}\n" >> $(CONFIGMAKE) && break \
-	    || { cflags='' libs="$${lib}" gcctest "ncurses" "int main() { setupterm(0, 1, 0); tigetnum(\"cols\"); return 0; }\n" \
-	        && $(PRINTF) "#define BUILD_CURSES 1\n" >> $(BUILDINC) && $(PRINTF) "BUILD_LIBNCURSES=$${lib}\n" >> $(CONFIGMAKE) && break; } || true; \
+	    cflags='' libs="$${lib}" gcctest "ncurses" "#include <curses.h>\n#include <term.h>\n\
+	        int main() { setupterm(0, 1, 0); tigetnum(\"cols\"); return 0; }\n" \
+	      && $(PRINTF) "#define CONFIG_CURSES 1\n#define CONFIG_CURSES_H 1\n" >> $(CONFIGINC) \
+	      && $(PRINTF) "CONFIG_LIBNCURSES=$${lib}\n" >> $(CONFIGMAKE) && break \
+	      || { cflags='' libs="$${lib}" gcctest "ncurses" "int main() {\n\
+	          setupterm(0, 1, 0); tigetnum(\"cols\"); return 0; }\n" \
+	      && $(PRINTF) "#define CONFIG_CURSES 1\n" >> $(CONFIGINC) \
+	      && $(PRINTF) "CONFIG_LIBNCURSES=$${lib}\n" >> $(CONFIGMAKE) && break; } || true; \
 	done; \
-	lib="-lcrypto"; cflags='' libs="$${lib}" gcctest "libcrypto" "int SHA256_Init(void *);\nint main() { long n[128]; SHA256_Init(&n); return 0; }\n" \
-	    && $(PRINTF) "#define BUILD_LIBCRYPTO 1\n" >> $(BUILDINC) && $(PRINTF) "BUILD_LIBCRYPTO=$${lib}\n" >> $(CONFIGMAKE) || true; \
-	cflags='' libs='' gcctest "applecrypto" "#define COMMON_DIGEST_FOR_OPENSSL\n#include <CommonCrypto/CommonDigest.h>\nint main() { SHA256_CTX n; SHA256_Init(&n); return 0; }\n" \
-	    && $(PRINTF) "#define BUILD_APPLECRYPTO 1\n" >> $(BUILDINC) || true; \
+	lib="-lcrypto"; cflags='' libs="$${lib}" gcctest "libcrypto" "int SHA256_Init(void *);\n\
+	        int main() { long n[128]; SHA256_Init(&n); return 0; }\n" \
+	    && $(PRINTF) "#define CONFIG_LIBCRYPTO 1\n" >> $(CONFIGINC) \
+	    && $(PRINTF) "CONFIG_LIBCRYPTO=$${lib}\n" >> $(CONFIGMAKE) || true; \
+	cflags='' libs='' gcctest "applecrypto" "#define COMMON_DIGEST_FOR_OPENSSL\n\
+	      #include <CommonCrypto/CommonDigest.h>\nint main() { SHA256_CTX n; SHA256_Init(&n); return 0; }\n" \
+	    && $(PRINTF) "#define CONFIG_APPLECRYPTO 1\n" >> $(CONFIGINC) || true; \
         for prefix in '' '/opt/local' '/usr/local'; do \
-	    if $(TEST) -n "$${prefix}"; then cflag="-I$${prefix}/include"; lib="-L$${prefix}/lib -lcrypto"; else clfag=; lib="-lcrypto"; fi; \
-	    cflags="$${cflag}" libs="$${lib}" gcctest "openssl" "#include <openssl/sha.h>\nint main() { SHA256_CTX n; SHA256_Init(&n); return 0; }\n" \
-	    && $(PRINTF) "#define BUILD_OPENSSL 1\n" >> $(BUILDINC) && $(PRINTF) "BUILD_INCOPENSSL=$${cflag}\nBUILD_LIBOPENSSL=$${lib}\n" >> $(CONFIGMAKE) && break || true; \
+	    if $(TEST) -n "$${prefix}"; then cflag="-I$${prefix}/include"; lib="-L$${prefix}/lib -lcrypto"; \
+	    else clfag=; lib="-lcrypto"; fi; \
+	    cflags="$${cflag}" libs="$${lib}" gcctest "openssl" "#include <openssl/sha.h>\n\
+	        int main() { SHA256_CTX n; SHA256_Init(&n); return 0; }\n" \
+	    && $(PRINTF) "#define CONFIG_OPENSSL 1\n" >> $(CONFIGINC) \
+	    && $(PRINTF) "CONFIG_INCOPENSSL=$${cflag}\nCONFIG_LIBOPENSSL=$${lib}\n" >> $(CONFIGMAKE) && break || true; \
 	done; \
 	cflags='' libs='' gcctest "sigqueue" '#include <signal.h>\nint main(void) { sigqueue(0,0,0); return 0; }\n' \
-	    && $(PRINTF) "#define BUILD_SIGQUEUE 1\n" >> $(BUILDINC) || true; \
+	    && $(PRINTF) "#define CONFIG_SIGQUEUE 1\n" >> $(CONFIGINC) || true; \
 	cflags='' libs='' gcctest "sigrtmin" '#include <signal.h>\n#include <stdio.h>\nint main(void) { printf("%%d", SIGRTMIN); return 0; }\n' \
-	    && $(PRINTF) "#define BUILD_SIGRTMIN ${gccout}\n" >> $(BUILDINC) || true; \
+	    && $(PRINTF) "#define CONFIG_SIGRTMIN ${gccout}\n" >> $(CONFIGINC) || true; \
 	lib="-lcrypt"; cflags='' libs="$${lib}" gcctest "libcrypt" "int main(void) { return 0; }\n" \
-	    && $(PRINTF) "BUILD_LIBCRYPT=$${lib}\n" >> $(CONFIGMAKE) || true; \
+	    && $(PRINTF) "CONFIG_LIBCRYPT=$${lib}\n" >> $(CONFIGMAKE) || true; \
 	cflags='' libs='' gcctest "crypt.h" '#include <crypt.h>\nint main(void) { return 0; }\n' \
-	    && $(PRINTF) '#define BUILD_CRYPT_H 1\n' >> $(BUILDINC) || true; \
+	    && $(PRINTF) '#define CONFIG_CRYPT_H 1\n' >> $(CONFIGINC) || true; \
 	cflags='' libs='' gcctest "crypt_gnu" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n\
-	        #include \"$$PWD/$(BUILDINC)\"\n#ifdef BUILD_CRYPT_H\n#include <crypt.h>\n#endif\n\
+	        #include \"$$PWD/$(CONFIGINC)\"\n#ifdef CONFIG_CRYPT_H\n#include <crypt.h>\n#endif\n\
 		int main(void) { int ret=1; int f=0; int i; char *s=strdup(\"\$$1\$$abcdefgh\$$\");\nfor(i=1; i <= 9; i++) \
 		    {s[1]='0'+i; if (!strncmp(s, crypt(\"toto\", s), strlen(s))) { \nret=0; f |= 1 << (i-1); } } \
 		    printf(\"0x%%02x\", f); return ret; }\n" \
-	    && $(PRINTF) "#define BUILD_CRYPT_GNU $${gccout}\n" >> $(BUILDINC) || true; \
-	cflags='' libs='' gcctest "crypt_des_ext" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n#include \"$$PWD/$(BUILDINC)\"\n\
-	        #ifdef BUILD_CRYPT_H\n#include <crypt.h>\n#endif\nint main(void) { char *s=\"_1200Salt\";\n\
+	    && $(PRINTF) "#define CONFIG_CRYPT_GNU $${gccout}\n" >> $(CONFIGINC) || true; \
+	cflags='' libs='' gcctest "crypt_des_ext" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n#include \"$$PWD/$(CONFIGINC)\"\n\
+	        #ifdef CONFIG_CRYPT_H\n#include <crypt.h>\n#endif\nint main(void) { char *s=\"_1200Salt\";\n\
 		return strncmp(s, crypt(\"toto\", s), strlen(s)); }\n" \
-	    && $(PRINTF) '#define BUILD_CRYPT_DES_EXT 1\n' >> $(BUILDINC) || true; \
-	fi
+	    && $(PRINTF) '#define CONFIG_CRYPT_DES_EXT 1\n' >> $(CONFIGINC) || true
 
 .gitignore:
 	@$(cmd_TESTBSDOBJ) && cd $(.CURDIR) && build=`echo $(.OBJDIR) | $(SED) -e 's|^$(.CURDIR)||'`/ || build=; \
 	 { cat .gitignore $(NO_STDERR); \
 	   for f in $(LIB) $(JAR) $(GENSRC) $(GENJAVA) $(GENINC) $(SRCINC_Z) $(SRCINC_STR) \
-	            $(BUILDINC) $(BUILDINCJAVA) $(CLANGCOMPLETE) $(CONFIGLOG) $(CONFIGMAKE) obj/ \
+	            $(BUILDINC) $(BUILDINCJAVA) $(CLANGCOMPLETE) $(CONFIGLOG) $(CONFIGMAKE) $(CONFIGINC) obj/ \
 	            `$(TEST) -n "$(BIN)" && echo "$(BIN)" "$(BIN).dSYM" "$(BIN).core" "core" "core.[0-9]*[0-9]" || true` \
 	            `echo "$(FLEXLEXER_LNK)" | $(SED) -e 's|^\./||' || true`; do \
 	       $(TEST) -n "$$f" && $(PRINTF) "/$$f\n" | $(SED) -e 's|^/\./|/|' || true; done; \
