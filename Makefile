@@ -165,6 +165,21 @@ NO_STDOUT	= > /dev/null
 STDOUT_TO_ERR	= 1>&2
 
 ############################################################################################
+# Make command-line variables and recursion
+# All make are different regarding propagation of variables to sub-makes.
+# + gnu make (osx,3.81) does not propagate OPTI but propagates CC (because ?= or CC=$(shell which $CC ??))
+#   -> possibility to force propagation with 'MAKEFLAGS+= $(MAKEOVERRIDES)'
+# + gnu make (4.2.1) propagates all command-line variables to sub-makes.
+#   -> possibility to disable propagation with 'gmake MAKEFLAGS='
+# + bsdmake and bmake allways propagate command-line variables
+#   -> bsdmake: possibility to disable propagation with '.MAKEFLAGS=' in Makefile
+#   -> bmake  : possibility to disable propagation with 'bmake .MAKEOVERRIDES='
+MAKEFLAGS		?=
+MAKEFLAGS 		+= $(MAKEOVERRIDES)
+.MAKEFLAGS$(MAKEFLAGS)	=
+.MAKEOVERRIDES$(MAKEFLAGS)=
+
+############################################################################################
 # About shell commands execution in this Makefile:
 # - On recent gnu make (>=4.0 i guess), "!=' is understood.
 # - On gnu make 3.81, '!=' is not understood but it does NOT cause syntax error.
@@ -1287,6 +1302,8 @@ help:
 	  "  FLAGS_OBJC   [$(FLAGS_OBJC)]" \
 	  "  FLAGS_GCJ    [$(FLAGS_GCJ)]" \
 	  "  ..." \
+	  "  to disable propagation to sub-makes: '<make> <variable>=<value> MAKEFLAGS='" \
+	  "  for a specific subdir: '<make> <subdir-path>-{build,test-build,debug,clean,distclean,...}'" \
 	  "" \
 	  "make clean / distclean / configure" \
 	  "  clean intermediary files / clean generated files / reconfigure" \
