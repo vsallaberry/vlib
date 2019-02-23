@@ -68,7 +68,7 @@ where to find submodules (will be propagated to SUBDIRS).
 
 As SUBDIRS in Makefile are called with SUBMODROOTDIR propagation, currently you cannot use 
 'make -C <subdir>' (or make -f <subdir>/Makefile) but instead you can use 'make <subdir>',
- 'make {test,test-build,install,debug,...}-<subdir>', as <subdir>, test-<subdir>, ... are
+ 'make {check,debug,test,install,...}-<subdir>', as <subdir>, check-<subdir>, ... are
 defined as targets.  
 
 When SUBMODROOTDIR is used, submodules of submodules will not be populated as they are

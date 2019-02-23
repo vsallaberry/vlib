@@ -167,7 +167,7 @@ STDOUT_TO_ERR	= 1>&2
 ############################################################################################
 # Make command-line variables and recursion
 # All make are different regarding propagation of variables to sub-makes.
-# + gnu make (osx,3.81) does not propagate OPTI but propagates CC (because ?= or CC=$(shell which $CC ??))
+# + gnu make (osx,3.81) does not propagate OPTI but propagates CC (because ?= or CC=$(shell which $CC) ?)
 #   -> possibility to force propagation with 'MAKEFLAGS+= $(MAKEOVERRIDES)'
 # + gnu make (4.2.1) propagates all command-line variables to sub-makes.
 #   -> possibility to disable propagation with 'gmake MAKEFLAGS='
@@ -589,10 +589,10 @@ BUILDDIRS	= $(SUBDIRS:=-build)
 INSTALLDIRS	= $(SUBDIRS:=-install)
 DISTCLEANDIRS	= $(SUBDIRS:=-distclean)
 CLEANDIRS	= $(SUBDIRS:=-clean)
-TESTDIRS	= $(SUBDIRS:=-test)
+CHECKDIRS	= $(SUBDIRS:=-check)
 DEBUGDIRS	= $(SUBDIRS:=-debug)
 DOCDIRS		= $(SUBDIRS:=-doc)
-TESTBUILDDIRS	= $(SUBDIRS:=-test-build)
+TESTDIRS	= $(SUBDIRS:=-test)
 CONFIGUREDIRS	= $(SUBDIRS:=-configure)
 
 # RECURSEMAKEARGS, see doc for SUBMODROOTDIR above. When SUBMODROOTDIR is not empty,
@@ -653,10 +653,8 @@ debug: update-$(BUILDINC) $(DEBUGDIRS)
 $(DEBUGDIRS):
 	@recdir=$(@:-debug=); rectarget=debug; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} debug
 
-# --- test-build : set TEST release in build.h and rebuild
-test-build: update-$(BUILDINC) $(TESTBUILDDIRS)
-#	@{ $(GREP) -Ev '^[[:space:]]*\#[[:space:]]*define[[:space:]]+(BUILD_DEBUG|BUILD_TEST)([[:space:]]|$$)' $(BUILDINC) $(NO_STDERR);
-#		$(PRINTF) "#define BUILD_DEBUG\n#define BUILD_TEST\n"; } > $(BUILDINC).tmp && $(MV) $(BUILDINC).tmp $(BUILDINC)
+# --- test : set TEST release in build.h and rebuild
+test: update-$(BUILDINC) $(TESTDIRS)
 	@if $(TEST) "$(RELEASE_MODE)" = "RELEASE"; then \
 	     { $(SED) -e 's/^\([[:space:]]*\#[[:space:]]*define[[:space:]][[:space:]]*BUILD_APPRELEASE[[:space:]]\).*/\1 "TEST"/' \
 	          $(BUILDINC) $(NO_STDERR); } > $(BUILDINC).tmp && $(MV) $(BUILDINC).tmp $(BUILDINC) \
@@ -664,8 +662,8 @@ test-build: update-$(BUILDINC) $(TESTBUILDDIRS)
 	 fi
 	@$(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; \
 	 if $(TEST) -n "$(SUBMODROOTDIR)"; then "$(MAKE)" SUBMODROOTDIR="$(SUBMODROOTDIR)"; else "$(MAKE)"; fi
-$(TESTBUILDDIRS):
-	@recdir=$(@:-test-build=); rectarget=test-build; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} test-build
+$(TESTDIRS):
+	@recdir=$(@:-test=); rectarget=test; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} test
 
 # --- doc : generate doc
 doc: $(DOCDIRS)
@@ -695,11 +693,11 @@ install: installme $(INSTALLDIRS)
 $(INSTALLDIRS):
 	@recdir=$(@:-install=); rectarget=install; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} install
 
-# --- test ---
-test: all $(TESTDIRS)
-	$(TEST_RUN_PROGRAM)
-$(TESTDIRS): all
-	@recdir=$(@:-test=); rectarget=test; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} test
+# --- check: run tests ---
+check: all $(CHECKDIRS)
+	$(CHECK_RUN)
+$(CHECKDIRS): all
+	@recdir=$(@:-check=); rectarget=check; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} check
 
 # --- build BIN ---
 $(BIN): $(OBJ) $(SUBLIBS) $(JCNIINC)
@@ -941,7 +939,7 @@ $(SRCINC_STR): $(SRCINC_CONTENT)
 	            '    return vdecode_buffer(out, buffer, buffer_size, ctx, (const char *)s_program_source, sizeof(s_program_source));' \
 	            '# else' \
 	            '    (void) buffer; (void) buffer_size; (void) ctx; const char *const* src;' \
-	            '    if (out) for (src = s_program_source + 1; *src; src++) fprintf(out, "%s", *src); return 0;' \
+	            '    if (out) for (src = s_program_source + 1; *src; src++) fprintf(out, "%s", *src);' 'return 0;' \
 	            '# endif' \
 	            '}' '#endif' >> $@; \
 	     }; print_getsrc_fun; \
@@ -1091,7 +1089,7 @@ configure: $(CONFIGUREDIRS)
 	@$(RM) -f $(CONFIGMAKE) $(INCLUDEDEPS)
 	@$(MAKE) $(CONFIGMAKE)
 $(CONFIGUREDIRS):
-	@recdir=$(@:-configure=); rectarget=test-build; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} configure
+	@recdir=$(@:-configure=); rectarget=configure; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} configure
 $(CONFIGMAKE): Makefile .EXEC
 	 @if ! $(TEST) -s "$(CONFIGMAKE)"; then \
 	  if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$(CONFIGMAKE)" "$(.CURDIR)"; \
@@ -1264,7 +1262,7 @@ valgrind: all
 	@$(RM) -R $(BIN).dSYM
 	@logfile=`$(MKTEMP) ./valgrind_XXXXXX` && $(MV) "$${logfile}" "$${logfile}.log"; logfile="$${logfile}.log"; \
 	 $(TEST) -e "$(VALGRINDSUPP)" && vgsupp="--suppressions=$(VALGRINDSUPP)" || vgsupp=; \
-	 $(VALGRIND) $(VALGRIND_ARGS) $${vgsupp} --log-file="$${logfile}" $(VALGRIND_RUN_PROGRAM) || true; \
+	 $(VALGRIND) $(VALGRIND_ARGS) $${vgsupp} --log-file="$${logfile}" $(VALGRIND_RUN) || true; \
 	 if $(TEST) -z "$(VALGRIND_MEM_IGNORE_PATTERN)"; then cat "$${logfile}"; else \
  	     $(AWK) '/([0-9]+[[:space:]]+bytes|[cC]onditional jump|uninitialised value)[[:space:]]+/ { if (block == 0) {block=1; blockignore=0;} } \
 	         //{ \
@@ -1303,7 +1301,7 @@ help:
 	  "  FLAGS_GCJ    [$(FLAGS_GCJ)]" \
 	  "  ..." \
 	  "  to disable propagation to sub-makes: '<make> <variable>=<value> MAKEFLAGS='" \
-	  "  for a specific subdir: '<make> <subdir-path>-{build,test-build,debug,clean,distclean,...}'" \
+	  "  for a specific subdir: '<make> <subdir-path>-{build,test,debug,check,clean,distclean,...}'" \
 	  "" \
 	  "make clean / distclean / configure" \
 	  "  clean intermediary files / clean generated files / reconfigure" \
@@ -1311,14 +1309,14 @@ help:
 	  "make info" \
 	  "  display makefile variables" \
 	  "" \
-	  "make debug / make test-build" \
+	  "make debug / make test" \
 	  "  enable debug/tests compile flags and rebuild" \
 	  "" \
 	  "make valgrind" \
 	  "  run valgrind with:" \
 	  "   VALGRIND                    [$(VALGRIND)]" \
 	  "   VALGRIND_ARGS               [$(VALGRIND_ARGS)]" \
-	  "   VALGRIND_RUN_PROGRAM        [$(VALGRIND_RUN_PROGRAM)]" \
+	  "   VALGRIND_RUN                [$(VALGRIND_RUN)]" \
 	  "   VALGRIND_MEM_IGNORE_PATTERN [$(VALGRIND_MEM_IGNORE_PATTERN)]" \
 	  "   VALGRINDSUPP                [$(VALGRINDSUPP)]" \
 	  "" \
@@ -1330,8 +1328,8 @@ help:
 	  "  PREFIX         [$(PREFIX)]" \
 	  "  INSTALL_FILES  [$(INSTALL_FILES)]" \
 	  "" \
-	  "make test"; \
-	  $(PRINTF) "  TEST_RUN_PROGRAM  ["'$(TEST_RUN_PROGRAM:S/'/'"'"'/g)$(subst ','"'"',$(TEST_RUN_PROGRAM))]\n'; \
+	  "make check"; \
+	  $(PRINTF) "  CHECK_RUN  ["'$(CHECK_RUN:S/'/'"'"'/g)$(subst ','"'"',$(CHECK_RUN))]\n'; \
 	$(PRINTF) "%s\n" \
 	  "" \
 	  "make .gitignore" \
@@ -1407,8 +1405,8 @@ rinfo: info
 .PHONY: subdirs $(TESTBUILDDIRS)
 .PHONY: subdirs $(DOCDIRS)
 .PHONY: subdirs $(CONFIGUREDIRS)
-.PHONY: default_rule all build_all cleanme clean distclean dist test info rinfo \
+.PHONY: default_rule all build_all cleanme clean distclean dist check info rinfo \
 	doc installme install debug gentags update-$(BUILDINC) create-$(BUILDINC) \
-	.gitignore merge-makefile debug-makefile valgrind help test-build \
+	.gitignore merge-makefile debug-makefile valgrind help test \
 	subsubmodules configure
 
