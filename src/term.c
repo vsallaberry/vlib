@@ -29,20 +29,20 @@
 #define VLIB_CURSESDL
 
 /* checks ncurses includes */
-#ifndef BUILD_CURSES
-# define BUILD_CURSES 0
+#ifndef CONFIG_CURSES
+# define CONFIG_CURSES 0
 #endif
-#ifndef BUILD_CURSES_H
-# define BUILD_CURSES_H 0
+#ifndef CONFIG_CURSES_H
+# define CONFIG_CURSES_H 0
 #endif
-#if BUILD_CURSES
+#if CONFIG_CURSES
 # ifdef VLIB_CURSESDL
    /* call ncurses via dlopen/dlsym */
 #  include <dlfcn.h>
 #  ifndef OK
 #   define OK 0
 #  endif
-# elif BUILD_CURSES_H
+# elif CONFIG_CURSES_H
    /* link to libncurses and include ncurses headers */
 #  include <curses.h>
 #  include <term.h>
@@ -72,7 +72,7 @@ int vterm_get_columns(int fd) {
     if (!isatty(fd)) {
         return 0;
     }
-#if BUILD_CURSES
+#if CONFIG_CURSES
 # ifndef VLIB_CURSESDL
     int ret;
     if (setupterm(NULL, fd, &ret) != OK) {
@@ -130,7 +130,7 @@ int vterm_get_columns(int fd) {
     }
     return max_columns;
 # endif
-#else /* ifdef BUILD_CURSES */
+#else /* ifdef CONFIG_CURSES */
     return -1;
 #endif
 }

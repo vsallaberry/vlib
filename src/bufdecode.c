@@ -41,13 +41,13 @@
 # define LOG_DEBUG_BUF(log,...)
 # define g_vlib_log NULL
 #endif
-#ifndef BUILD_ZLIB
-# define BUILD_ZLIB 0
+#ifndef CONFIG_ZLIB
+# define CONFIG_ZLIB 0
 #endif
-#ifndef BUILD_ZLIB_H
-# define BUILD_ZLIB_H 0
+#ifndef CONFIG_ZLIB_H
+# define CONFIG_ZLIB_H 0
 #endif
-#if BUILD_ZLIB_H
+#if CONFIG_ZLIB_H
 # include <zlib.h>
 #else
 /* no zlib header on this system */
@@ -151,7 +151,7 @@ static int inflate_strtab(z_stream * z, int flags) {
 }
 
 /* ************************************************************************ */
-#if BUILD_ZLIB
+#if CONFIG_ZLIB
 static int inflate_init_zlib(z_stream * z, int flags) {
     /* InflateInit2 can be macros, this wrapper is needed to use a function pointer */
     return inflateInit2(z, flags);
@@ -226,7 +226,7 @@ ssize_t             vdecode_buffer(
         if (inbufsz >= 3 && inbuf
         && inbuf[0] == 31 && (unsigned char)(inbuf[1]) == 139 && inbuf[2] == 8) {
             /* GZIP MAGIC */
-#          if BUILD_ZLIB
+#          if CONFIG_ZLIB
             pctx->lib = &s_decode_zlib;
 #          else
             pctx->lib = NULL;
