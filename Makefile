@@ -71,8 +71,10 @@ DISTDIR		= ../../dist
 PREFIX		= /usr/local
 INSTALL_FILES	= $(LIB) include
 
-#CONFIG_CHECK	= all zlib ncurses libcrypto applecrypto openssl sigqueue sigrtmin
+# CONFIG_CHECK	= all zlib ncurses libcrypto applecrypto openssl sigqueue sigrtmin
 #	          libcrypt crypt.h crypt_gnu crypt_des_ext
+# If a feature is prefixed with '+' (eg: +openssl), this makes it MANDATORY
+# and make will fail if the feature is not available.
 CONFIG_CHECK	= zlib ncurses
 
 # Project specific Flags (system specific flags are set in $(sys_{LIBS,WARN,INCS,OPTI,DEBUG})
@@ -1008,7 +1010,7 @@ $(BUILDINC): update-$(BUILDINC)
 $(BUILDINCJAVA): update-$(BUILDINC)
 	@true
 #fullgitrev=`$(GIT) describe --match "v[0-9]*" --always --tags --dirty --abbrev=0 $(NO_STDERR)`
-update-$(BUILDINC): $(CONFIGMAKE) .EXEC
+update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$(BUILDINC)" "$(.CURDIR)"; ln -sf "$(.OBJDIR)/$(BUILDINCJAVA)" "$(.CURDIR)"; \
 	 else $(TEST) -L $(BUILDINC) && $(RM) $(BUILDINC); $(TEST) -L $(BUILDINCJAVA) && $(RM) $(BUILDINCJAVA) || true; fi; \
 	 if ! $(TEST) -e $(BUILDINC); then \
@@ -1086,70 +1088,104 @@ update-$(BUILDINC): $(CONFIGMAKE) .EXEC
 	    fi; \
 	 fi
 
+# configure, CONFIGMAKE, ... config.h, config.make, config.log generation
 configure: $(CONFIGUREDIRS)
 	@$(RM) -f $(CONFIGMAKE) $(INCLUDEDEPS)
-	@$(MAKE) $(CONFIGMAKE)
+	@"$(MAKE)" $(CONFIGMAKE)
 $(CONFIGUREDIRS):
 	@recdir=$(@:-configure=); rectarget=configure; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} configure
 $(CONFIGINC): $(CONFIGMAKE)
+# Variables with content of programs checking features.
+# + quotes must be in variable content.
+# '#' should be escaped.
+CONFTEST_NCURSES	= '\#include <unistd.h>\n\#include <curses.h>\n\#include <term.h>\n\
+			  int main() { if (isatty(STDOUT_FILENO)) { setupterm(0, STDOUT_FILENO, 0); tigetnum("cols"); } return 0; }\n'
+
+CONFTEST_NCURSES_NOINC	= '\#include <unistd.h>\nint main() {\n\
+			  if (isatty(STDOUT_FILENO)) { setupterm(0, STDOUT_FILENO, 0); tigetnum("cols"); } return 0; }\n'
+
+CONFTEST_ZLIB		= '\#include <stdio.h>\n\#include <string.h>\n\#include <zlib.h>\n\
+			  unsigned char inbuf[] = { 31,139,8,0,239,31,168,90,0,3,51,228,2,0,83,252,81,103,2,0,0,0 };\n \
+			  int main() { unsigned char out[2] = {0,0}; z_stream z; memset(&z, 0, sizeof(z_stream));\n\
+			  \t           z.next_in = inbuf; z.next_out=out; z.avail_out = 2; z.avail_in = sizeof(inbuf); \n\
+			  \t  if(inflateInit2(&z, 31) == 0 && inflate(&z, Z_NO_FLUSH) == 1 && *out == '"'1'"') return 0;\n\
+			  \t  printf("%%u", *out);return 1; }\n'
+
+CONFTEST_ZLIB_NOINC	= '\#include <stdio.h>\n\#include <string.h>\n\
+			  typedef struct { unsigned char *next_in; unsigned avail_in; unsigned long total_in;\n\
+			  \t               unsigned char * next_out; unsigned avail_out; unsigned long total_out;\n\
+			  \t               char *msg; void *state; int(*zalloc)(void*,unsigned,unsigned);\n\
+			  \t               int(*zfree)(void*,void*); void * opaque; int data_type; unsigned long adler;\n\
+			  \t		   unsigned long reserved; } z_stream;\n\
+			  const char * zlibVersion(); int inflateInit2_(z_stream*, int, const char *, int); int inflate(z_stream*, int);\n\
+			  unsigned char inbuf[] = { 31,139,8,0,239,31,168,90,0,3,51,228,2,0,83,252,81,103,2,0,0,0 };\n \
+			  int main() { unsigned char out[2] = {0,0}; z_stream z; memset(&z, 0, sizeof(z_stream));\n\
+			  \t           z.next_in = inbuf; z.next_out=out; z.avail_out = 2; z.avail_in = sizeof(inbuf); \n\
+			  \t  if(inflateInit2_(&z, 31, zlibVersion(), sizeof(z_stream)) == 0 && inflate(&z, 0) == 1 && *out == '"'1'"') return 0;\n\
+			  \t  printf("%%u", *out);return 1; }\n'
+
 $(CONFIGMAKE): Makefile
 	 @if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$(CONFIGMAKE)" "$(.CURDIR)" && ln -sf "$(.OBJDIR)/$(CONFIGINC)" "$(.CURDIR)"; \
 		                else $(TEST) -L "$(CONFIGMAKE)" && $(RM) "$(CONFIGMAKE)"; $(TEST) -L "$(CONFIGINC)" && $(RM) "$(CONFIGINC)" || true; fi; \
-	  $(PRINTF) "$(NAME): generate $(CONFIGMAKE)\n"; \
+	  $(PRINTF) "$(NAME): generate $(CONFIGMAKE), $(CONFIGINC)\n"; \
 	  log() { $(PRINTF) "$$@"; $(PRINTF) "$$@" >> "$${configlog}"; }; \
 	  gcctest() { \
-	    plabel=$$1; shift; lcode=$$@; binout=; \
-	    case " $(CONFIG_CHECK) " in *" $${plabel} "*|*" all "*) ;; *) return 1;; esac; \
+	    plabel=$$1; shift; lcode=$$@; binout=; binerr=; \
+	    case " $(CONFIG_CHECK) " in *" $${plabel} "*|*" +$${plabel} "*|*" all "*) ;; *) return 1;; esac; \
 	    logheader="$(NAME): checking $${plabel}"; \
-	    tmpname=`mktemp "$${mytmpdir}/gcctest_XXXXXXXX"`; \
+	    tmpname=`$(MKTEMP) "$${mytmpdir}/gcctest_XXXXXXXX"`; \
 	    $(TEST) -n "$${cflags}" && logheader="$${logheader} ($${cflags})"; \
 	    $(TEST) -n "$${libs}" && logheader="$${logheader} ($${libs})"; \
 	    logheader="$${logheader}... "; \
-	    $(PRINTF) "$${lcode}" > "$${tmpname}.c"; \
+	    $(PRINTF) -- "$${lcode}" > "$${tmpname}.c"; \
 	    gccout=`$(CC) $${cflags} -o "$${tmpname}" "$${tmpname}.c" $${libs} 2>&1` \
-		&& binout=`"$${tmpname}"` && ret=0 || ret=1; \
+		&& binout=`"$${tmpname}" 2>$${mytmpfile}` && binerr=`$(CAT) "$${mytmpfile}"` && ret=0 || ret=1; \
+	    $(TEST) -n "$${binerr}" && binerr="$${binerr}\n" || true; \
 	    $(RM) -f "$${tmpname}" $(NO_STDERR); \
 	    $(PRINTF) -- "\n------------------------------------------------------\n" >> "$${configlog}"; \
 	    $(TEST) "$${ret}" = "0" && log "$${logheader}yes $${binout}\n" || log "$${logheader}no\n"; \
-	    $(TEST) -n "$${gccout}" && $(PRINTF) -- "*********** $(CC) $${cflags} $${libs}\n$${gccout}\n" >> "$${configlog}"; \
+	    $(TEST) -n "$${gccout}" && $(PRINTF) -- "\n*********** $(CC) $${cflags} $${libs}\n$${gccout}\n" >> "$${configlog}"; \
 	    $(PRINTF) -- "\n>>>>>>>>>> $${tmpname}.c <<<<<<<<\n" >> "$${configlog}"; \
 	    $(CAT) "$${tmpname}.c" >> "$${configlog}"; \
+	    $(TEST) -n "$${binout}$${binerr}" && $(PRINTF) -- "\n>>>>>>>>> $${tmpname} [result:$$ret]\n$${binerr}$${binout}\n" >> "$${configlog}"; \
 	    $(RM) -f "$${tmpname}.c" $(NO_STDERR); \
 	    $(RM) -Rf "$${tmpname}.dSYM" $(NO_STDERR); \
 	    libs=; cflags=; \
-	    $(TEST) "$${ret}" = "0"; \
+	    $(TEST) "$${ret}" = "0" || case " $(CONFIG_CHECK) " in \
+	        *" +$${plabel} "*) $(PRINTF) -- "$(NAME): error: $${plabel} is mandatory\n"; exit 1;; \
+	        *) false;; esac; \
 	}; \
-	mytmpdir=.; configlog=$(CONFIGLOG); $(PRINTF) "" > $${configlog}; \
+	conftest() { \
+	    incconf=$$1; shift; incval=$$1; shift; libconf=$$1; shift; libval=$$1; shift; confname=$$1; shift; \
+	    case " $(CONFIG_CHECK) " in *" $${confname} "*|*" +$${confname} "*|*" all "*) ;; *) return 1;; esac; \
+	    gcctest "$${confname}" "$$@"; ret=$$?; \
+	    if $(TEST) "$$ret" = "0"; then support=1; confname="+$${confname}"; \
+	                              else support=0; confname="-$${confname}"; incval=; libval=; fi; \
+	    $(GREP) -Ev '^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*('"$${incconf}|$${libconf}"')[[:space:]]' \
+	        $(CONFIGINC) > "$${mytmpfile}"; $(MV) "$${mytmpfile}" "$(CONFIGINC)"; \
+	    $(GREP) -Ev '^[[:space:]]*('"$${incconf}|$${libconf}"')[[:space:]]*=' \
+	        $(CONFIGMAKE) > "$${mytmpfile}"; $(MV) "$${mytmpfile}" "$(CONFIGMAKE)"; \
+	    $(TEST) -n "$${incconf}" && { $(PRINTF) "#define $${incconf} $${support}\n" >> $(CONFIGINC); \
+	                                  $(PRINTF) "$${incconf}=$${incval}\n" >> $(CONFIGMAKE); }; \
+	    $(TEST) -n "$${libconf}" && { $(PRINTF) "#define $${libconf} $${support}\n" >> $(CONFIGINC); \
+	                                  $(PRINTF) "$${libconf}=$${libval}\n" >> $(CONFIGMAKE); }; \
+	    return $$ret; \
+	}; \
+	mytmpdir=.; mytmpfile=`$(MKTEMP) "$${mytmpdir}/conftest_XXXXXXXX.tmp"`; \
+	configcheck=; configlog=$(CONFIGLOG); $(PRINTF) "" > $${configlog}; \
 	$(PRINTF) 'default_rule: $(DEFAULT_RULE_DEPENDENCIES)\n' > $(CONFIGMAKE); $(PRINTF) '' > $(CONFIGINC); \
-	lib="-lz"; cflags='' libs="$${lib}" gcctest "zlib" "#include <stdio.h>\n#include <zlib.h>\n\
-	    unsigned char inbuf[] = { 31,139,8,0,239,31,168,90,0,3,51,228,2,0,83,252,81,103,2,0,0,0 };\n \
-	    int main() { unsigned char out[2] = {0,0}; z_stream z; z.next_in = inbuf; z.next_out=out;\n\
-	        z.avail_out = 2; z.avail_in = sizeof(inbuf); z.opaque = 0; z.zalloc = 0; z.zfree = 0;\n\
-	      if(inflateInit2(&z, 31) == 0 && inflate(&z, Z_NO_FLUSH) == 1 && *out == '1') return 0;\n\
-	      printf(\"%%u\", *out);return 1; }\n" \
-	  && $(PRINTF) "#define CONFIG_ZLIB 1\n#define CONFIG_ZLIB_H 1\n" >> $(CONFIGINC) \
-	  && $(PRINTF) "CONFIG_LIBZLIB=$${lib}\n" >> $(CONFIGMAKE) \
-	|| { cflags='' libs="$${lib}" gcctest "zlib" "#include <stdio.h>\n\
-	    typedef struct { unsigned char *next_in; unsigned avail_in; unsigned long total_in; unsigned char * next_out;\n\
-	        unsigned avail_out; unsigned long total_out; char *msg; void *state; int(*zalloc)(void*,unsigned,unsigned);\n\
-	        int(*zfree)(void*,void*); void * opaque; int data_type; unsigned long adler; unsigned long reserved;\n\
-	    } z_stream; const char * zlibVersion(); int inflateInit2_(z_stream*, int, const char *, int); int inflate(z_stream*, int);\n\
-	    unsigned char inbuf[] = { 31,139,8,0,239,31,168,90,0,3,51,228,2,0,83,252,81,103,2,0,0,0 };\n \
-	    int main() { unsigned char out[2] = {0,0}; z_stream z; z.next_in = inbuf; z.next_out=out;\n\
-	            z.avail_out = 2; z.avail_in = sizeof(inbuf); z.opaque = 0; z.zalloc = 0; z.zfree = 0;\n\
-	        if(inflateInit2_(&z, 31, zlibVersion(), sizeof(z_stream)) == 0 && inflate(&z, 0) == 1 && *out == '1') return 0;\n\
-	        printf(\"%%u\", *out);return 1; }\n" \
-	    && $(PRINTF) "#define CONFIG_ZLIB 1\n" >> $(CONFIGINC) \
-	    && $(PRINTF) "CONFIG_LIBZLIB=$${lib}\n" >> $(CONFIGMAKE); } || true; \
-	for lib in "-lncurses" "-lcurses" "-ltinfo" "-lncurses -ltinfo" "-lcurses -ltinfo"; do \
-	    cflags='' libs="$${lib}" gcctest "ncurses" "#include <curses.h>\n#include <term.h>\n\
-	        int main() { setupterm(0, 1, 0); tigetnum(\"cols\"); return 0; }\n" \
-	      && $(PRINTF) "#define CONFIG_CURSES 1\n#define CONFIG_CURSES_H 1\n" >> $(CONFIGINC) \
-	      && $(PRINTF) "CONFIG_LIBNCURSES=$${lib}\n" >> $(CONFIGMAKE) && break \
-	      || { cflags='' libs="$${lib}" gcctest "ncurses" "int main() {\n\
-	          setupterm(0, 1, 0); tigetnum(\"cols\"); return 0; }\n" \
-	      && $(PRINTF) "#define CONFIG_CURSES 1\n" >> $(CONFIGINC) \
-	      && $(PRINTF) "CONFIG_LIBNCURSES=$${lib}\n" >> $(CONFIGMAKE) && break; } || true; \
+	flag=; lib="-lz"; cflags="$${flag}" libs="$${lib}" conftest CONFIG_ZLIB_H "$$flag" CONFIG_ZLIB "$$lib" \
+	    "zlib" $(CONFTEST_ZLIB) \
+	|| { cflags="" libs="$${lib}" conftest CONFIG_ZLIB_H "" CONFIG_ZLIB "$$lib" \
+	    "zlib" $(CONFTEST_ZLIB_NOINC) \
+	; } || true; \
+	flag=; for lib in "-lncurses" "-lcurses" "-ltinfo" "-lncurses -ltinfo" "-lcurses -ltinfo"; do \
+	    cflags="$${flag}" libs="$${lib}" conftest CONFIG_CURSES_H "$$flag" CONFIG_CURSES "$$lib" \
+	        "ncurses" $(CONFTEST_NCURSES) \
+	    && break \
+	    || { cflags="" libs="$${lib}" conftest CONFIG_CURSES_H "" CONFIG_CURSES "$$lib" \
+	         "ncurses" $(CONFTEST_NCURSES_NOINC) \
+	    && break; } || true; \
 	done; \
 	lib="-lcrypto"; cflags='' libs="$${lib}" gcctest "libcrypto" "int SHA256_Init(void *);\n\
 	        int main() { long n[128]; SHA256_Init(&n); return 0; }\n" \
@@ -1176,14 +1212,15 @@ $(CONFIGMAKE): Makefile
 	    && $(PRINTF) '#define CONFIG_CRYPT_H 1\n' >> $(CONFIGINC) || true; \
 	cflags='' libs='' gcctest "crypt_gnu" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n\
 	        #include \"$$PWD/$(CONFIGINC)\"\n#ifdef CONFIG_CRYPT_H\n#include <crypt.h>\n#endif\n\
-		int main(void) { int ret=1; int f=0; int i; char *s=strdup(\"\$$1\$$abcdefgh\$$\");\nfor(i=1; i <= 9; i++) \
-		    {s[1]='0'+i; if (!strncmp(s, crypt(\"toto\", s), strlen(s))) { \nret=0; f |= 1 << (i-1); } } \
-		    printf(\"0x%%02x\", f); return ret; }\n" \
+	        int main(void) { int ret=1; int f=0; int i; char *s=strdup(\"\$$1\$$abcdefgh\$$\");\nfor(i=1; i <= 9; i++) \
+	        {s[1]='0'+i; if (!strncmp(s, crypt(\"toto\", s), strlen(s))) { \nret=0; f |= 1 << (i-1); } } \
+	        printf(\"0x%%02x\", f); return ret; }\n" \
 	    && $(PRINTF) "#define CONFIG_CRYPT_GNU $${gccout}\n" >> $(CONFIGINC) || true; \
 	cflags='' libs='' gcctest "crypt_des_ext" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n#include \"$$PWD/$(CONFIGINC)\"\n\
 	        #ifdef CONFIG_CRYPT_H\n#include <crypt.h>\n#endif\nint main(void) { char *s=\"_1200Salt\";\n\
-		return strncmp(s, crypt(\"toto\", s), strlen(s)); }\n" \
-	    && $(PRINTF) '#define CONFIG_CRYPT_DES_EXT 1\n' >> $(CONFIGINC) || true
+	        return strncmp(s, crypt(\"toto\", s), strlen(s)); }\n" \
+	    && $(PRINTF) '#define CONFIG_CRYPT_DES_EXT 1\n' >> $(CONFIGINC) || true; \
+	$(RM) -f "$${mytmpfile}"
 
 .gitignore:
 	@$(cmd_TESTBSDOBJ) && cd $(.CURDIR) && build=`echo $(.OBJDIR) | $(SED) -e 's|^$(.CURDIR)||'`/ || build=; \
