@@ -1023,8 +1023,8 @@ update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 	       "#define BUILD_MAKE \"\"" "#define BUILD_CC_CMD \"\"" "#define BUILD_CXX_CMD \"\"" "#define BUILD_OBJC_CMD \"\"" \
 	       "#define BUILD_GCJ_CMD \"\"" "#define BUILD_CCLD_CMD \"\"" "#define BUILD_SRCPATH \"\"" \
 	       "#define BUILD_JAVAOBJ 0" "#define BUILD_JAR 0" "#define BUILD_BIN 0" "#define BUILD_LIB 0" \
-	       "#define BUILD_YACC 0" "#define BUILD_LEX 0" "#define BUILD_BISON3 0" "#include \"$(CONFIGINC)\"" \
-	       "#include <stdio.h>" "#ifdef __cplusplus" "extern \"C\" " "#endif" \
+	       "#define BUILD_YACC 0" "#define BUILD_LEX 0" "#define BUILD_BISON3 0" "#define BUILD_CONFIG_CHECK \"\"" \
+	       "#include \"$(CONFIGINC)\"" "#include <stdio.h>" "#ifdef __cplusplus" "extern \"C\" " "#endif" \
 	       "int $(NAME)_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx);" >> $(BUILDINC); \
 	 fi
 	@if gitstatus=`$(GIT) status --untracked-files=no --ignore-submodules=untracked --short --porcelain $(NO_STDERR)`; then \
@@ -1067,6 +1067,7 @@ update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_LEX[[:space:]]\).*|\1$${lex}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_BISON3[[:space:]]\).*|\1$${bison3}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_VLIB[[:space:]]\).*|\1$${vlib}|" \
+	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_CONFIG_CHECK[[:space:]]\).*|\1\"$(CONFIG_CHECK)\"|" \
 	        $(BUILDINC) > $(BUILDINC).tmp \
 	 ; then \
 	    if $(DIFF) -q $(BUILDINC) $(BUILDINC).tmp $(NO_STDOUT); then $(RM) $(BUILDINC).tmp; \
@@ -1095,9 +1096,12 @@ configure: $(CONFIGUREDIRS)
 $(CONFIGUREDIRS):
 	@recdir=$(@:-configure=); rectarget=configure; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} configure
 $(CONFIGINC): $(CONFIGMAKE)
+# prefixes where to search libraries
+CONFIG_CHECK_PREFIXES	= '' '/opt/local' '/usr/local'
 # Variables with content of programs checking features.
 # + quotes must be in variable content.
-# '#' should be escaped.
+# + '#' should be escaped.
+# + printf sequences like '%' or '\\' should be escaped as printf will get those strings.
 CONFTEST_NCURSES	= '\#include <unistd.h>\n\#include <curses.h>\n\#include <term.h>\n\
 			  int main() { if (isatty(STDOUT_FILENO)) { setupterm(0, STDOUT_FILENO, 0); tigetnum("cols"); } return 0; }\n'
 
@@ -1133,6 +1137,9 @@ CONFTEST_APPLECRYPTO	= '\#define COMMON_DIGEST_FOR_OPENSSL\n\
 CONFTEST_OPENSSL	= '\#include <openssl/sha.h>\n\
 			  int main() { SHA256_CTX n; SHA256_Init(&n); return 0; }\n'
 
+CONFTEST_LIBINTL	= '\#include <stdio.h>\n\#include <libintl.h>\nint main(void)\n \
+			  { fprintf(stderr, gettext("Hello Intl\\n")); return 0; }\n'
+
 CONFTEST_SIGQUEUE	= '\#include <signal.h>\nint main(void) { sigqueue(0,0,0); return 0; }\n'
 
 CONFTEST_LIBCRYPT	= 'int main(void) { return 0; }\n'
@@ -1144,11 +1151,11 @@ $(CONFIGMAKE): Makefile
 		                else $(TEST) -L "$(CONFIGMAKE)" && $(RM) "$(CONFIGMAKE)"; $(TEST) -L "$(CONFIGINC)" && $(RM) "$(CONFIGINC)" || true; fi; \
 	  $(PRINTF) "$(NAME): generate $(CONFIGMAKE), $(CONFIGINC)\n"; \
 	  log() { $(PRINTF) "$$@"; $(PRINTF) "$$@" >> "$${configlog}"; }; \
-	  gcctest() { \
+	  cctest() { \
 	    plabel=$$1; shift; lcode=$$@; binout=; binerr=; \
 	    case " $(CONFIG_CHECK) " in *" $${plabel} "*|*" +$${plabel} "*|*" all "*) ;; *) return 1;; esac; \
 	    logheader="$(NAME): checking $${plabel}"; \
-	    tmpname=`$(MKTEMP) "$${mytmpdir}/gcctest_XXXXXXXX"`; \
+	    tmpname=`$(MKTEMP) "$${mytmpdir}/cctest_XXXXXX" || echo "$${mytmpdir}/cctest_TMP"`; \
 	    $(TEST) -n "$${cflags}" && logheader="$${logheader} ($${cflags})"; \
 	    $(TEST) -n "$${libs}" && logheader="$${logheader} ($${libs})"; \
 	    logheader="$${logheader}... "; \
@@ -1162,9 +1169,9 @@ $(CONFIGMAKE): Makefile
 	    $(TEST) -n "$${gccout}" && $(PRINTF) -- "\n*********** $(CC) $${cflags} $${libs}\n$${gccout}\n" >> "$${configlog}"; \
 	    $(PRINTF) -- "\n>>>>>>>>>> $${tmpname}.c <<<<<<<<\n" >> "$${configlog}"; \
 	    $(CAT) "$${tmpname}.c" >> "$${configlog}"; \
-	    $(TEST) -n "$${binout}$${binerr}" && $(PRINTF) -- "\n>>>>>>>>> $${tmpname} [result:$$ret]\n$${binerr}$${binout}\n" >> "$${configlog}"; \
-	    $(RM) -f "$${tmpname}.c" $(NO_STDERR); \
-	    $(RM) -Rf "$${tmpname}.dSYM" $(NO_STDERR); \
+	    $(TEST) -n "$${binout}$${binerr}" \
+	        && $(PRINTF) -- "\n>>>>>>>>> $${tmpname} [result:$$ret]\n$${binerr}$${binout}\n" >> "$${configlog}"; \
+	    $(RM) -f "$${tmpname}.c" $(NO_STDERR); $(RM) -Rf "$${tmpname}.dSYM" $(NO_STDERR); \
 	    libs=; cflags=; \
 	    configcheck=`$(PRINTF) -- "$${configcheck}" | $(SED) -e "s;[+-]$${plabel} ;;g"`; \
 	    $(TEST) "$$ret" = "0" && confres="+" || confres="-"; configcheck="$${configcheck}$${confres}$${plabel} "; \
@@ -1175,7 +1182,7 @@ $(CONFIGMAKE): Makefile
 	conftest() { \
 	    incconf=$$1; shift; incval=$$1; shift; libconf=$$1; shift; libval=$$1; shift; confname=$$1; shift; \
 	    case " $(CONFIG_CHECK) " in *" $${confname} "*|*" +$${confname} "*|*" all "*) ;; *) return 1;; esac; \
-	    gcctest "$${confname}" "$$@"; ret=$$?; \
+	    cctest "$${confname}" "$$@"; ret=$$?; \
 	    if $(TEST) "$$ret" = "0"; then support=1; confres="+$${confname}"; \
 	                              else support=0; confres="-$${confname}"; incval=; libval=; fi; \
 	    for conf in "$${incconf}" "$${libconf}"; do \
@@ -1191,19 +1198,21 @@ $(CONFIGMAKE): Makefile
 	                                  $(PRINTF) "$${libconf}=$${libval}\n" >> $(CONFIGMAKE); }; \
 	    return $$ret; \
 	}; \
-	mytmpdir=.; mytmpfile=`$(MKTEMP) "$${mytmpdir}/conftest_XXXXXXXX.tmp"`; \
+	mytmpdir=.; mytmpfile=`$(MKTEMP) "$${mytmpdir}/conftest_XXXXXX" || echo "$${mytmpdir}/conftest_TMP"`; \
 	configcheck=; configlog=$(CONFIGLOG); $(PRINTF) "" > $${configlog}; \
 	$(PRINTF) 'default_rule: $(DEFAULT_RULE_DEPENDENCIES)\n' > $(CONFIGMAKE); $(PRINTF) '' > $(CONFIGINC); \
 	flag=; lib="-lz"; cflags="$${flag}" libs="$${lib}" conftest CONFIG_ZLIB_H "$$flag" CONFIG_ZLIB "$$lib" \
 	    "zlib" $(CONFTEST_ZLIB) \
-	|| { cflags="" libs="$${lib}" conftest CONFIG_ZLIB_H "" CONFIG_ZLIB "$$lib" \
+	|| { cflags="" libs="$${lib}" conftest "" "" CONFIG_ZLIB "$$lib" \
 	    "zlib" $(CONFTEST_ZLIB_NOINC) \
 	; } || true; \
-	flag=; for lib in "-lncurses" "-lcurses" "-ltinfo" "-lncurses -ltinfo" "-lcurses -ltinfo"; do \
+	flag=; for lib in "-lncurses"  "-lncurses -ltinfo" \
+	                  "-l:libncurses.so.5" "-l:libncurses.so.5 -l:libtinfo.so.5" \
+			  "-lcurses" "-ltinfo" "-l:libtinfo.so.5"; do \
 	    cflags="$${flag}" libs="$${lib}" conftest CONFIG_CURSES_H "$$flag" CONFIG_CURSES "$$lib" \
 	        "ncurses" $(CONFTEST_NCURSES) \
 	    && break \
-	    || { cflags="" libs="$${lib}" conftest CONFIG_CURSES_H "" CONFIG_CURSES "$$lib" \
+	    || { cflags="" libs="$${lib}" conftest "" "" CONFIG_CURSES "$$lib" \
 	         "ncurses" $(CONFTEST_NCURSES_NOINC) \
 	    && break; } || true; \
 	done; \
@@ -1211,16 +1220,27 @@ $(CONFIGMAKE): Makefile
 	    "libcrypto" $(CONFTEST_LIBCRYPTO) || true; \
 	flag=''; lib=''; cflags="$${flag}" libs="$${lib}" conftest "CONFIG_APPLECRYPTO" "$${flag}" "" "$${lib}" \
 	    "applecrypto" $(CONFTEST_APPLECRYPTO) || true; \
-        for prefix in '' '/opt/local' '/usr/local'; do \
+        for prefix in $(CONFIG_CHECK_PREFIXES); do \
 	    if $(TEST) -n "$${prefix}"; then cflag="-I$${prefix}/include"; lib="-L$${prefix}/lib -lcrypto"; \
-	    else clfag=; lib="-lcrypto"; fi; \
+	    else cflag=; lib="-lcrypto"; fi; \
 	    cflags="$${cflag}" libs="$${lib}" conftest CONFIG_OPENSSL_H "$${cflag}" CONFIG_LIBOPENSSL "$${lib}" \
 	        "openssl" $(CONFTEST_OPENSSL) \
 	    && break || true; \
 	done; \
+	mlib_break=; for prefix in $(CONFIG_CHECK_PREFIXES); do \
+	    for mlib in '' '-lintl'; do \
+	        $(TEST) -z "$${mlib}" -a -n "$${prefix}" && continue ; \
+	        cflag=; lib="$${mlib}"; \
+	        if $(TEST) -n "$${prefix}"; then cflag="-I$${prefix}/include"; \
+	                                         $(TEST) -n "$${mlib}" && lib="-L$${prefix}/lib $${mlib}"; fi; \
+	        cflags="$${cflag}" libs="$${lib}" conftest CONFIG_LIBINTL_H "$${cflag}" CONFIG_LIBINTL "$${lib}" \
+	        "libintl" $(CONFTEST_LIBINTL) \
+	        && mlib_break=yes && break || true; \
+	    done; $(TEST) -n "$${mlib_break}" && break; \
+	done; \
 	flag=''; lib=''; cflags="$${flag}" libs="$${lib}" conftest CONFIG_SIGQUEUE "$${flag}" "" "$${lib}" \
 	    "sigqueue" $(CONFTEST_SIGQUEUE) || true; \
-	cflags='' libs='' gcctest "sigrtmin" '#include <signal.h>\n#include <stdio.h>\nint main(void) { printf("%%d", SIGRTMIN); return 0; }\n' \
+	cflags='' libs='' cctest "sigrtmin" '#include <signal.h>\n#include <stdio.h>\nint main(void) { printf("%%d", SIGRTMIN); return 0; }\n' \
 	    && $(PRINTF) "#define CONFIG_SIGRTMIN ${gccout}\n" >> $(CONFIGINC) || true; \
 	flag=''; lib="-lcrypt"; cflags="$${flag}" libs="$${lib}" conftest "" "$${flag}" CONFIG_LIBCRYPT "$${lib}" \
 	    "libcrypt" $(CONFTEST_LIBCRYPT) \
@@ -1228,13 +1248,13 @@ $(CONFIGMAKE): Makefile
 	flag=; lib=; cflags="$${flag}" libs="$${lib}" conftest CONFIG_CRYPT_H "$${flag}" "" "$${lib}" \
 	    "crypt.h" $(CONFTEST_CRYPT_H) \
 	    || true; \
-	cflags='' libs='' gcctest "crypt_gnu" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n\
+	cflags='' libs='' cctest "crypt_gnu" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n\
 	        #include \"$$PWD/$(CONFIGINC)\"\n#ifdef CONFIG_CRYPT_H\n#include <crypt.h>\n#endif\n\
 	        int main(void) { int ret=1; int f=0; int i; char *s=strdup(\"\$$1\$$abcdefgh\$$\");\nfor(i=1; i <= 9; i++) \
 	        {s[1]='0'+i; if (!strncmp(s, crypt(\"toto\", s), strlen(s))) { \nret=0; f |= 1 << (i-1); } } \
 	        printf(\"0x%%02x\", f); return ret; }\n" \
 	    && $(PRINTF) "#define CONFIG_CRYPT_GNU $${gccout}\n" >> $(CONFIGINC) || true; \
-	cflags='' libs='' gcctest "crypt_des_ext" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n#include \"$$PWD/$(CONFIGINC)\"\n\
+	cflags='' libs='' cctest "crypt_des_ext" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n#include \"$$PWD/$(CONFIGINC)\"\n\
 	        #ifdef CONFIG_CRYPT_H\n#include <crypt.h>\n#endif\nint main(void) { char *s=\"_1200Salt\";\n\
 	        return strncmp(s, crypt(\"toto\", s), strlen(s)); }\n" \
 	    && $(PRINTF) '#define CONFIG_CRYPT_DES_EXT 1\n' >> $(CONFIGINC) || true; \
