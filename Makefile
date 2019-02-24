@@ -1124,6 +1124,21 @@ CONFTEST_ZLIB_NOINC	= '\#include <stdio.h>\n\#include <string.h>\n\
 			  \t  if(inflateInit2_(&z, 31, zlibVersion(), sizeof(z_stream)) == 0 && inflate(&z, 0) == 1 && *out == '"'1'"') return 0;\n\
 			  \t  printf("%%u", *out);return 1; }\n'
 
+CONFTEST_LIBCRYPTO	= 'int SHA256_Init(void *);\n\
+			  int main() { long n[128]; SHA256_Init(&n); return 0; }\n'
+
+CONFTEST_APPLECRYPTO	= '\#define COMMON_DIGEST_FOR_OPENSSL\n\
+			  \#include <CommonCrypto/CommonDigest.h>\nint main() { SHA256_CTX n; SHA256_Init(&n); return 0; }\n'
+
+CONFTEST_OPENSSL	= '\#include <openssl/sha.h>\n\
+			  int main() { SHA256_CTX n; SHA256_Init(&n); return 0; }\n'
+
+CONFTEST_SIGQUEUE	= '\#include <signal.h>\nint main(void) { sigqueue(0,0,0); return 0; }\n'
+
+CONFTEST_LIBCRYPT	= 'int main(void) { return 0; }\n'
+
+CONFTEST_CRYPT_H	= '\#include <crypt.h>\nint main(void) { return 0; }\n'
+
 $(CONFIGMAKE): Makefile
 	 @if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$(CONFIGMAKE)" "$(.CURDIR)" && ln -sf "$(.OBJDIR)/$(CONFIGINC)" "$(.CURDIR)"; \
 		                else $(TEST) -L "$(CONFIGMAKE)" && $(RM) "$(CONFIGMAKE)"; $(TEST) -L "$(CONFIGINC)" && $(RM) "$(CONFIGINC)" || true; fi; \
@@ -1151,6 +1166,8 @@ $(CONFIGMAKE): Makefile
 	    $(RM) -f "$${tmpname}.c" $(NO_STDERR); \
 	    $(RM) -Rf "$${tmpname}.dSYM" $(NO_STDERR); \
 	    libs=; cflags=; \
+	    configcheck=`$(PRINTF) -- "$${configcheck}" | $(SED) -e "s;[+-]$${plabel} ;;g"`; \
+	    $(TEST) "$$ret" = "0" && confres="+" || confres="-"; configcheck="$${configcheck}$${confres}$${plabel} "; \
 	    $(TEST) "$${ret}" = "0" || case " $(CONFIG_CHECK) " in \
 	        *" +$${plabel} "*) $(PRINTF) -- "$(NAME): error: $${plabel} is mandatory\n"; exit 1;; \
 	        *) false;; esac; \
@@ -1159,12 +1176,15 @@ $(CONFIGMAKE): Makefile
 	    incconf=$$1; shift; incval=$$1; shift; libconf=$$1; shift; libval=$$1; shift; confname=$$1; shift; \
 	    case " $(CONFIG_CHECK) " in *" $${confname} "*|*" +$${confname} "*|*" all "*) ;; *) return 1;; esac; \
 	    gcctest "$${confname}" "$$@"; ret=$$?; \
-	    if $(TEST) "$$ret" = "0"; then support=1; confname="+$${confname}"; \
-	                              else support=0; confname="-$${confname}"; incval=; libval=; fi; \
-	    $(GREP) -Ev '^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*('"$${incconf}|$${libconf}"')[[:space:]]' \
-	        $(CONFIGINC) > "$${mytmpfile}"; $(MV) "$${mytmpfile}" "$(CONFIGINC)"; \
-	    $(GREP) -Ev '^[[:space:]]*('"$${incconf}|$${libconf}"')[[:space:]]*=' \
-	        $(CONFIGMAKE) > "$${mytmpfile}"; $(MV) "$${mytmpfile}" "$(CONFIGMAKE)"; \
+	    if $(TEST) "$$ret" = "0"; then support=1; confres="+$${confname}"; \
+	                              else support=0; confres="-$${confname}"; incval=; libval=; fi; \
+	    for conf in "$${incconf}" "$${libconf}"; do \
+	        if $(TEST) -n "$${conf}"; then \
+	            $(GREP) -Ev '^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*'"$${conf}"'[[:space:]]' \
+	                $(CONFIGINC) > "$${mytmpfile}"; $(MV) "$${mytmpfile}" "$(CONFIGINC)"; \
+	            $(GREP) -Ev '^[[:space:]]*'"$${conf}"'[[:space:]]*=' $(CONFIGMAKE) > "$${mytmpfile}"; \
+	            $(MV) "$${mytmpfile}" "$(CONFIGMAKE)"; \
+	        fi; done; \
 	    $(TEST) -n "$${incconf}" && { $(PRINTF) "#define $${incconf} $${support}\n" >> $(CONFIGINC); \
 	                                  $(PRINTF) "$${incconf}=$${incval}\n" >> $(CONFIGMAKE); }; \
 	    $(TEST) -n "$${libconf}" && { $(PRINTF) "#define $${libconf} $${support}\n" >> $(CONFIGINC); \
@@ -1187,29 +1207,27 @@ $(CONFIGMAKE): Makefile
 	         "ncurses" $(CONFTEST_NCURSES_NOINC) \
 	    && break; } || true; \
 	done; \
-	lib="-lcrypto"; cflags='' libs="$${lib}" gcctest "libcrypto" "int SHA256_Init(void *);\n\
-	        int main() { long n[128]; SHA256_Init(&n); return 0; }\n" \
-	    && $(PRINTF) "#define CONFIG_LIBCRYPTO 1\n" >> $(CONFIGINC) \
-	    && $(PRINTF) "CONFIG_LIBCRYPTO=$${lib}\n" >> $(CONFIGMAKE) || true; \
-	cflags='' libs='' gcctest "applecrypto" "#define COMMON_DIGEST_FOR_OPENSSL\n\
-	      #include <CommonCrypto/CommonDigest.h>\nint main() { SHA256_CTX n; SHA256_Init(&n); return 0; }\n" \
-	    && $(PRINTF) "#define CONFIG_APPLECRYPTO 1\n" >> $(CONFIGINC) || true; \
+	flag=''; lib="-lcrypto"; cflags="$${flag}" libs="$${lib}" conftest "" "$${flag}" CONFIG_LIBCRYPTO "$${lib}" \
+	    "libcrypto" $(CONFTEST_LIBCRYPTO) || true; \
+	flag=''; lib=''; cflags="$${flag}" libs="$${lib}" conftest "CONFIG_APPLECRYPTO" "$${flag}" "" "$${lib}" \
+	    "applecrypto" $(CONFTEST_APPLECRYPTO) || true; \
         for prefix in '' '/opt/local' '/usr/local'; do \
 	    if $(TEST) -n "$${prefix}"; then cflag="-I$${prefix}/include"; lib="-L$${prefix}/lib -lcrypto"; \
 	    else clfag=; lib="-lcrypto"; fi; \
-	    cflags="$${cflag}" libs="$${lib}" gcctest "openssl" "#include <openssl/sha.h>\n\
-	        int main() { SHA256_CTX n; SHA256_Init(&n); return 0; }\n" \
-	    && $(PRINTF) "#define CONFIG_OPENSSL 1\n" >> $(CONFIGINC) \
-	    && $(PRINTF) "CONFIG_INCOPENSSL=$${cflag}\nCONFIG_LIBOPENSSL=$${lib}\n" >> $(CONFIGMAKE) && break || true; \
+	    cflags="$${cflag}" libs="$${lib}" conftest CONFIG_OPENSSL_H "$${cflag}" CONFIG_LIBOPENSSL "$${lib}" \
+	        "openssl" $(CONFTEST_OPENSSL) \
+	    && break || true; \
 	done; \
-	cflags='' libs='' gcctest "sigqueue" '#include <signal.h>\nint main(void) { sigqueue(0,0,0); return 0; }\n' \
-	    && $(PRINTF) "#define CONFIG_SIGQUEUE 1\n" >> $(CONFIGINC) || true; \
+	flag=''; lib=''; cflags="$${flag}" libs="$${lib}" conftest CONFIG_SIGQUEUE "$${flag}" "" "$${lib}" \
+	    "sigqueue" $(CONFTEST_SIGQUEUE) || true; \
 	cflags='' libs='' gcctest "sigrtmin" '#include <signal.h>\n#include <stdio.h>\nint main(void) { printf("%%d", SIGRTMIN); return 0; }\n' \
 	    && $(PRINTF) "#define CONFIG_SIGRTMIN ${gccout}\n" >> $(CONFIGINC) || true; \
-	lib="-lcrypt"; cflags='' libs="$${lib}" gcctest "libcrypt" "int main(void) { return 0; }\n" \
-	    && $(PRINTF) "CONFIG_LIBCRYPT=$${lib}\n" >> $(CONFIGMAKE) || true; \
-	cflags='' libs='' gcctest "crypt.h" '#include <crypt.h>\nint main(void) { return 0; }\n' \
-	    && $(PRINTF) '#define CONFIG_CRYPT_H 1\n' >> $(CONFIGINC) || true; \
+	flag=''; lib="-lcrypt"; cflags="$${flag}" libs="$${lib}" conftest "" "$${flag}" CONFIG_LIBCRYPT "$${lib}" \
+	    "libcrypt" $(CONFTEST_LIBCRYPT) \
+	    || true; \
+	flag=; lib=; cflags="$${flag}" libs="$${lib}" conftest CONFIG_CRYPT_H "$${flag}" "" "$${lib}" \
+	    "crypt.h" $(CONFTEST_CRYPT_H) \
+	    || true; \
 	cflags='' libs='' gcctest "crypt_gnu" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n\
 	        #include \"$$PWD/$(CONFIGINC)\"\n#ifdef CONFIG_CRYPT_H\n#include <crypt.h>\n#endif\n\
 	        int main(void) { int ret=1; int f=0; int i; char *s=strdup(\"\$$1\$$abcdefgh\$$\");\nfor(i=1; i <= 9; i++) \
@@ -1220,6 +1238,7 @@ $(CONFIGMAKE): Makefile
 	        #ifdef CONFIG_CRYPT_H\n#include <crypt.h>\n#endif\nint main(void) { char *s=\"_1200Salt\";\n\
 	        return strncmp(s, crypt(\"toto\", s), strlen(s)); }\n" \
 	    && $(PRINTF) '#define CONFIG_CRYPT_DES_EXT 1\n' >> $(CONFIGINC) || true; \
+	$(PRINTF) -- "#define CONFIG_FEATURES \"$${configcheck}\"\n" >> $(CONFIGINC); \
 	$(RM) -f "$${mytmpfile}"
 
 .gitignore:
