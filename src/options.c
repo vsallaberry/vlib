@@ -126,17 +126,25 @@ static int opt_alias(int i_opt, const opt_config_t * opt_config) {
 static int opt_error(int exit_code, const opt_config_t * opt_config, int show_usage,
                      const char * fmt, ...) {
     if (opt_config && (opt_config->flags & OPT_FLAG_SILENT) == 0) {
+        FILE * out = stderr;
         if (opt_config->log != NULL) {
             if (opt_config->log->level < LOG_LVL_ERROR)
                 return exit_code;
+            if (opt_config->log->out != NULL) {
+                out = opt_config->log->out;
+            }
+            flockfile(out);
             log_header(LOG_LVL_ERROR, opt_config->log, NULL, NULL, 0);
+        } else {
+            flockfile(out);
         }
         if (fmt != NULL) {
             va_list arg;
             va_start(arg, fmt);
-            vfprintf(stderr, fmt, arg);
+            vfprintf(out, fmt, arg);
             va_end(arg);
         }
+        funlockfile(out);
         if (show_usage) {
             return opt_usage(exit_code, opt_config, NULL);
         }
