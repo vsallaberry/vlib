@@ -223,7 +223,7 @@ logpool_t *         logpool_create_from_cmdline(
     char *          arg;
 
     /* sanity checks and initializations */
-    if (pool == NULL && (pool = logpool_create())) {
+    if (pool == NULL && (pool = logpool_create()) == NULL) {
         LOG_ERROR(g_vlib_log, "error: cannot create logpool: %s", strerror(errno));
         return NULL;
     }
@@ -369,13 +369,15 @@ log_t *             logpool_add(
                         const char *        path) {
     log_t *     result;
 
-    if (pool)
-        pthread_rwlock_wrlock(&pool->rwlock);
+    if (pool == NULL || log == NULL) {
+        return NULL;
+    }
+
+    pthread_rwlock_wrlock(&(pool->rwlock));
 
     result = logpool_add_unlocked(pool, log, path);
 
-    if (pool)
-        pthread_rwlock_unlock(&pool->rwlock);
+    pthread_rwlock_unlock(&(pool->rwlock));
 
     return result;
 }
@@ -389,9 +391,6 @@ static log_t *      logpool_add_unlocked(
     logpool_entry_t *   logentry, * preventry;
     char                tmppath[20];
 
-    if (pool == NULL || log == NULL) {
-        return NULL;
-    }
     if ((logentry = malloc(sizeof(logpool_entry_t))) == NULL) {
         return NULL;
     }
