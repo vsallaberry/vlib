@@ -49,6 +49,9 @@ extern "C" {
 # error "OPT_ID_{ARG|USER|SECTION}_MAX >= OPT_OPTION_FLAG_MIN"
 #endif
 
+# define OPT_USAGE_DESC_ALIGNMENT   30
+# define OPT_USAGE_DESC_MINLEN      (80 - OPT_USAGE_DESC_ALIGNMENT)
+
 /** options error codes, compare OPT_EXIT_CODE(status) with following values: */
 enum {
     OPT_EFAULT      = 101,  /* bad opt_config input */
@@ -132,21 +135,29 @@ typedef enum {
     OPT_FLAG_MAINSECTION    = 1 << 1,   /* show only main usage section by default */
     OPT_FLAG_SIMPLEUSAGE    = 1 << 2,   /* print simple usage summury */
     OPT_FLAG_NOUSAGE        = 1 << 3,   /* don't print usage summary */
+    OPT_FLAG_MIN_DESC_ALIGN = 1 << 4,   /* reduce alignment of options descriptions */
     /* end */
-    OPT_FLAG_DEFAULT = OPT_FLAG_NONE
+    OPT_FLAG_MACROINIT      = 1 << 30,  /* internal: detect if macro was used */
+    OPT_FLAG_DEFAULT = OPT_FLAG_NONE | OPT_FLAG_MIN_DESC_ALIGN
 } opt_config_flag_t;
 
-/** Option configuration with argc,argv,callback,desc,user_data,... */
+/** Option configuration with argc,argv,callback,desc,user_data,...
+ * It must be initialized with OPT_INITIALIZER(). */
 struct opt_config_s {
-    int                         argc;
-    const char *const*          argv;
-    opt_option_callback_t       callback;
-    const opt_options_desc_t *  opt_desc;
-    opt_config_flag_t           flags;
-    const char *                version_string;
-    void *                      user_data;
-    log_t *                     log;
+    int                         argc;           /* given by main() */
+    const char *const*          argv;           /* given by main() */
+    opt_option_callback_t       callback;       /* called by opt_parse_options() */
+    const opt_options_desc_t *  opt_desc;       /* array descripting options */
+    opt_config_flag_t           flags;          /* tunning options handling */
+    const char *                version_string; /* message preceeding options usage */
+    void *                      user_data;      /* data to be passed to callback */
+    log_t *                     log;            /* log instance for usage messages */
+    unsigned int                desc_align;     /* alignment in chars for options descriptions */
+    unsigned int                desc_minlen;    /* minimum length for descriptions */
 };
+# define OPT_INITIALIZER(argc, argv, callb, desc, ver, data) \
+    { argc, argv, callb, desc, OPT_FLAG_DEFAULT | OPT_FLAG_MACROINIT, \
+      ver, data, NULL, OPT_USAGE_DESC_ALIGNMENT, OPT_USAGE_DESC_MINLEN }
 
 /**
  * print program usage.

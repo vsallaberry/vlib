@@ -41,8 +41,7 @@
 #include "vlib_private.h"
 
 /* ** OPTIONS *********************************************************************************/
-
-#define OPT_USAGE_OPT_PAD           30
+#define OPT_USAGE_DESC_HEAD         " "
 #define LOG_USAGE_SUMUP_END_DESC    " [--<long-option>[=value]] [--]"
 #define LOG_USAGE_LEVEL             LOG_LVL_INFO
 
@@ -339,6 +338,11 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
     FILE *          out;
     unsigned int    max_columns;
     int             i_opt, i_current_section = -1, filter_matched = 0;
+    const char *    desc_head = OPT_USAGE_DESC_HEAD;
+    unsigned int    desc_headsz = sizeof(OPT_USAGE_DESC_HEAD) - 1;
+    unsigned int    max_optlen;
+    unsigned int    desc_align;
+    unsigned int    desc_minlen;
 
     /* sanity checks */
     fflush(NULL);
@@ -367,11 +371,55 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
     } else
         flockfile(out);
 
-    /* get max columns usable for display */
-    if ((i_opt = vterm_get_columns(fileno(out))) < OPT_USAGE_OPT_PAD + 10) {
-        max_columns = 80;
+    /* detect if macro was used to initialize opt_config, use defaults if not */
+    if ((opt_config->flags & OPT_FLAG_MACROINIT) == 0) {
+        desc_align = OPT_USAGE_DESC_ALIGNMENT;
+        desc_minlen = OPT_USAGE_DESC_MINLEN;
     } else {
-        max_columns = i_opt;
+        desc_align = opt_config->desc_align;
+        desc_minlen = opt_config->desc_minlen;
+    }
+
+    /* get maximum length of options (without description) */
+    if ((opt_config->flags & OPT_FLAG_MIN_DESC_ALIGN) != 0) {
+        max_optlen = 0;
+        i_opt = 0;
+        i_current_section = -1;
+        for (const opt_options_desc_t * opt = opt_config->opt_desc;
+             !is_opt_end(opt); ++opt, ++i_opt) {
+            if (!is_opt_section(opt->short_opt)) {
+                unsigned int curlen = 2;
+                if (is_valid_short_opt(opt->short_opt))
+                    curlen += 3; /* '-X ' */
+                if (opt->arg != NULL)
+                    curlen += strlen(opt->arg) + 1; /* '<arg> ' */
+                if (opt->long_opt != NULL)
+                    curlen += strlen(opt->long_opt) + 3; /* '--<long> ' */
+                for (const opt_options_desc_t * opt2 = opt + 1; !is_opt_end(opt2); ++opt2) {
+                    if (opt->short_opt == opt2->short_opt && opt2->long_opt != NULL) {
+                        curlen += strlen(opt2->long_opt) + 4; /* ',--<long> ' */
+                    }
+                }
+                if (curlen > max_optlen && curlen < 1 + desc_align - desc_headsz)
+                    max_optlen = curlen;
+            } else {
+                i_current_section = i_opt;
+                if (i_opt > 0 && filter == NULL
+                && (opt_config->flags & OPT_FLAG_MAINSECTION) != 0)
+                    break ;
+            }
+        }
+    } else
+        max_optlen = 2 + desc_align - desc_headsz;
+
+    /* get max columns usable for display */
+    if ((max_columns = vterm_get_columns(fileno(out))) <= 0) {
+        max_columns = 80; /* not a tty or error retrieving columns */
+    } else if (max_columns < 2 + desc_minlen + desc_headsz) {
+        max_optlen = 2; /* columns below minimum: use minimum description alignment */
+    } else if (max_columns < max_optlen + desc_headsz + desc_minlen) {
+        /* columns below minimum: use minimum description alignment */
+        max_optlen = max_columns - desc_headsz - desc_minlen;
     }
     if (opt_config->log != NULL && opt_config->log->level >= LOG_USAGE_LEVEL) {
         i_opt = log_header(LOG_USAGE_LEVEL, opt_config->log, NULL, NULL, 0);
@@ -379,11 +427,13 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
             max_columns -= i_opt;
         }
     }
+
     /* print program name, version and usage summary */
     opt_print_usage_summary(opt_config, out, max_columns);
 
     /* print list of options with their descrption */
     i_opt = 0;
+    i_current_section = -1;
     for (const opt_options_desc_t * opt = opt_config->opt_desc;
             (filter_matched == 0 && filter != NULL) || !is_opt_end(opt); ++opt, ++i_opt) {
         int             n_printed = 0;
@@ -460,7 +510,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
             continue ;
         }
         /* print EOL if characters printed exceed padding */
-        if (n_printed > OPT_USAGE_OPT_PAD) {
+        if (n_printed > (int) max_optlen) {
             n_printed = opt_newline(out, opt_config, 1);
         }
         /* parsing option descriptions, splitting them into words and fix alignment */
@@ -478,18 +528,18 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
             /* insert EOL if it does not fit in max_columns */
             if (*token != '\n' && len + n_printed > max_columns) {
                 n_printed = opt_newline(out, opt_config, 1);
-                eol_shift = 2;
+                eol_shift = desc_headsz;
             }
             /* Align description if needed */
             if (!is_section) {
-                while (n_printed < OPT_USAGE_OPT_PAD + eol_shift) {
+                while (n_printed < (int) max_optlen + eol_shift) {
                     fputc(' ', out);
                     n_printed++;
                 }
-                if (!eol_shift && fputs(": ", out) != EOF)
-                    n_printed += 2;
+                if (!eol_shift && fputs(desc_head, out) != EOF)
+                    n_printed += desc_headsz;
             }
-            eol_shift = 2;
+            eol_shift = desc_headsz;
             /* print description */
             n_printed += fwrite(token, 1, len, out);
             if (token[len-1] == '\n') {
