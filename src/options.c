@@ -259,14 +259,23 @@ static void opt_print_usage_summary(const opt_config_t * opt_config,
         return ;
     }
 
+    if (n_printed + 3 > max_columns) {
+        pad = 2;
+        n_printed = 0;
+        opt_newline(out, opt_config, 1);
+        n_printed += fprintf(out, "  ");
+    }
+
     /* first pass to print short options without arguments */
     i_opt = 0;
     for (const opt_options_desc_t * opt = opt_config->opt_desc; !is_opt_end(opt); ++opt, ++i_opt) {
         if (opt->arg == NULL && is_valid_short_opt(opt->short_opt)
         &&  opt_alias(i_opt, opt_config) < 0) {
             if (n_printed + 2 > max_columns) {
-                fputc(']', out);
-                for (n_printed = 0; n_printed < pad; n_printed++)
+                if (n_printed > pad)
+                    fputc(']', out);
+                opt_newline(out, opt_config, 1);
+                for (n_printed = 0; n_printed < pad; ++n_printed)
                     fputc(' ', out);
             }
             if (n_printed == pad)
@@ -296,7 +305,7 @@ static void opt_print_usage_summary(const opt_config_t * opt_config,
             /* check columns limit */
             if (n_printed + len > max_columns) {
                 opt_newline(out, opt_config, 1);
-                for (n_printed = 1; n_printed < pad; n_printed++)
+                for (n_printed = 1; n_printed < pad; ++n_printed)
                     fputc(' ', out);
             }
             /* display it */
@@ -317,7 +326,7 @@ static void opt_print_usage_summary(const opt_config_t * opt_config,
     if (i_firstarg < 0) {
         if (n_printed + sizeof(LOG_USAGE_SUMUP_END_DESC) - 1 > max_columns) {
             opt_newline(out, opt_config, 1);
-            for (n_printed = 1; n_printed < pad; n_printed++)
+            for (n_printed = 1; n_printed < pad; ++n_printed)
                 fputc(' ', out);
         }
         n_printed += fprintf(out, LOG_USAGE_SUMUP_END_DESC);
