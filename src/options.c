@@ -417,17 +417,20 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
     /* get max columns usable for display */
     if ((max_columns = vterm_get_columns(fileno(out))) <= 0) {
         max_columns = 80; /* not a tty or error retrieving columns */
-    } else if (max_columns < 2 + desc_minlen + desc_headsz) {
-        max_optlen = 2; /* columns below minimum: use minimum description alignment */
-    } else if (max_columns < max_optlen + desc_headsz + desc_minlen) {
-        /* columns below minimum: use minimum description alignment */
-        max_optlen = max_columns - desc_headsz - desc_minlen;
     }
+    /* if options are displayed through log, get header size, and reduce max_columns */
     if (opt_config->log != NULL && opt_config->log->level >= LOG_USAGE_LEVEL) {
         i_opt = log_header(LOG_USAGE_LEVEL, opt_config->log, NULL, NULL, 0);
         if (isatty(fileno(out))) {
             max_columns -= i_opt;
         }
+    }
+    /* Check if requested min size of opts. descs. fits in max_columns. */
+    if (max_columns < 2 + desc_minlen + desc_headsz) {
+        max_optlen = 2; /* columns below minimum: use minimum description alignment */
+    } else if (max_columns < max_optlen + desc_headsz + desc_minlen) {
+        /* columns below minimum: use minimum description alignment */
+        max_optlen = max_columns - desc_headsz - desc_minlen;
     }
 
     /* print program name, version and usage summary */
