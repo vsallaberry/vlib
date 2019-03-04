@@ -299,7 +299,12 @@ static void opt_print_usage_summary(const opt_config_t * opt_config,
                len += 4 + (*opt->arg != '[' ? 2 : 0); /* will print "[-Xarg]" or "[-X<arg>]" */
             } else if (i_firstarg < 0) {
                 /* will printf additional " [--<long-option>[=value]] [--]" string */
-                len += sizeof(LOG_USAGE_SUMUP_END_DESC) - 1;
+                if (n_printed + sizeof(LOG_USAGE_SUMUP_END_DESC) - 1 > max_columns) {
+                    opt_newline(out, opt_config, 1);
+                    for (n_printed = 1; n_printed < pad; ++n_printed)
+                        fputc(' ', out);
+                }
+                n_printed += fprintf(out, LOG_USAGE_SUMUP_END_DESC);
             }
             /* check columns limit */
             if (n_printed + len > max_columns) {
@@ -309,9 +314,6 @@ static void opt_print_usage_summary(const opt_config_t * opt_config,
             }
             /* display it */
             if (isarg) {
-                if (i_firstarg < 0) {
-                    n_printed += fprintf(out, LOG_USAGE_SUMUP_END_DESC);
-                }
                 i_firstarg = i_opt;
                 n_printed += fprintf(out, " %s", opt->arg);
             } else if (*opt->arg != '[') {
