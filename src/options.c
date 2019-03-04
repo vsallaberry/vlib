@@ -42,8 +42,8 @@
 
 /* ** OPTIONS *********************************************************************************/
 #define OPT_USAGE_DESC_HEAD         " "
-#define LOG_USAGE_SUMUP_END_DESC    " [--<long-option>[=value]] [--]"
-#define LOG_USAGE_LEVEL             LOG_LVL_INFO
+#define OPT_USAGE_SUMUP_END_DESC    " [--<long-option>[=value]] [--]"
+#define OPT_USAGE_LOGLEVEL          LOG_LVL_INFO
 
 inline static int is_opt_end(const opt_options_desc_t * opt) {
     return opt == NULL || opt->short_opt == OPT_ID_END;
@@ -214,11 +214,11 @@ static int opt_usage_filter(const char * filter, int i_opt, int i_section,
 }
 
 static size_t opt_newline(FILE * out, const opt_config_t * opt_config, int print_header) {
-    if (opt_config->log != NULL && opt_config->log->level < LOG_USAGE_LEVEL)
+    if (opt_config->log != NULL && opt_config->log->level < OPT_USAGE_LOGLEVEL)
         return 0;
     fputc('\n', out);
     if (print_header && opt_config->log != NULL)
-        log_header(LOG_USAGE_LEVEL, opt_config->log, NULL, NULL, 0);
+        log_header(OPT_USAGE_LOGLEVEL, opt_config->log, NULL, NULL, 0);
     return 0;
 }
 
@@ -230,7 +230,7 @@ static void opt_print_usage_summary(const opt_config_t * opt_config,
 
     /* don't print anything if requested */
     if ((opt_config->flags & OPT_FLAG_NOUSAGE) != 0
-    ||  (opt_config->log != NULL && opt_config->log->level < LOG_USAGE_LEVEL))
+    ||  (opt_config->log != NULL && opt_config->log->level < OPT_USAGE_LOGLEVEL))
         return ;
 
     /* print program name, version and usage summary */
@@ -299,12 +299,12 @@ static void opt_print_usage_summary(const opt_config_t * opt_config,
                len += 4 + (*opt->arg != '[' ? 2 : 0); /* will print "[-Xarg]" or "[-X<arg>]" */
             } else if (i_firstarg < 0) {
                 /* will printf additional " [--<long-option>[=value]] [--]" string */
-                if (n_printed + sizeof(LOG_USAGE_SUMUP_END_DESC) - 1 > max_columns) {
+                if (n_printed + sizeof(OPT_USAGE_SUMUP_END_DESC) - 1 > max_columns) {
                     opt_newline(out, opt_config, 1);
                     for (n_printed = 1; n_printed < pad; ++n_printed)
                         fputc(' ', out);
                 }
-                n_printed += fprintf(out, LOG_USAGE_SUMUP_END_DESC);
+                n_printed += fprintf(out, OPT_USAGE_SUMUP_END_DESC);
             }
             /* check columns limit */
             if (n_printed + len > max_columns) {
@@ -325,12 +325,12 @@ static void opt_print_usage_summary(const opt_config_t * opt_config,
     }
     /* print " [--<long-option>[=value]] [--]" if not already done */
     if (i_firstarg < 0) {
-        if (n_printed + sizeof(LOG_USAGE_SUMUP_END_DESC) - 1 > max_columns) {
+        if (n_printed + sizeof(OPT_USAGE_SUMUP_END_DESC) - 1 > max_columns) {
             opt_newline(out, opt_config, 1);
             for (n_printed = 1; n_printed < pad; ++n_printed)
                 fputc(' ', out);
         }
-        n_printed += fprintf(out, LOG_USAGE_SUMUP_END_DESC);
+        n_printed += fprintf(out, OPT_USAGE_SUMUP_END_DESC);
     }
     opt_newline(out, opt_config, 1);
 }
@@ -419,8 +419,8 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
         max_columns = 80; /* not a tty or error retrieving columns */
     }
     /* if options are displayed through log, get header size, and reduce max_columns */
-    if (opt_config->log != NULL && opt_config->log->level >= LOG_USAGE_LEVEL) {
-        i_opt = log_header(LOG_USAGE_LEVEL, opt_config->log, NULL, NULL, 0);
+    if (opt_config->log != NULL && opt_config->log->level >= OPT_USAGE_LOGLEVEL) {
+        i_opt = log_header(OPT_USAGE_LOGLEVEL, opt_config->log, NULL, NULL, 0);
         if (isatty(fileno(out))) {
             max_columns -= i_opt;
         }
@@ -468,7 +468,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
             continue ;
         }
         ++filter_matched;
-        if (opt_config->log != NULL && opt_config->log->level < LOG_USAGE_LEVEL) {
+        if (opt_config->log != NULL && opt_config->log->level < OPT_USAGE_LOGLEVEL) {
             continue ;
         }
         if (!is_section) {
@@ -550,7 +550,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
             if (token[len-1] == '\n') {
                 n_printed = 0;
                 if (opt_config->log != NULL)
-                    log_header(LOG_USAGE_LEVEL, opt_config->log, NULL, NULL, 0);
+                    log_header(OPT_USAGE_LOGLEVEL, opt_config->log, NULL, NULL, 0);
             }
         }
         /* EOL before processing next option */
