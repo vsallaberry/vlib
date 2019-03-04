@@ -222,8 +222,11 @@ static size_t opt_newline(FILE * out, const opt_config_t * opt_config, int print
     return 0;
 }
 
-static void opt_print_usage_summary(const opt_config_t * opt_config,
-                                    FILE * out, unsigned int max_columns) {
+static void opt_print_usage_summary(
+                        const opt_config_t *        opt_config,
+                        FILE *                      out,
+                        unsigned int                max_columns,
+                        unsigned int                max_optlen) {
     const char *    start_name;
     unsigned int    n_printed, pad;
     int             i_opt, i_firstarg = -1;
@@ -257,8 +260,11 @@ static void opt_print_usage_summary(const opt_config_t * opt_config,
         opt_newline(out, opt_config, 1);
         return ;
     }
-
-    if (n_printed + 3 > max_columns) {
+    if (max_optlen < sizeof(OPT_USAGE_SUMUP_END_DESC) - 1) {
+        max_optlen = sizeof(OPT_USAGE_SUMUP_END_DESC) - 1;
+    }
+    /* reduce alignment if screen is too smal */
+    if (n_printed + 3 + max_optlen > max_columns) {
         pad = 2;
         n_printed = 0;
         opt_newline(out, opt_config, 1);
@@ -434,7 +440,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
     }
 
     /* print program name, version and usage summary */
-    opt_print_usage_summary(opt_config, out, max_columns);
+    opt_print_usage_summary(opt_config, out, max_columns, max_optlen);
 
     /* print list of options with their descrption */
     i_opt = 0;
