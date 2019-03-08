@@ -51,6 +51,8 @@ extern "C" {
 
 # define OPT_USAGE_DESC_ALIGNMENT   30
 # define OPT_USAGE_DESC_MINLEN      (80 - OPT_USAGE_DESC_ALIGNMENT)
+#define OPT_USAGE_DESC_HEAD         " "
+#define OPT_USAGE_OPT_HEAD          "  "
 
 /** options error codes, compare OPT_EXIT_CODE(status) with following values: */
 enum {
@@ -126,8 +128,12 @@ typedef struct opt_config_s opt_config_t;
  *     IS_EXIT_OK(status)  => SUCCESS, exit(OPT_EXIT_CODE(status)) required.
  *     IS_ERROR(status)    => ERROR, exit(OPT_EXIT_CODE(status)) required.
  */
-typedef int     (*opt_option_callback_t)(int opt, const char *arg, int *i_argv,
-                                         const opt_config_t * opt_config);
+typedef int     (*opt_option_callback_t)(
+                        int                 opt,
+                        const char *        arg,
+                        int *               i_argv,
+                        opt_config_t *      opt_config);
+
 /** opt_config_flag_t */
 typedef enum {
     OPT_FLAG_NONE           = 0,
@@ -154,41 +160,59 @@ struct opt_config_s {
     log_t *                     log;            /* log instance for usage messages */
     unsigned int                desc_align;     /* alignment in chars for options descriptions */
     unsigned int                desc_minlen;    /* minimum length for descriptions */
+    const char *                desc_head;      /* header for 1st line of opts. descs. */
+    const char *                opt_head;       /* header for 1st line of options list */
 };
+/** OPT_INITILIZER(), a R-value for opt_config_t, initializing an opt_config_t
+ * structure with defaults values (eg: opt_config_t opt = OPT_INITIALIZER(...)). */
 # define OPT_INITIALIZER(argc, argv, callb, desc, ver, data) \
     { argc, argv, callb, desc, OPT_FLAG_DEFAULT | OPT_FLAG_MACROINIT, \
-      ver, data, NULL, OPT_USAGE_DESC_ALIGNMENT, OPT_USAGE_DESC_MINLEN }
+      ver, data, NULL, OPT_USAGE_DESC_ALIGNMENT, OPT_USAGE_DESC_MINLEN, \
+      OPT_USAGE_DESC_HEAD, OPT_USAGE_OPT_HEAD }
 
 /**
  * print program usage.
  * The user can print additionnal information after calling this function.
  */
-int             opt_usage(int exit_status, const opt_config_t * opt_config,
-                          const char * filter);
+int             opt_usage(
+                    int             exit_status,
+                    opt_config_t *  opt_config,
+                    const char *    filter);
 
 /**
  * opt_parse_options() : Main entry point for generic options parsing
- * @param opt_config the option configuration including:
- *    argc given by main
- *    argv given by main
- *    opt_desc, an array of options, terminated by { OPT_ID_END, NULL,....,NULL }
- *    callback the user specific function called for each argument.
- *    version_string the program version (can be OPT_VERSION_STRING defined below)
+ * @param opt_config the option configuration, initialized with
+ *                   OPT_INITIALIZER, and customized afterwards if needed.
+ *                   For compatibility, some features (log, desc_head, opt_head, ...)
+ *                   are disabled if OPT_INITILIZER is not used.
+ *    opt_config includes:
+ *     argc given by main
+ *     argv given by main
+ *     opt_desc, an array of options, terminated by { OPT_ID_END, NULL,....,NULL }
+ *     callback the user specific function called for each argument.
+ *     version_string the program version (can be OPT_VERSION_STRING defined below)
  *                   it can also contain EOL and/or copyright, description.
- *    user_data the specific user data to be given to callback
+ *     user_data the specific user data to be given to callback
+ *     log the log instance to use for usage messages
+ *     desc_align the alignment in chars for options descriptions
+ *     desc_minlen the minimum length for descriptions, could result in reducing desc_align
+ *     desc_head the header for 1st line of each option description.
+ *     opt_head the header for 1st line of each option list.
+ *
  * @return the parse status, which can be treated as below:
  *  if (OPT_IS_CONTINUE(status)) => SUCCESS,  no exit required
  *  if (OPT_IS_EXIT_OK(status))  => SUCCESS,  exit(OPT_EXIT_CODE(status)) required.
  *  if (OPT_IS_ERROR(status))    => on ERROR, exit(OPT_EXIT_CODE(status)) required.
  */
-int             opt_parse_options(const opt_config_t * opt_config);
+int             opt_parse_options(opt_config_t * opt_config);
 
 /* opt_parse_options_2pass() : same as opt_parse_options(), with 1 pass in silent
  * mode with opt_config->callback and second pass without silent mode with callback2,
  * opt_config->callback(OPT_ID_END, NULL, NULL, opt_config) is called before second pass,
  * if its return value is not OPT_IS_CONTINUE, second pass is not done. */
-int             opt_parse_options_2pass(opt_config_t * opt_config,
-                                        opt_option_callback_t callback2);
+int             opt_parse_options_2pass(
+                        opt_config_t *          opt_config,
+                        opt_option_callback_t   callback2);
 
 /** opt_describe_filter() : default function describing the filter of --help command-line
  * option to be called from opt_callback_t option handler - see OPT_DESCRIBE_OPTION */

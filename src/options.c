@@ -41,7 +41,6 @@
 #include "vlib_private.h"
 
 /* ** OPTIONS *********************************************************************************/
-#define OPT_USAGE_DESC_HEAD         " "
 #define OPT_USAGE_SUMUP_END_DESC    " [--<long-option>[=value]] [--]"
 #define OPT_USAGE_LOGLEVEL          LOG_LVL_INFO
 
@@ -122,7 +121,7 @@ static int opt_alias(int i_opt, const opt_config_t * opt_config) {
     return -1;
 }
 
-static int opt_error(int exit_code, const opt_config_t * opt_config, int show_usage,
+static int opt_error(int exit_code, opt_config_t * opt_config, int show_usage,
                      const char * fmt, ...) {
     if (opt_config && (opt_config->flags & OPT_FLAG_SILENT) == 0) {
         FILE * out = stderr;
@@ -152,7 +151,7 @@ static int opt_error(int exit_code, const opt_config_t * opt_config, int show_us
 }
 
 static int opt_usage_filter(const char * filter, int i_opt, int i_section,
-                            const opt_config_t * opt_config) {
+                            opt_config_t * opt_config) {
     const opt_options_desc_t * opt = &opt_config->opt_desc[i_opt];
     const char * next = filter, * token, * longopt;
     const char * section = i_section >= 0 ? opt_config->opt_desc[i_section].arg : NULL;
@@ -264,7 +263,7 @@ static void opt_print_usage_summary(
         max_optlen = sizeof(OPT_USAGE_SUMUP_END_DESC) - 1;
     }
     /* reduce alignment if screen is too smal */
-    if (n_printed + 3 + max_optlen > max_columns) {
+    if (n_printed + 4 /* '[-X]' */ + max_optlen > max_columns) {
         pad = 2;
         n_printed = 0;
         opt_newline(out, opt_config, 1);
@@ -341,16 +340,13 @@ static void opt_print_usage_summary(
     opt_newline(out, opt_config, 1);
 }
 
-int opt_usage(int exit_status, const opt_config_t * opt_config, const char * filter) {
+int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
     char            desc_buffer[4096];
-    FILE *          out;
+    FILE *          out = NULL;
     unsigned int    max_columns;
     int             i_opt, i_current_section = -1, filter_matched = 0;
-    const char *    desc_head = OPT_USAGE_DESC_HEAD;
-    unsigned int    desc_headsz = sizeof(OPT_USAGE_DESC_HEAD) - 1;
+    unsigned int    desc_headsz, opt_headsz;
     unsigned int    max_optlen;
-    unsigned int    desc_align;
-    unsigned int    desc_minlen;
 
     /* sanity checks */
     fflush(NULL);
@@ -364,31 +360,40 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
         return exit_status;
     }
 
-    if (opt_config->log != NULL && opt_config->log->out != NULL) {
-        out = opt_config->log->out;
+    /* detect if macro was used to initialize opt_config, use defaults if not */
+    if ((opt_config->flags & OPT_FLAG_MACROINIT) == 0) {
+        opt_config->desc_align = OPT_USAGE_DESC_ALIGNMENT;
+        opt_config->desc_minlen = OPT_USAGE_DESC_MINLEN;
+        opt_config->desc_head = OPT_USAGE_DESC_HEAD;
+        desc_headsz = sizeof(OPT_USAGE_DESC_HEAD) - 1;
+        opt_config->opt_head = OPT_USAGE_OPT_HEAD;
+        opt_headsz = sizeof(OPT_USAGE_OPT_HEAD) - 1;
+        opt_config->log = NULL;
     } else {
-        out = stdout;
+        desc_headsz = strlen(opt_config->desc_head);
+        opt_headsz = strlen(opt_config->opt_head);
+        /* choose the FILE* to be used as output */
+        if (opt_config->log != NULL && opt_config->log->out != NULL) {
+            out = opt_config->log->out;
+            flockfile(out);
+        }
     }
 
     /* if this is an error: use stderr and put a blank between error message and usage */
     if (OPT_IS_ERROR(exit_status) != 0) {
-        if (opt_config->log == NULL || opt_config->log->out == NULL)
+        if (out == NULL) {
             out = stderr;
-        flockfile(out);
+            flockfile(out);
+        }
         opt_newline(out, opt_config, 0);
-    } else
+    } else if (out == NULL) {
+        out = stdout;
         flockfile(out);
-
-    /* detect if macro was used to initialize opt_config, use defaults if not */
-    if ((opt_config->flags & OPT_FLAG_MACROINIT) == 0) {
-        desc_align = OPT_USAGE_DESC_ALIGNMENT;
-        desc_minlen = OPT_USAGE_DESC_MINLEN;
-    } else {
-        desc_align = opt_config->desc_align;
-        desc_minlen = opt_config->desc_minlen;
     }
 
-    /* get maximum length of options (without description) */
+    /* get estimation maximum length of options (without description)
+     * it is not 100% accurate, but not critical as this is used to
+     * determine if desc_align has to be reduced in order to respect desc_minlen. */
     if ((opt_config->flags & OPT_FLAG_MIN_DESC_ALIGN) != 0) {
         max_optlen = 0;
         i_opt = 0;
@@ -396,19 +401,29 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
         for (const opt_options_desc_t * opt = opt_config->opt_desc;
              !is_opt_end(opt); ++opt, ++i_opt) {
             if (!is_opt_section(opt->short_opt)) {
-                unsigned int curlen = 2;
+                unsigned int curlen = opt_headsz;
                 if (is_valid_short_opt(opt->short_opt))
-                    curlen += 3; /* '-X ' */
-                if (opt->arg != NULL)
-                    curlen += strlen(opt->arg) + 1; /* '<arg> ' */
-                if (opt->long_opt != NULL)
-                    curlen += strlen(opt->long_opt) + 3; /* '--<long> ' */
+                    curlen += 2; /* '-X' */
+                if (opt->long_opt != NULL) {
+                    if (curlen > opt_headsz) curlen += 2; /* ', ' */
+                    curlen += strlen(opt->long_opt) + 2; /* '--<long>' */
+                }
                 for (const opt_options_desc_t * opt2 = opt + 1; !is_opt_end(opt2); ++opt2) {
                     if (opt->short_opt == opt2->short_opt && opt2->long_opt != NULL) {
-                        curlen += strlen(opt2->long_opt) + 4; /* ',--<long> ' */
+                        size_t opt2len = strlen (opt2->long_opt);
+                        if (curlen + 2 /* ', ' */ + opt2len + 1 > 1 + opt_config->desc_align
+                                                                    - desc_headsz)
+                            curlen = opt_headsz;
+                        else
+                            curlen += 2; /* ', ' */
+                        curlen += opt2len + 2; /* '--<long>' */
                     }
                 }
-                if (curlen > max_optlen && curlen < 1 + desc_align - desc_headsz)
+                if (opt->arg != NULL) {
+                    if (curlen > opt_headsz) ++curlen; /* ' ' */
+                    curlen += strlen(opt->arg); /* '<arg> ' */
+                }
+                if (curlen > max_optlen && curlen < 1 + opt_config->desc_align - desc_headsz)
                     max_optlen = curlen;
             } else {
                 i_current_section = i_opt;
@@ -418,7 +433,8 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
             }
         }
     } else
-        max_optlen = 2 + desc_align - desc_headsz;
+        max_optlen = opt_config->desc_align >= desc_headsz
+                     ? opt_config->desc_align - desc_headsz : opt_headsz;
 
     /* get max columns usable for display */
     if ((max_columns = vterm_get_columns(fileno(out))) <= 0) {
@@ -432,11 +448,12 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
         }
     }
     /* Check if requested min size of opts. descs. fits in max_columns. */
-    if (max_columns < 2 + desc_minlen + desc_headsz) {
-        max_optlen = 2; /* columns below minimum: use minimum description alignment */
-    } else if (max_columns < max_optlen + desc_headsz + desc_minlen) {
+    if (max_columns < opt_headsz + opt_config->desc_minlen + desc_headsz) {
         /* columns below minimum: use minimum description alignment */
-        max_optlen = max_columns - desc_headsz - desc_minlen;
+        max_optlen = opt_headsz;
+    } else if (max_columns < max_optlen + opt_config->desc_minlen + desc_headsz) {
+        /* columns below minimum: use minimum description alignment */
+        max_optlen = max_columns - desc_headsz - opt_config->desc_minlen;
     }
 
     /* print program name, version and usage summary */
@@ -447,12 +464,12 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
     i_current_section = -1;
     for (const opt_options_desc_t * opt = opt_config->opt_desc;
             (filter_matched == 0 && filter != NULL) || !is_opt_end(opt); ++opt, ++i_opt) {
-        int             n_printed = 0;
-        const char *    token;
-        const char *    next;
+        unsigned int    n_printed = 0;
         size_t          len;
-        int             eol_shift = 0;
         size_t          desc_size = 0, * psize = NULL;
+        const char *    token;
+        int             eol_shift = 0;
+        const char *    next;
         int             is_section;
 
         /* restart loop if bad usage filter was given */
@@ -481,25 +498,39 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
             /* skip option if this is an alias */
             if (opt_alias(i_opt, opt_config) >= 0)
                 continue;
+
             /* short options */
-            n_printed += fprintf(out, "  ");
+            n_printed += fwrite(opt_config->opt_head, sizeof(char), opt_headsz, out);
             if (is_valid_short_opt(opt->short_opt)) {
                 n_printed += fprintf(out, "-%c", opt->short_opt);
             }
             /* long option */
             if (opt->long_opt != NULL) {
-                n_printed += fprintf(out, "%s--%s", n_printed > 2 ? ", " : "", opt->long_opt);
+                if (n_printed > opt_headsz) {
+                    n_printed += fwrite(", ", sizeof(char), 2, out);
+                }
+                n_printed += fprintf(out, "--%s", opt->long_opt);
             }
             /* look for long option aliases */
             for (const opt_options_desc_t *opt2 = opt + 1; !is_opt_end(opt2); ++opt2) {
                 if (opt2->short_opt == opt->short_opt && opt2->long_opt != NULL
                 && opt2->desc == NULL) {
-                    n_printed += fprintf(out, "%s--%s", n_printed > 2 ? ", " : "", opt2->long_opt);
+                    len = strlen(opt2->long_opt);
+                    if (n_printed > opt_headsz) {
+                        n_printed += fprintf(out, ", ");
+                    }
+                    if (n_printed + len + opt_headsz + 2 /*', '*/ > max_columns) {
+                        n_printed = opt_newline(out, opt_config, 1);
+                        for (n_printed = 0; n_printed < opt_headsz; ++n_printed)
+                            fputc(' ', out);
+                    }
+                    n_printed += fwrite("--", sizeof(char), 2, out);
+                    n_printed += fwrite(opt2->long_opt, sizeof(char), len, out);
                 }
             }
             /* option argument name */
             if (opt->arg) {
-                if (n_printed > 2 && fputc(' ', out) != EOF)
+                if (n_printed > opt_headsz && fputc(' ', out) != EOF)
                     n_printed++;
                 n_printed += fprintf(out, "%s", opt->arg);
             }
@@ -521,7 +552,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
             continue ;
         }
         /* print EOL if characters printed exceed padding */
-        if (n_printed > (int) max_optlen) {
+        if (n_printed > max_optlen) {
             n_printed = opt_newline(out, opt_config, 1);
         }
         /* parsing option descriptions, splitting them into words and fix alignment */
@@ -543,11 +574,11 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
             }
             /* Align description if needed */
             if (!is_section) {
-                while (n_printed < (int) max_optlen + eol_shift) {
+                while (n_printed < max_optlen + eol_shift) {
                     fputc(' ', out);
                     n_printed++;
                 }
-                if (!eol_shift && fputs(desc_head, out) != EOF)
+                if (!eol_shift && fputs(opt_config->desc_head, out) != EOF)
                     n_printed += desc_headsz;
             }
             eol_shift = desc_headsz;
@@ -568,7 +599,7 @@ int opt_usage(int exit_status, const opt_config_t * opt_config, const char * fil
     return exit_status;
 }
 
-int opt_parse_options(const opt_config_t * opt_config) {
+int opt_parse_options(opt_config_t * opt_config) {
     const char *const*          argv;
     const opt_options_desc_t *  desc;
 
