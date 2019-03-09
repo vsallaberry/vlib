@@ -85,7 +85,7 @@ ARCH_RELEASE	= -march=native
 OPTI_COMMON	= -pipe -fstack-protector
 OPTI_RELEASE	= -O3 $(OPTI_COMMON) $(sys_OPTI)
 INCS_RELEASE	= $(sys_INCS)
-LIBS_RELEASE	= $(SUBLIBS) $(sys_LIBS) -lpthread -lz
+LIBS_RELEASE	= $(SUBLIBS) $(sys_LIBS) $(CONFIG_CURSES) $(CONFIG_ZLIB) -lpthread
 MACROS_RELEASE	=
 WARN_DEBUG	= $(WARN_RELEASE)
 ARCH_DEBUG	= $(ARCH_RELEASE)
@@ -162,9 +162,13 @@ INSTALLDIR	= install -d -m 0755
 VALGRIND	= valgrind
 VALGRIND_ARGS	= --leak-check=full --track-origins=yes --show-leak-kinds=all -v
 MKTEMP		= mktemp
+BASENAME	= basename
+DIRNAME		= dirname
 NO_STDERR	= 2> /dev/null
 NO_STDOUT	= > /dev/null
 STDOUT_TO_ERR	= 1>&2
+STDOUT_TO_ERR	= 2>&1
+DASH		= \#
 
 ############################################################################################
 # Make command-line variables and recursion
@@ -558,8 +562,8 @@ BCOMPAT_SED_YYPREFIX=$(SED) -n -e \
 OBJDEPS_version.h= $(INCLUDES) $(GENINC) $(ALLMAKEFILES)
 DEPS		:= $(OBJ:.o=.d)
 INCLUDEDEPS	:= .alldeps.d
-cmd_SINCLUDEDEPS= inc=1; if $(TEST) -e $(INCLUDEDEPS); then echo "$(INCLUDEDEPS)"; \
-		  else inc=; echo version.h; fi; \
+cmd_SINCLUDEDEPS= inc=1; if $(TEST) -e $(INCLUDEDEPS) -a -e $(CONFIGMAKE); then echo "$(INCLUDEDEPS)"; \
+		  else echo version.h; inc=; $(PRINTF) "include $(CONFIGMAKE)\n" > $(INCLUDEDEPS); fi; \
 		  for f in $(DEPS:.d=); do \
 		      if $(TEST) -z "$$inc" -o ! -e "$$f.d"; then \
 		           dir="`dirname $$f`"; $(TEST) -d "$$dir" || $(MKDIR) -p "$$dir"; \
@@ -706,13 +710,13 @@ $(CHECKDIRS): all
 
 # --- build BIN ---
 $(BIN): $(OBJ) $(SUBLIBS) $(JCNIINC)
-	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/`basename $@`" "$(.CURDIR)"; else $(TEST) -L $@ && $(RM) $@ || true; fi
+	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/`$(BASENAME) $@`" "$(.CURDIR)"; else $(TEST) -L $@ && $(RM) $@ || true; fi
 	$(CCLD) $(OBJ:.class=*.class) $(LDFLAGS) -o $@
 	@$(PRINTF) "$@: build done.\n"
 
 # --- build LIB ---
 $(LIB): $(OBJ) $(SUBLIBS) $(JCNIINC)
-	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/`basename $@`" "$(.CURDIR)"; else $(TEST) -L $@ && $(RM) $@ || true; fi
+	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/`$(BASENAME) $@`" "$(.CURDIR)"; else $(TEST) -L $@ && $(RM) $@ || true; fi
 	@# Workaround for issue on osx 10.11 where object names are changed when replaced,
 	@# which disturbs dsymutil. This allows also to remove objects that are not part anymore of lib.
 	@$(RM) $@
@@ -730,7 +734,7 @@ $(JAVAOBJ): $(JAVASRC)
 	@#$(GCJ) $(JFLAGS) -d $(BUILDDIR) -C $(JAVASRC)
 	@for f in `$(FIND) "$(TMPCLASSESDIR)" -type f`; do \
 	     dir=`dirname $$f | $(SED) -e 's|$(TMPCLASSESDIR)||'`; \
-	     file=`basename $$f`; \
+	     file=`$(BASENAME) $$f`; \
 	     $(DIFF) -q "$(BUILDDIR)/$$dir/$$file" "$$f" $(NO_STDERR) $(NO_STDOUT) \
 	       || { $(MKDIR) -p "$(BUILDDIR)/$$dir"; mv "$$f" "$(BUILDDIR)/$$dir"; }; \
 	 done; $(RM) -Rf "$(TMPCLASSESDIR)"
@@ -1026,8 +1030,8 @@ update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 	       "#define BUILD_YACC 0" "#define BUILD_LEX 0" "#define BUILD_BISON3 0" "#define BUILD_CONFIG_CHECK \"\"" \
 	       "#include \"$(CONFIGINC)\"" "#include <stdio.h>" "#ifdef __cplusplus" "extern \"C\" " "#endif" \
 	       "int $(NAME)_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx);" >> $(BUILDINC); \
-	 fi
-	@if gitstatus=`$(GIT) status --untracked-files=no --ignore-submodules=untracked --short --porcelain $(NO_STDERR)`; then \
+	 fi; \
+	 if gitstatus=`$(GIT) status --untracked-files=no --ignore-submodules=untracked --short --porcelain $(NO_STDERR)`; then \
 	     i=0; for rev in `$(GIT) show --quiet --ignore-submodules=untracked --format="%h %H" HEAD $(NO_STDERR)`; do \
 	         case $$i in 0) gitrev="$$rev";; 1) fullgitrev="$$rev" ;; esac; \
 	         i=$$((i+1)); \
@@ -1151,16 +1155,19 @@ $(CONFIGMAKE): Makefile
 		                else $(TEST) -L "$(CONFIGMAKE)" && $(RM) "$(CONFIGMAKE)"; $(TEST) -L "$(CONFIGINC)" && $(RM) "$(CONFIGINC)" || true; fi; \
 	  $(PRINTF) "$(NAME): generate $(CONFIGMAKE), $(CONFIGINC)\n"; \
 	  log() { $(PRINTF) "$$@"; $(PRINTF) "$$@" >> "$${configlog}"; }; \
+	  checktest() { \
+	      case " $(CONFIG_CHECK) " in *" $$1 "*|*" +$$1 "*|*" all "*) ;; *) return 1;; esac; \
+	  }; \
 	  cctest() { \
 	    plabel=$$1; shift; lcode=$$@; binout=; binerr=; \
-	    case " $(CONFIG_CHECK) " in *" $${plabel} "*|*" +$${plabel} "*|*" all "*) ;; *) return 1;; esac; \
+	    checktest "$${plabel}" || return 1; \
 	    logheader="$(NAME): checking $${plabel}"; \
 	    tmpname=`$(MKTEMP) "$${mytmpdir}/cctest_XXXXXX" || echo "$${mytmpdir}/cctest_TMP"`; \
 	    $(TEST) -n "$${cflags}" && logheader="$${logheader} ($${cflags})"; \
 	    $(TEST) -n "$${libs}" && logheader="$${logheader} ($${libs})"; \
 	    logheader="$${logheader}... "; \
 	    $(PRINTF) -- "$${lcode}" > "$${tmpname}.c"; \
-	    gccout=`$(CC) $${cflags} -o "$${tmpname}" "$${tmpname}.c" $${libs} 2>&1` \
+	    gccout=`$(CC) -pipe $${cflags} -o "$${tmpname}" "$${tmpname}.c" $${libs} 2>&1` \
 		&& binout=`"$${tmpname}" 2>$${mytmpfile}` && binerr=`$(CAT) "$${mytmpfile}"` && ret=0 || ret=1; \
 	    $(TEST) -n "$${binerr}" && binerr="$${binerr}\n" || true; \
 	    $(RM) -f "$${tmpname}" $(NO_STDERR); \
@@ -1181,13 +1188,13 @@ $(CONFIGMAKE): Makefile
 	}; \
 	conftest() { \
 	    incconf=$$1; shift; incval=$$1; shift; libconf=$$1; shift; libval=$$1; shift; confname=$$1; shift; \
-	    case " $(CONFIG_CHECK) " in *" $${confname} "*|*" +$${confname} "*|*" all "*) ;; *) return 1;; esac; \
+	    checktest "$${confname}" || return 1; \
 	    cctest "$${confname}" "$$@"; ret=$$?; \
 	    if $(TEST) "$$ret" = "0"; then support=1; confres="+$${confname}"; \
 	                              else support=0; confres="-$${confname}"; incval=; libval=; fi; \
 	    for conf in "$${incconf}" "$${libconf}"; do \
 	        if $(TEST) -n "$${conf}"; then \
-	            $(GREP) -Ev '^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*'"$${conf}"'[[:space:]]' \
+	            $(GREP) -Ev '^[[:space:]]*$(DASH)[[:space:]]*define[[:space:]][[:space:]]*'"$${conf}"'[[:space:]]' \
 	                $(CONFIGINC) > "$${mytmpfile}"; $(MV) "$${mytmpfile}" "$(CONFIGINC)"; \
 	            $(GREP) -Ev '^[[:space:]]*'"$${conf}"'[[:space:]]*=' $(CONFIGMAKE) > "$${mytmpfile}"; \
 	            $(MV) "$${mytmpfile}" "$(CONFIGMAKE)"; \
@@ -1198,17 +1205,38 @@ $(CONFIGMAKE): Makefile
 	                                  $(PRINTF) "$${libconf}=$${libval}\n" >> $(CONFIGMAKE); }; \
 	    return $$ret; \
 	}; \
+	getldpaths() { \
+	    { for p in `$(CC) -pipe -Wl,--verbose -l__LIB_NOT_FOUND__ 2>&1 \
+	              | $(SED) -n -e "s|.*[[:space:]]\([^[:space:]]*\)/lib__LIB_NOT_FOUND__.*|\1|p" \
+		      | $(SED) -e 's|//*|/|g' | $(SORT) | $(UNIQ)`; do \
+	        $(TEST) -d "$$p" && (cd "$$p" 2>/dev/null && pwd); done; \
+	    for p in `$(CC) -pipe -Wl,-v -l__LIB_NOT_FOUND__ 2>&1 \
+	              | $(SED) -n -e "s|^[[:space:]]*\([/_.a-zA-Z0-9-]*\).*|\1|p" \
+	              | $(SED) -e 's|//*|/|g' | $(SORT) | $(UNIQ)`; do \
+	        $(TEST) -d "$$p" && (cd "$$p" 2>/dev/null && pwd); done; } | $(SORT) | $(UNIQ); \
+	}; \
+	getlibpath() { \
+	    llib=$$1; lver=$$2; $(TEST) -n "$$lver" && lpat="$${lver}" || lpat="*"; \
+	    for p in $${ldpaths}; do \
+	        for l in `/bin/ls -1 "$${p}/lib$${llib}"*.* $(NO_STDERR) | $(SORT) -r | $(UNIQ)`; do \
+	           case "$$l" in *"$${llib}".$${lpat}."dylib"|*"$${llib}."$${lpat}".so") \
+		                     l=`$(BASENAME) "$$l"`; l=$${l$(DASH)lib}; l=$${l%.dylib}; echo "-l$$l";; \
+		                 *"$${llib}.so."$${lpat}) echo "-l:`$(BASENAME) \"$$l\"`";; *) continue; esac; \
+		$(TEST) -z "$${lver}" && return 0; done; done; \
+	}; \
 	mytmpdir=.; mytmpfile=`$(MKTEMP) "$${mytmpdir}/conftest_XXXXXX" || echo "$${mytmpdir}/conftest_TMP"`; \
-	configcheck=; configlog=$(CONFIGLOG); $(PRINTF) "" > $${configlog}; \
+	configcheck=; configlog=$(CONFIGLOG); $(PRINTF) "" > $${configlog}; ldpaths=`getldpaths $(NO_STDERR)`; \
 	$(PRINTF) 'default_rule: $(DEFAULT_RULE_DEPENDENCIES)\n' > $(CONFIGMAKE); $(PRINTF) '' > $(CONFIGINC); \
+	true "**** ZLIB CHECK *****"; \
 	flag=; lib="-lz"; cflags="$${flag}" libs="$${lib}" conftest CONFIG_ZLIB_H "$$flag" CONFIG_ZLIB "$$lib" \
 	    "zlib" $(CONFTEST_ZLIB) \
 	|| { cflags="" libs="$${lib}" conftest "" "" CONFIG_ZLIB "$$lib" \
 	    "zlib" $(CONFTEST_ZLIB_NOINC) \
 	; } || true; \
-	flag=; for lib in "-lncurses"  "-lncurses -ltinfo" \
-	                  "-l:libncurses.so.5" "-l:libncurses.so.5 -l:libtinfo.so.5" \
-			  "-lcurses" "-ltinfo" "-l:libtinfo.so.5"; do \
+	true "**** NCURSES CHECK *****"; \
+	flag=; for lib in "-lncurses" "-lncurses -ltinfo" '`getlibpath ncurses` `getlibpath tinfo`' \
+			  "-lcurses" "-ltinfo" '`getlibpath ncurses`' '`getlibpath tinfo`'; do \
+	    case "$$lib" in '`'*|'$$('*) lib=$$(eval echo "$$lib");; esac; \
 	    cflags="$${flag}" libs="$${lib}" conftest CONFIG_CURSES_H "$$flag" CONFIG_CURSES "$$lib" \
 	        "ncurses" $(CONFTEST_NCURSES) \
 	    && break \
@@ -1216,6 +1244,7 @@ $(CONFIGMAKE): Makefile
 	         "ncurses" $(CONFTEST_NCURSES_NOINC) \
 	    && break; } || true; \
 	done; \
+	true "**** LIBCRYPTO CHECK *****"; \
 	flag=''; lib="-lcrypto"; cflags="$${flag}" libs="$${lib}" conftest "" "$${flag}" CONFIG_LIBCRYPTO "$${lib}" \
 	    "libcrypto" $(CONFTEST_LIBCRYPTO) || true; \
 	flag=''; lib=''; cflags="$${flag}" libs="$${lib}" conftest "CONFIG_APPLECRYPTO" "$${flag}" "" "$${lib}" \
@@ -1249,13 +1278,13 @@ $(CONFIGMAKE): Makefile
 	    "crypt.h" $(CONFTEST_CRYPT_H) \
 	    || true; \
 	cflags='' libs='' cctest "crypt_gnu" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n\
-	        #include \"$$PWD/$(CONFIGINC)\"\n#ifdef CONFIG_CRYPT_H\n#include <crypt.h>\n#endif\n\
+	        #include \"$$PWD/$(CONFIGINC)\"\n#if defined(CONFIG_CRYPT_H) && CONFIG_CRYPT_H\n#include <crypt.h>\n#endif\n\
 	        int main(void) { int ret=1; int f=0; int i; char *s=strdup(\"\$$1\$$abcdefgh\$$\");\nfor(i=1; i <= 9; i++) \
 	        {s[1]='0'+i; if (!strncmp(s, crypt(\"toto\", s), strlen(s))) { \nret=0; f |= 1 << (i-1); } } \
 	        printf(\"0x%%02x\", f); return ret; }\n" \
 	    && $(PRINTF) "#define CONFIG_CRYPT_GNU $${gccout}\n" >> $(CONFIGINC) || true; \
 	cflags='' libs='' cctest "crypt_des_ext" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n#include \"$$PWD/$(CONFIGINC)\"\n\
-	        #ifdef CONFIG_CRYPT_H\n#include <crypt.h>\n#endif\nint main(void) { char *s=\"_1200Salt\";\n\
+	        #if defined(CONFIG_CRYPT_H) && CONFIG_CRYPT_H\n#include <crypt.h>\n#endif\nint main(void) { char *s=\"_1200Salt\";\n\
 	        return strncmp(s, crypt(\"toto\", s), strlen(s)); }\n" \
 	    && $(PRINTF) '#define CONFIG_CRYPT_DES_EXT 1\n' >> $(CONFIGINC) || true; \
 	$(PRINTF) -- "#define CONFIG_FEATURES \"$${configcheck}\"\n" >> $(CONFIGINC); \
@@ -1276,7 +1305,7 @@ gentags: $(CLANGCOMPLETE)
 # CLANGCOMPLETE rule: !FIXME to be cleaned
 $(CLANGCOMPLETE): $(ALLMAKEFILES) $(BUILDINC)
 	@echo "$(NAME): update $@"
-	@moresed="s///"; if $(cmd_TESTBSDOBJ); then base=`basename $@`; $(TEST) -L $(.OBJDIR)/$$base || ln -sf $(.CURDIR)/$$base $(.OBJDIR); \
+	@moresed="s///"; if $(cmd_TESTBSDOBJ); then base=`$(BASENAME) $@`; $(TEST) -L $(.OBJDIR)/$$base || ln -sf $(.CURDIR)/$$base $(.OBJDIR); \
 	     $(TEST) -e "$(.CURDIR)/$$base" || echo "$(CPPFLAGS)" > $@; moresed="s|-I$(.CURDIR)|-I$(.CURDIR) -I$(.OBJDIR)|g"; \
 	 fi; src=`echo $(SRCDIR) | $(SED) -e 's|\.|\\\.|g'`; \
 	 $(TEST) -e $@ -a \! -L $@ \
@@ -1325,7 +1354,7 @@ subsubmodules:
 	                    done; IFS=$$IFSbak2; \
 	                    if $(TEST) "$$sha" != "$$sha2" && $(GIT) -C "$$dir2" show --summary --pretty=oneline "$$sha" $(NO_STDERR) $(NO_STDOUT); then \
 			        $(PRINTF) "+ setting index of <$$dir> to index of <$$dir2> ($$sha2)\n"; \
-	                        lsfiles=`$(GIT) -C "$$dir/.." ls-files -s --full-name $$(basename "$$dir") | $(GREP) $$sha | $(AWK) '{ print $$1 " " $$4}'` && \
+	                        lsfiles=`$(GIT) -C "$$dir/.." ls-files -s --full-name $$($(BASENAME) "$$dir") | $(GREP) $$sha | $(AWK) '{ print $$1 " " $$4}'` && \
 	                        { index=; for tok in $$lsfiles; do $(TEST) -z "$$index" && index=$$tok || moddir=$$tok; done; } \
 	                        && $(TEST) -n "$$index" -a -n "$$moddir" && $(GIT) -C "$$dir/.." update-index --cacheinfo "$$index" "$$sha2" "$$moddir" \
 	                        || $(PRINTF) "! cannot set index <$$index> of <$$dir>.\n"; break; \
@@ -1417,9 +1446,9 @@ help:
 	  "  PREFIX         [$(PREFIX)]" \
 	  "  INSTALL_FILES  [$(INSTALL_FILES)]" \
 	  "" \
-	  "make check"; \
-	  $(PRINTF) "  CHECK_RUN  ["'$(CHECK_RUN:S/'/'"'"'/g)$(subst ','"'"',$(CHECK_RUN))]\n'; \
-	$(PRINTF) "%s\n" \
+	  "make check" \
+	  "  CHECK_RUN      ["; $(PRINTF) -- '$(CHECK_RUN:S/'/'"'"'/g)$(subst ','"'"',$(CHECK_RUN))]\n'; \
+	  $(PRINTF) '%s\n' \
 	  "" \
 	  "make .gitignore" \
 	  "" \
