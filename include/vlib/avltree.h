@@ -52,9 +52,13 @@ typedef enum {
      * allowing sharing a stack between several trees. */
     AFL_SHARED_STACK    = 1 << 0,
     AFL_REMOVE_NOFREE   = 1 << 1,   /* don't call tree->free() on remove, caller must free data */
-    AFL_INSERT_REPLACE  = 1 << 2,   /* replace an already existing element on insert (cmp==0) */
-    AFL_INSERT_NODOUBLE = 1 << 3,   /* return error when inserting existing element (cmp==0) */
-    AFL_DEFAULT         = AFL_SHARED_STACK,
+    AFL_INSERT_NODOUBLE = 1 << 2,   /* return error when inserting existing element (cmp==0) */
+    AFL_INSERT_IGNDOUBLE= 1 << 3,   /* ignore insertion of existing element (cmp==0) */
+    /* replace an already existing element on insert (cmp==0) */
+    AFL_INSERT_REPLACE  = AFL_INSERT_NODOUBLE | AFL_INSERT_IGNDOUBLE,
+    AFL_INSERT_MASK     = AFL_INSERT_REPLACE,
+    AFL_USER            = 1 << 16,
+    AFL_DEFAULT         = AFL_SHARED_STACK
 } avltree_flags_t;
 
 /** avltree_t */
@@ -75,7 +79,7 @@ typedef enum {
     AVS_NEXTVISIT   = 1 << 3,   /* stop current visit, stop pushing childs, and start next visit */
     AVS_CONTINUE    = AVS_GO_LEFT | AVS_GO_RIGHT, /* continue visit */
     AVS_ERROR       = -1,       /* stop visit, report error */
-    AVS_FINISHED    = 0,        /* stop visit, report success */
+    AVS_FINISHED    = 0         /* stop visit, report success */
 } avltree_visit_status_t;
 
 /** how to visit the tree (direction) */
@@ -84,7 +88,7 @@ typedef enum {
     AVH_INFIX   = 1 << 1,   /* infix, in-order (second visit between the two childs) */
     AVH_SUFFIX  = 1 << 2,   /* suffix, post-order (third visit, after the two childs) */
     AVH_BREADTH = 1 << 3,   /* breadth-first (width visit) */
-    AVH_RIGHT   = 1 << 7,   /* visit modifier: visit right child before left child */
+    AVH_RIGHT   = 1 << 7    /* visit modifier: visit right child before left child */
 } avltree_visit_how_t;
 
 /** visit context to be passed to avltree_visitfun_t functions */
@@ -139,9 +143,10 @@ avltree_node_t *    avltree_node_create(
 
 /** avltree_insert()
  * complexity: O(log2(n))
- * @return inserted element if not replaced,
- *         or previous element if it has been replaced (AFL_INSERT_REPLACE),
- *           previous element is freed with tree->free if AFL_REMOVE_NOFREE is OFF.
+ * @return inserted element if not replaced/ignored,
+ *         or previous element if it has been replaced (AFL_INSERT_REPLACE ON),
+ *            previous element is freed with tree->free if AFL_REMOVE_NOFREE is OFF.
+ *         or previous element if AFL_INSERT_IGNDOUBLE is ON,
  *         or NULL on error with errno set.
  *         (on success, errno is only set to 0 if element is NULL). */
 void *              avltree_insert(

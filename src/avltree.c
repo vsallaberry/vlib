@@ -183,7 +183,8 @@ void *              avltree_insert(
     if (avltree_visit(tree, avltree_visit_insert, &insert_data, AVH_PREFIX | AVH_SUFFIX)
             == AVS_FINISHED) {
         if (insert_data.new_balance != 0) {
-            /* new_balance is 0 when node has been replaced with AFL_INSERT_REPLACE) */
+            /* new_balance is 0 when node has been ignored or replaced
+             * (AFL_INSERT_IGNDOUBLE, AFL_INSERT_REPLACE) */
             ++tree->n_elements;
         }
         if (insert_data.newdata == NULL) {
@@ -682,20 +683,24 @@ static int          avltree_visit_insert(
               (unsigned long) node, (unsigned long)node->left, (unsigned long)node->right);
 
     cmp = tree->cmp(idata->newdata, node->data);
-    if (cmp == 0 && (tree->flags & (AFL_INSERT_NODOUBLE | AFL_INSERT_REPLACE)) != 0) {
-        if ((tree->flags & AFL_INSERT_REPLACE) == 0) {
+    if (cmp == 0 && (cmp = (tree->flags & AFL_INSERT_MASK)) != 0) {
+        if (cmp == AFL_INSERT_NODOUBLE) {
             /* having doubles is forbidden in this tree: return error */
             return AVS_ERROR;
         }
-        /* double detected: replace data in the node and stop insertion */
+        /* replace or ignore exsting element: previous one is returned */
         void * prevdata = node->data;
-        if (tree->free != NULL && (tree->flags & AFL_REMOVE_NOFREE) == 0) {
-            tree->free(prevdata);
-        }
-        node->data = idata->newdata;
         idata->newnode = node;
         idata->newdata = prevdata;
         idata->new_balance = 0;
+        if (cmp == AFL_INSERT_IGNDOUBLE) {
+            return AVS_FINISHED;
+        }
+        /* replace data in the node, free previous data if needed */
+        node->data = idata->newdata;
+        if (tree->free != NULL && (tree->flags & AFL_REMOVE_NOFREE) == 0) {
+            tree->free(prevdata);
+        }
         return AVS_FINISHED;
     } else if (cmp <= 0) {
         /* go left */
