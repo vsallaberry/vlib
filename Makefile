@@ -233,7 +233,7 @@ SYSDEPDIR	= sysdeps
 CONFIGLOG	= config.log
 CONFIGMAKE	= config.make
 CONFIGINC	= config.h
-
+ALLMAKEFILES	:= Makefile $(CONFIGMAKE)
 # SRCINC containing source code is included if APP_INCLUDE_SOURCE is defined in VERSIONINC.
 SRCINCDIR	= $(BUILDDIR)
 SRCINC_STR	= $(SRCINCDIR)/_src_.c
@@ -432,29 +432,11 @@ tmp_INCLUDES	?= $(shell $(cmd_INCLUDES))
 tmp_INCLUDES	:= $(tmp_INCLUDES)
 INCLUDES	:= $(VERSIONINC) $(BUILDINC) $(CONFIGINC) $(tmp_INCLUDES)
 
-# SRCINC containing source code is included if APP_INCLUDE_SOURCE is defined in VERSIONINC.
-# SRCINC_Z (compressed) is used if zlib.h,vlib,gzip,od are present, otherwise SRCINC_STR is used.
-# TODO: removing heading './' (| $(SED) -e 's|^\./||') causes issues with bsd make
-cmd_HAVEVLIB	= case " $(INCLUDES) " in *"include/vlib/avltree.h "*) true ;; *) false ;; esac
-cmd_HAVEZLIBH	= for d in /usr/include /usr/include/zlib /usr/local/include /usr/local/include/zlib \
-		           /opt/local/include /opt/local/include/zlib; do \
-	 	    $(TEST) -e "$$d/zlib.h" && break; done
-cmd_SRCINC	= $(cmd_FINDBSDOBJ); ! $(TEST) -e $(VERSIONINC) \
-		  || $(GREP) -Eq '^[[:space:]]*\#[[:space:]]*define[[:space:]][[:space:]]*APP_INCLUDE_SOURCE([[:space:]]|$$)' \
-	                                $(VERSIONINC) $(NO_STDERR) \
-		       && { $(cmd_HAVEVLIB) && $(cmd_HAVEZLIBH) \
-		            && $(TEST) -x "`$(WHICH) \"$(OD)\" | $(HEADN1) $(NO_STDERR)`" \
-		                    -a -x "`$(WHICH) \"$(GZIP)\" | $(HEADN1) $(NO_STDERR)`" \
-		            && echo $(SRCINC_Z) || echo $(SRCINC_STR); } || true
-tmp_SRCINC	!= $(cmd_SRCINC)
-tmp_SRCINC	?= $(shell $(cmd_SRCINC))
-SRCINC		:= $(tmp_SRCINC)
-
 # SRC variable, filled from the 'find' command (cmd_SRC) defined above.
 tmp_SRC		!= $(cmd_SRC)
 tmp_SRC		?= $(shell $(cmd_SRC))
 tmp_SRC		:= $(tmp_SRC)
-SRC		:= $(SRCINC) $(tmp_SRC) $(GENSRC)
+SRC		:= $(tmp_SRC) $(GENSRC)
 
 # OBJ variable computed from SRC, replacing SRCDIR by BUILDDIR and extension by .o
 # Add Java.o if BIN, GCJ and JAVASRC are defined.
@@ -559,11 +541,12 @@ BCOMPAT_SED_YYPREFIX=$(SED) -n -e \
 # will be used on next 'make' and overrided by gcc -MMD.
 # Additionnaly, we use this command to populate git submodules if needed.
 #
-OBJDEPS_version.h= $(INCLUDES) $(GENINC) $(ALLMAKEFILES)
-DEPS		:= $(OBJ:.o=.d)
-INCLUDEDEPS	:= .alldeps.d
-cmd_SINCLUDEDEPS= inc=1; if $(TEST) -e $(INCLUDEDEPS) -a -e $(CONFIGMAKE); then echo "$(INCLUDEDEPS)"; \
-		  else echo version.h; inc=; $(PRINTF) "include $(CONFIGMAKE)\n" > $(INCLUDEDEPS); fi; \
+OBJDEPS_version.h	= $(ALLMAKEFILES) $(INCLUDES) $(GENINC)
+DEPS			:= $(OBJ:.o=.d) $(SRCINC_STR:.c=.d) $(SRCINC_Z:.c=.d)
+INCLUDEDEPS		:= .alldeps.d
+CONFIGMAKE_REC_FILE	= .configmake-recursive
+cmd_SINCLUDEDEPS= inc=1; if $(TEST) -e "$(INCLUDEDEPS)" -a -e "$(CONFIGMAKE)"; then echo "$(INCLUDEDEPS)"; \
+		  else echo version.h; $(TEST) -e version.h || $(TOUCH) "version.h"; inc=; $(PRINTF) "include $(CONFIGMAKE)\n" > $(INCLUDEDEPS); fi; \
 		  for f in $(DEPS:.d=); do \
 		      if $(TEST) -z "$$inc" -o ! -e "$$f.d"; then \
 		           dir="`dirname $$f`"; $(TEST) -d "$$dir" || $(MKDIR) -p "$$dir"; \
@@ -571,7 +554,7 @@ cmd_SINCLUDEDEPS= inc=1; if $(TEST) -e $(INCLUDEDEPS) -a -e $(CONFIGMAKE); then 
 		                                          || echo "$$f.o: $(OBJDEPS_version.h)" > $$f.d; \
 		           echo "include $$f.d" >> $(INCLUDEDEPS); \
 		      fi; \
-		  done; \
+		  done; $(RM) -f "$(CONFIGMAKE_REC_FILE)"; \
 		  $(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; ret=true; $(TEST) -x "$(GIT)" && for d in $(SUBDIRS); do \
 		      if ! $(TEST) -e "$$d/Makefile" && $(GIT) submodule status "$$d" $(NO_STDERR) | $(GREP) -Eq "^-.*$$d"; then \
 		          $(GIT) submodule update --init "$$d" $(STDOUT_TO_ERR) || ret=false; \
@@ -582,9 +565,42 @@ tmp_SINCLUDEDEPS ?= $(shell $(cmd_SINCLUDEDEPS))
 SINCLUDEDEPS := $(tmp_SINCLUDEDEPS)
 include $(SINCLUDEDEPS)
 
+# Following vars <var>_$(SINCLUDEDEPS) wil have value only if CONFIGMAKE has been included
+cmd_CONFIGMAKE_INCLUDED	= $(TEST) "$(SINCLUDEDEPS)" = "$(INCLUDEDEPS)"
+cmd_CONFIGMAKE_RECURSE	= { $(TEST) -e "$(CONFIGMAKE_REC_FILE)" && ret=true || ret=false; \
+			    echo "$(NAME): target:$@ ?:$? rec-done:$$ret">/dev/null; $$ret; }
+
+CONFIG_OBJDEPS_version.h	:=
+CONFIG_OBJDEPS_$(INCLUDEDEPS) 	:= $(ALLMAKEFILES) $(VERSIONINC) $(CONFIGINC) $(BUILDINC)
+CONFIG_OBJDEPS	:= $(CONFIG_OBJDEPS_$(SINCLUDEDEPS))
+
+LIB$(CONFIG_OBJDEPS):=
+BIN$(CONFIG_OBJDEPS):=
+JAR$(CONFIG_OBJDEPS):=
+MANIFEST$(CONFIG_OBJDEPS):=
+
+############################################################################################
+# SRCINC containing source code is included if APP_INCLUDE_SOURCE is defined in VERSIONINC.
+# SRCINC_Z (compressed) is used if zlib.h,vlib,gzip,od are present, otherwise SRCINC_STR is used.
+# TODO: removing heading './' (| $(SED) -e 's|^\./||') causes issues with bsd make
+cmd_HAVEVLIB	= case " $(INCLUDES) " in *"include/vlib/avltree.h "*) true ;; *) false ;; esac
+cmd_HAVEZLIB	= $(TEST) -n '$(CONFIG_ZLIB)'
+cmd_SRCINC	= $(cmd_FINDBSDOBJ); $(TEST) -e $(VERSIONINC) -a "$(SINCLUDEDEPS)" = "$(INCLUDEDEPS)" \
+		  && $(GREP) -Eq '^[[:space:]]*\#[[:space:]]*define[[:space:]][[:space:]]*APP_INCLUDE_SOURCE([[:space:]]|$$)' \
+	                                $(VERSIONINC) $(NO_STDERR) \
+		       && { $(cmd_HAVEVLIB) && $(cmd_HAVEZLIB) \
+		            && $(TEST) -x "`$(WHICH) \"$(OD)\" | $(HEADN1) $(NO_STDERR)`" \
+		                    -a -x "`$(WHICH) \"$(GZIP)\" | $(HEADN1) $(NO_STDERR)`" \
+		            && echo $(SRCINC_Z) || echo $(SRCINC_STR); } || true
+tmp_SRCINC	!= $(cmd_SRCINC)
+tmp_SRCINC	?= $(shell $(cmd_SRCINC))
+SRCINC		:= $(tmp_SRCINC)
+
+SRC		:= $(SRCINC) $(SRC)
+OBJ		:= $(SRCINC:.c=.o) $(OBJ)
+OBJ_NOJAVA	:= $(SRCINC:.c=.o) $(OBJ)
 ############################################################################################
 
-ALLMAKEFILES	= Makefile $(CONFIGMAKE)
 LICENSE		= LICENSE
 README		= README.md
 CLANGCOMPLETE	= .clang_complete
@@ -624,14 +640,15 @@ default_rule: update-$(BUILDINC) $(BUILDDIRS) .WAIT $(BIN) $(LIB) $(JAR) gentags
 $(SUBDIRS): $(BUILDDIRS)
 $(SUBLIBS): $(BUILDDIRS)
 	@true
-$(BUILDDIRS): .EXEC
-	@recdir=$(@:-build=); rectarget=; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs}
+$(BUILDDIRS): $(CONFIGMAKE) $(VERSIONINC) .EXEC
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
+	 recdir=$(@:-build=); rectarget=; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs}; fi
 
 # --- clean : remove objects and generated files
 clean: cleanme $(CLEANDIRS)
 cleanme:
-	$(RM) $(SRCINC_Z:.c=.*) $(SRCINC_STR:.c=.*) \
-	      $(OBJ:.class=*.class) $(GENSRC) $(GENINC) $(GENJAVA) $(CLASSES:.class=*.class) $(DEPS) $(INCLUDEDEPS)
+	$(RM) $(SRCINC_Z:.c=.*) $(SRCINC_STR:.c=.*) $(OBJ:.class=*.class) $(CLASSES:.class=*.class) \
+	      $(GENSRC) $(GENINC) $(GENJAVA) $(DEPS) $(INCLUDEDEPS) $(CONFIGMAKE_REC_FILE)
 	@$(TEST) -L "$(FLEXLEXER_LNK)" && { cmd="$(RM) $(FLEXLEXER_LNK)"; echo "$$cmd"; $$cmd ; } || true
 $(CLEANDIRS):
 	@recdir=$(@:-clean=); rectarget=clean; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} clean
@@ -651,37 +668,44 @@ $(DISTCLEANDIRS):
 	@recdir=$(@:-distclean=); rectarget=distclean; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} distclean
 
 # --- debug : set DEBUG flag in build.h and rebuild
-debug: update-$(BUILDINC) $(DEBUGDIRS)
-	@if $(TEST) "$(RELEASE_MODE)" '!=' "DEBUG"; then \
+debug: $(CONFIGMAKE) update-$(BUILDINC) $(DEBUGDIRS)
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
+	   if $(TEST) "$(RELEASE_MODE)" '!=' "DEBUG"; then \
 	     { $(SED) -e 's/^\([[:space:]]*\#[[:space:]]*define[[:space:]][[:space:]]*BUILD_APPRELEASE[[:space:]]\).*/\1 "DEBUG"/' \
 	          $(BUILDINC) $(NO_STDERR); } > $(BUILDINC).tmp && $(MV) $(BUILDINC).tmp $(BUILDINC) || true; \
 	     $(PRINTF) "$(NAME): debug enabled ('make distclean' to disable it).\n"; \
+	   fi \
+	   && $(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; \
+	   if $(TEST) -n "$(SUBMODROOTDIR)"; then "$(MAKE)" SUBMODROOTDIR="$(SUBMODROOTDIR)"; else "$(MAKE)"; fi; \
 	 fi
-	 @$(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; \
-	  if $(TEST) -n "$(SUBMODROOTDIR)"; then "$(MAKE)" SUBMODROOTDIR="$(SUBMODROOTDIR)"; else "$(MAKE)"; fi
-$(DEBUGDIRS):
-	@recdir=$(@:-debug=); rectarget=debug; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} debug
+$(DEBUGDIRS): $(CONFIGMAKE)
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
+	 recdir=$(@:-debug=); rectarget=debug; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} debug; fi
 
 # --- test : set TEST release in build.h and rebuild
-test: update-$(BUILDINC) $(TESTDIRS)
-	@if $(TEST) "$(RELEASE_MODE)" = "RELEASE"; then \
+test: $(CONFIGMAKE) update-$(BUILDINC) $(TESTDIRS)
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
+	   if $(TEST) "$(RELEASE_MODE)" = "RELEASE"; then \
 	     { $(SED) -e 's/^\([[:space:]]*\#[[:space:]]*define[[:space:]][[:space:]]*BUILD_APPRELEASE[[:space:]]\).*/\1 "TEST"/' \
 	          $(BUILDINC) $(NO_STDERR); } > $(BUILDINC).tmp && $(MV) $(BUILDINC).tmp $(BUILDINC) \
 	     && $(PRINTF) "$(NAME): test enabled ('make distclean' to disable it).\n"; \
+	   fi \
+	   && $(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; \
+	   if $(TEST) -n "$(SUBMODROOTDIR)"; then "$(MAKE)" SUBMODROOTDIR="$(SUBMODROOTDIR)"; else "$(MAKE)"; fi; \
 	 fi
-	@$(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; \
-	 if $(TEST) -n "$(SUBMODROOTDIR)"; then "$(MAKE)" SUBMODROOTDIR="$(SUBMODROOTDIR)"; else "$(MAKE)"; fi
-$(TESTDIRS):
-	@recdir=$(@:-test=); rectarget=test; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} test
+$(TESTDIRS): $(CONFIGMAKE)
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
+	 recdir=$(@:-test=); rectarget=test; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} test; fi
 
 # --- doc : generate doc
-doc: $(DOCDIRS)
-$(DOCDIRS):
-	@recdir=$(@:-doc=); rectarget=doc; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} doc
+doc: $(CONFIGMAKE) $(DOCDIRS)
+$(DOCDIRS): $(CONFIGMAKE)
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
+	 recdir=$(@:-doc=); rectarget=doc; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} doc; fi
 
 # --- install ---
-installme: all
-	@for f in $(INSTALL_FILES); do \
+installme: $(CONFIGMAKE) all
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then for f in $(INSTALL_FILES); do \
 	     case "$$f" in \
 	         *.h|*.hh)    install="$(INSTALL)"; dest="$(PREFIX)/include" ;; \
 	         *.a|*.so)    install="$(INSTALL)"; dest="$(PREFIX)/lib" ;; \
@@ -697,16 +721,19 @@ installme: all
 		 cmd="$$install $$f $$dest"; echo "$$cmd"; \
 		 $$cmd; \
 	     fi; \
-	 done
-install: installme $(INSTALLDIRS)
-$(INSTALLDIRS):
-	@recdir=$(@:-install=); rectarget=install; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} install
+	 done; fi
+install: $(CONFIGMAKE) installme $(INSTALLDIRS)
+$(INSTALLDIRS): $(CONFIGMAKE)
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
+	 recdir=$(@:-install=); rectarget=install; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} install; fi
 
 # --- check: run tests ---
-check: all $(CHECKDIRS)
-	$(CHECK_RUN)
-$(CHECKDIRS): all
-	@recdir=$(@:-check=); rectarget=check; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} check
+check: $(CONFIGMAKE) all $(CHECKDIRS)
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then set -x \
+		$(CHECK_RUN); fi
+$(CHECKDIRS): $(CONFIGMAKE) all
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
+	 recdir=$(@:-check=); rectarget=check; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} check; fi
 
 # --- build BIN ---
 $(BIN): $(OBJ) $(SUBLIBS) $(JCNIINC)
@@ -739,7 +766,7 @@ $(JAVAOBJ): $(JAVASRC)
 	       || { $(MKDIR) -p "$(BUILDDIR)/$$dir"; mv "$$f" "$(BUILDDIR)/$$dir"; }; \
 	 done; $(RM) -Rf "$(TMPCLASSESDIR)"
 	$(GCJ) $(JFLAGS) -d $(BUILDDIR) -c -o $@ $(CLASSES:.class=*.class)
-$(JCNIINC): $(ALLMAKEFILES) $(BUILDINC) $(CONFIGINC)
+$(JCNIINC): $(ALLMAKEFILES) $(BUILDINC) $(CONFIG_OBJDEPS)
 
 #$(JCNISRC:.cc=.o) : $(JCNIINC) # usefull without -MD
 #$(JCNIOBJ): $(JCNIINC) # Useful without -MD
@@ -767,11 +794,11 @@ $(JAR): $(JAVASRC) $(SUBLIBS) $(MANIFEST) $(ALLMAKEFILES)
 #$(YACCGENJAVA): $(ALLMAKEFILES) $(BUILDINC)
 
 ### WITH -MD
-$(OBJ): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(CONFIGINC)
-$(OBJ_NOJAVA): $(OBJDEPS_$(SINCLUDEDEPS))
-$(GENSRC): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(CONFIGINC)
-$(GENJAVA): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(CONFIGINC)
-$(CLASSES): $(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(CONFIGINC)
+$(OBJ): $(CONFIG_OBJDEPS) #$(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(CONFIGINC)
+$(OBJ_NOJAVA): $(OBJDEPS_$(SINCLUDEDEPS)) $(CONFIG_OBJDEPS) #$(ALLMAKEFILES) $(CONFIGINC)
+$(GENSRC): $(CONFIG_OBJDEPS) #$(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(CONFIGINC)
+$(GENJAVA): $(CONFIG_OBJDEPS) #$(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(CONFIGINC)
+$(CLASSES): $(CONFIG_OBJDEPS) #$(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(CONFIGINC)
 
 # Implicit rules: old-fashionned double suffix rules to be compatible with most make.
 # -----------
@@ -1015,7 +1042,8 @@ $(BUILDINCJAVA): update-$(BUILDINC)
 	@true
 #fullgitrev=`$(GIT) describe --match "v[0-9]*" --always --tags --dirty --abbrev=0 $(NO_STDERR)`
 update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
-	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$(BUILDINC)" "$(.CURDIR)"; ln -sf "$(.OBJDIR)/$(BUILDINCJAVA)" "$(.CURDIR)"; \
+	@if ! $(cmd_CONFIGMAKE_INCLUDED); then true; else \
+	 if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$(BUILDINC)" "$(.CURDIR)"; ln -sf "$(.OBJDIR)/$(BUILDINCJAVA)" "$(.CURDIR)"; \
 	 else $(TEST) -L $(BUILDINC) && $(RM) $(BUILDINC); $(TEST) -L $(BUILDINCJAVA) && $(RM) $(BUILDINCJAVA) || true; fi; \
 	 if ! $(TEST) -e $(BUILDINC); then \
 	     echo "$(NAME): create $(BUILDINC)"; \
@@ -1091,15 +1119,15 @@ update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 	        } > $(BUILDINCJAVA); \
 	       fi; \
 	    fi; \
-	 fi
+	 fi; fi
 
 # configure, CONFIGMAKE, ... config.h, config.make, config.log generation
 configure: $(CONFIGUREDIRS)
 	@$(RM) -f $(CONFIGMAKE) $(INCLUDEDEPS)
 	@"$(MAKE)" $(CONFIGMAKE)
 $(CONFIGUREDIRS):
-	@recdir=$(@:-configure=); rectarget=configure; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} configure
-$(CONFIGINC): $(CONFIGMAKE)
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
+	 recdir=$(@:-configure=); rectarget=configure; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} configure; fi
 # prefixes where to search libraries
 CONFIG_CHECK_PREFIXES	= '' '/opt/local' '/usr/local'
 # Variables with content of programs checking features.
@@ -1150,9 +1178,12 @@ CONFTEST_LIBCRYPT	= 'int main(void) { return 0; }\n'
 
 CONFTEST_CRYPT_H	= '\#include <crypt.h>\nint main(void) { return 0; }\n'
 
-$(CONFIGMAKE): Makefile
+$(CONFIGINC) $(CONFIGMAKE): Makefile $(INCLUDEDEPS)
 	 @if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$(CONFIGMAKE)" "$(.CURDIR)" && ln -sf "$(.OBJDIR)/$(CONFIGINC)" "$(.CURDIR)"; \
 		                else $(TEST) -L "$(CONFIGMAKE)" && $(RM) "$(CONFIGMAKE)"; $(TEST) -L "$(CONFIGINC)" && $(RM) "$(CONFIGINC)" || true; fi; \
+	  case " $? " in *" Makefile "*|*" $(.CURDIR)/Makefile "*) doconfigure=1;; *) doconfigure=0;; esac; echo "DO_CONFIGURE: $$doconfigure (?: $?)"; \
+	  if $(TEST) "$$doconfigure" = "1"; then \
+	  $(TEST) -s "$(VERSIONINC)" || $(RM) -f "version.h"; \
 	  $(PRINTF) "$(NAME): generate $(CONFIGMAKE), $(CONFIGINC)\n"; \
 	  log() { $(PRINTF) "$$@"; $(PRINTF) "$$@" >> "$${configlog}"; }; \
 	  checktest() { \
@@ -1226,7 +1257,7 @@ $(CONFIGMAKE): Makefile
 	}; \
 	mytmpdir=.; mytmpfile=`$(MKTEMP) "$${mytmpdir}/conftest_XXXXXX" || echo "$${mytmpdir}/conftest_TMP"`; \
 	configcheck=; configlog=$(CONFIGLOG); $(PRINTF) "" > $${configlog}; ldpaths=`getldpaths $(NO_STDERR)`; \
-	$(PRINTF) 'default_rule: $(DEFAULT_RULE_DEPENDENCIES)\n' > $(CONFIGMAKE); $(PRINTF) '' > $(CONFIGINC); \
+	$(PRINTF) '$(DASH) generated file\n' > $(CONFIGMAKE); $(PRINTF) '/* generated file */\n' > $(CONFIGINC); \
 	true "**** ZLIB CHECK *****"; \
 	flag=; lib="-lz"; cflags="$${flag}" libs="$${lib}" conftest CONFIG_ZLIB_H "$$flag" CONFIG_ZLIB "$$lib" \
 	    "zlib" $(CONFTEST_ZLIB) \
@@ -1288,12 +1319,13 @@ $(CONFIGMAKE): Makefile
 	        return strncmp(s, crypt(\"toto\", s), strlen(s)); }\n" \
 	    && $(PRINTF) '#define CONFIG_CRYPT_DES_EXT 1\n' >> $(CONFIGINC) || true; \
 	$(PRINTF) -- "#define CONFIG_FEATURES \"$${configcheck}\"\n" >> $(CONFIGINC); \
-	$(RM) -f "$${mytmpfile}"
+	$(RM) -f "$${mytmpfile}"; \
+	$(PRINTF) -- "$(NAME): making recursion...\n"; "$(MAKE)" $(.TARGETS) $(MAKECMDGOALS); $(TOUCH) "$(CONFIGMAKE_REC_FILE)"; fi
 
 .gitignore:
 	@$(cmd_TESTBSDOBJ) && cd $(.CURDIR) && build=`echo $(.OBJDIR) | $(SED) -e 's|^$(.CURDIR)||'`/ || build=; \
 	 { cat .gitignore $(NO_STDERR); \
-	   for f in $(LIB) $(JAR) $(GENSRC) $(GENJAVA) $(GENINC) $(SRCINC_Z) $(SRCINC_STR) \
+	   for f in $(LIB) $(JAR) $(GENSRC) $(GENJAVA) $(GENINC) $(SRCINC_Z) $(SRCINC_STR) $(CONFIGMAKE_REC_FILE) \
 	            $(BUILDINC) $(BUILDINCJAVA) $(CLANGCOMPLETE) $(CONFIGLOG) $(CONFIGMAKE) $(CONFIGINC) obj/ \
 	            `$(TEST) -n "$(BIN)" && echo "$(BIN)" "$(BIN).dSYM" "$(BIN).core" "core" "core.[0-9]*[0-9]" || true` \
 	            `echo "$(FLEXLEXER_LNK)" | $(SED) -e 's|^\./||' || true`; do \
@@ -1316,7 +1348,8 @@ $(CLANGCOMPLETE): $(ALLMAKEFILES) $(BUILDINC)
 
 # to spread 'generic' makefile part to sub-directories
 merge-makefile:
-	@$(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; for makefile in `$(FIND) $(SUBDIRS) -name Makefile | $(SORT) | $(UNIQ)`; do \
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
+	  $(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; for makefile in `$(FIND) $(SUBDIRS) -name Makefile | $(SORT) | $(UNIQ)`; do \
 	     $(GREP) -E -i -B10000 '^[[:space:]]*#[[:space:]]*generic[[:space:]]part' "$${makefile}" > "$${makefile}.tmp" \
 	     && $(GREP) -E -i -A10000 '^[[:space:]]*#[[:space:]]*generic[[:space:]]part' Makefile | tail -n +2 >> "$${makefile}.tmp" \
 	     && mv "$${makefile}.tmp" "$${makefile}" && echo "merged $${makefile}" || echo "! cannot merge $${makefile}" && $(RM) -f "$${makefile}.tmp"; \
@@ -1325,7 +1358,7 @@ merge-makefile:
 	         && $(GREP) -E -i -A10000 '^[[:space:]]*#[[:space:]]*This program is free software;' "$$file" | tail -n +2 >> "$${target}.tmp" \
 	         && mv "$${target}.tmp" "$${target}" && echo "merged $${target}" && chmod +x "$$target" || echo "! cannot merge $${target}" && $(RM) -f "$${target}.tmp"; \
 	     fi; \
-	 done
+	   done; fi
 
 # To update submodules of submodules if SUBMODROOTDIR is used
 #  When a submodule (S) in main project (M) is updated,
@@ -1336,7 +1369,7 @@ merge-makefile:
 # + Loop on each submodule (recursively)
 #   - for each submodule, if it is not initialized, find a more recent repository and update index
 subsubmodules:
-	@if $(TEST) -n "$(SUBMODROOTDIR)"; then \
+	@if ! $(cmd_CONFIGMAKE_RECURSE) && $(TEST) -n "$(SUBMODROOTDIR)"; then \
 	     mods=`$(GIT) submodule status --recursive | $(SED) -e 's/^[[:space:]]/=;/' -e 's/^\([U+-]\)/\1;/' -e 's/[[:space:]]/;/g'`; \
 	     for mod in $$mods; do \
 	         stat=; sha=; dir=; IFSbak=$$IFS; IFS=';'; for tok in $$mod; do \
@@ -1376,9 +1409,10 @@ debug-makefile:
 #	@$(TOUCH) "$@"
 #	@if $(cmd_TESTBSDOBJ); then $(TEST) -e "$(.CURDIR)/$@" || mv "$@" "$(.CURDIR)"; ln -sf "$(.CURDIR)/$@" .; fi
 # Run Valgrind filter output
-valgrind: all
-	@$(RM) -R $(BIN).dSYM
-	@logfile=`$(MKTEMP) ./valgrind_XXXXXX` && $(MV) "$${logfile}" "$${logfile}.log"; logfile="$${logfile}.log"; \
+valgrind: all $(CONFIGMAKE)
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
+	 $(RM) -R $(BIN).dSYM; \
+	 logfile=`$(MKTEMP) ./valgrind_XXXXXX` && $(MV) "$${logfile}" "$${logfile}.log"; logfile="$${logfile}.log"; \
 	 $(TEST) -e "$(VALGRINDSUPP)" && vgsupp="--suppressions=$(VALGRINDSUPP)" || vgsupp=; \
 	 $(VALGRIND) $(VALGRIND_ARGS) $${vgsupp} --log-file="$${logfile}" $(VALGRIND_RUN) || true; \
 	 if $(TEST) -z "$(VALGRIND_MEM_IGNORE_PATTERN)"; then cat "$${logfile}"; else \
@@ -1396,10 +1430,11 @@ valgrind: all
 	             } \
 	         } \
 	         ' $${logfile} > $${logfile%.log}_filtered.log && cat $${logfile%.log}_filtered.log; \
-	 fi && echo "* valgrind output in $${logfile} and $${logfile%.log}_filtered.log (will be deleted by 'make distclean')"
+	 fi && echo "* valgrind output in $${logfile} and $${logfile%.log}_filtered.log (will be deleted by 'make distclean')"; \
+	 fi
 
-help:
-	@$(PRINTF) "%s\n" \
+help: $(CONFIGMAKE)
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then $(PRINTF) "%s\n" \
 	  "make <target>" \
 	  "  target: all, file (main.o, bison.c), ...:" \
 	  "  CC           [$(CC)]" \
@@ -1457,10 +1492,10 @@ help:
 	  "" \
 	  "make dist" \
 	  "  DISTDIR          [ $(DISTDIR) ]" \
-	  ""
+	  ""; fi
 
-info:
-	@$(PRINTF) "%s\n" \
+info: $(CONFIGMAKE)
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then $(PRINTF) "%s\n" \
 	  "NAME             : $(NAME)" \
 	  "UNAME_SYS        : $(UNAME_SYS)  [`uname -a`]" \
 	  "MAKE             : $(MAKE)  [`\"$(MAKE)\" --version $(NO_STDERR) | $(HEADN1) || "$(MAKE)" -V $(NO_STDERR) | $(HEADN1)`]" \
@@ -1509,9 +1544,12 @@ info:
 	  "SRC              : $(SRC)" \
 	  "JAVASRC          : $(JAVASRC)" \
 	  "OBJ              : $(OBJ)" \
-	  "CLASSES          : $(CLASSES)"
-rinfo: info
-	old="$$PWD"; for d in $(SUBDIRS); do cd "$$d" && "$(MAKE)" rinfo; cd "$$old"; done
+	  "CLASSES          : $(CLASSES)"; \
+	  fi
+rinfo: info $(CONFIGMAKE)
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
+	   old="$$PWD"; for d in $(SUBDIRS); do recdir="$$d"; rectarget=rinfo; $(RECURSEMAKEARGS); \
+	     cd "$${recdir}" && "$(MAKE)" $${recargs} rinfo; cd "$$old"; done; fi
 
 .PHONY: subdirs $(SUBDIRS)
 .PHONY: subdirs $(BUILDDIRS)
