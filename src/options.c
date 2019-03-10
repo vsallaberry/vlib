@@ -437,8 +437,10 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
                      ? opt_config->desc_align - desc_headsz : opt_headsz;
 
     /* get max columns usable for display */
-    if ((max_columns = vterm_get_columns(fileno(out))) <= 0) {
+    if ((i_opt = vterm_get_columns(fileno(out))) <= 0) {
         max_columns = 80; /* not a tty or error retrieving columns */
+    } else {
+        max_columns = i_opt;
     }
     /* if options are displayed through log, get header size, and reduce max_columns */
     if (opt_config->log != NULL && opt_config->log->level >= OPT_USAGE_LOGLEVEL) {
