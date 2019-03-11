@@ -72,7 +72,7 @@ PREFIX		= /usr/local
 INSTALL_FILES	= $(LIB) include
 
 # CONFIG_CHECK	= all zlib ncurses libcrypto applecrypto openssl sigqueue sigrtmin
-#	          libcrypt crypt.h crypt_gnu crypt_des_ext
+#	          libcrypt crypt.h crypt_gnu crypt_des_ext libintl
 # If a feature is prefixed with '+' (eg: +openssl), this makes it MANDATORY
 # and make will fail if the feature is not available.
 CONFIG_CHECK	= zlib ncurses
@@ -111,7 +111,7 @@ FLAGS_GCJ	=
 #LIBS_GNUCXX_XTRA_darwin_/usr/bin/clangpppp=-stdlib=libstdc++
 INCS_darwin	= $(FLAGS_GNUCXX_XTRA_$(UNAME_SYS)_$(CXX:++=pppp))
 LIBS_darwin	= -framework IOKit -framework Foundation $(LIBS_GNUCXX_XTRA_$(UNAME_SYS)_$(CXX:++=pppp))
-LIBS_linux	= -lrt -ldl
+LIBS_linux	= -lrt
 
 # TESTS and DEBUG parameters
 # VALGRIND_RUN: how to run the program with valgrind (can be used to pass arguments to valgrind)
@@ -122,7 +122,7 @@ VALGRIND_RUN	= ./$(BIN)
 VALGRIND_MEM_IGNORE_PATTERN =
 # CHECK_RUN: what to run with 'make check' (eg: 'true', './test.sh $(BIN)', './$(BIN) --test'
 #   if tests are only built with macro _TEST, you can insert 'make debug' or 'make test'
-CHECK_RUN	= @echo "vlib tests are in https://github.com/vsallaberry/vsensorsdemo"
+CHECK_RUN	= echo "vlib tests are in https://github.com/vsallaberry/vsensorsdemo"
 
 ############################################################################################
 # GENERIC PART - in most cases no need to change anything below until end of file

@@ -4,6 +4,7 @@
 *~
 .*.sw?
 /.clang_complete
+/.configmake-recursion
 /Build.java
 /build.h
 /config.h
