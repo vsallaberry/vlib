@@ -167,7 +167,7 @@ DIRNAME		= dirname
 NO_STDERR	= 2> /dev/null
 NO_STDOUT	= > /dev/null
 STDOUT_TO_ERR	= 1>&2
-STDOUT_TO_ERR	= 2>&1
+STDERR_TO_OUT	= 2>&1
 DASH		= \#
 
 ############################################################################################
@@ -187,6 +187,7 @@ MAKEFLAGS 		+= $(MAKEOVERRIDES)
 
 ############################################################################################
 # About shell commands execution in this Makefile:
+# - ALWAYS use braces with shell variables ! (${<var>})
 # - On recent gnu make (>=4.0 i guess), "!=' is understood.
 # - On gnu make 3.81, '!=' is not understood but it does NOT cause syntax error.
 # - On {open,free,net}bsd $(shell cmd) is not understood but does NOT cause syntax error.
@@ -274,11 +275,11 @@ SYSDEP_SUF_DEF	= default
 
 # Search bison 3 or later, fallback on bison, yacc.
 cmd_YACC        = found=; for bin in $$($(WHICH) -a bison $(YACC) $(NO_STDERR)); do \
-		      ver="$$($$bin -V 2>&1 | $(AWK) -F '.' '/[Bb][iI][sS][oO][nN].*[0-9]+(\.[0-9]+)+/ { \
+		      ver="$$($${bin} -V 2>&1 | $(AWK) -F '.' '/[Bb][iI][sS][oO][nN].*[0-9]+(\.[0-9]+)+/ { \
 		                                               $$0=substr($$0,match($$0,/[0-9]+(\.[0-9]+)+/)); \
 		                                               print $$1*1000000 + $$2*1000 + $$3*1 }')"; \
-		      $(TEST) -n "$$ver" && $(TEST) $$ver -ge 03000000 $(NO_STDERR) && found="$${bin}._have_bison3_" && break; \
-		  done; $(TEST) -n "$$found" && $(PRINTF) "$$found" || $(WHICH) $(YACC) bison yacc $(NO_STDERR) | $(HEADN1) || true
+		      $(TEST) -n "$${ver}" && $(TEST) $${ver} -ge 03000000 $(NO_STDERR) && found="$${bin}._have_bison3_" && break; \
+		  done; $(TEST) -n "$${found}" && $(PRINTF) "$${found}" || $(WHICH) $(YACC) bison yacc $(NO_STDERR) | $(HEADN1) || true
 tmp_YACC0	!= $(cmd_YACC)
 tmp_YACC0	?= $(shell $(cmd_YACC))
 tmp_YACC	:= $(tmp_YACC0)
@@ -297,16 +298,17 @@ FLEXLEXER_INC	= FlexLexer.h
 FLEXLEXER_LNK	= $(BUILDDIR)/$(FLEXLEXER_INC)
 $(FLEXLEXER_LNK):
 cmd_LEX		= lex=`$(WHICH) $(LEX) flex lex $(NO_STDERR) | $(HEADN1)`; \
-		  $(TEST) -n "$$lex" -a \( ! -e "$(FLEXLEXER_LNK)" -o -L "$(FLEXLEXER_LNK)" \) \
-		  && flexinc="`dirname $$lex`/../include/$(FLEXLEXER_INC)" \
-		  && $(TEST) -e "$$flexinc" \
+		  $(TEST) -n "$${lex}" -a \( ! -e "$(FLEXLEXER_LNK)" -o -L "$(FLEXLEXER_LNK)" \) \
+		  && flexinc="`dirname $${lex}`/../include/$(FLEXLEXER_INC)" \
+		  && $(TEST) -e "$${flexinc}" \
 		  || { $(TEST) "$(UNAME_SYS)" = "darwin" \
-		       && otool -L "$$lex" | $(GREP) -Eq 'libxcselect[^ ]*dylib' $(NO_STDERR) \
+		       && otool -L "$${lex}" | $(GREP) -Eq 'libxcselect[^ ]*dylib' $(NO_STDERR) \
 		       && flexinc="`xcode-select -p $(NO_STDERR)`/Toolchains/Xcodedefault.xctoolchain/usr/include/$(FLEXLEXER_INC)" \
-		       && $(TEST) -e "$$flexinc"; } \
-		  && ! $(TEST) "$(FLEXLEXER_LNK)" -ef "$$flexinc" && echo 1>&2 "$(NAME): create link $(FLEXLEXER_LNK) -> $$flexinc" \
-		  && ln -sf "$$flexinc" "$(FLEXLEXER_LNK)" $(NO_STDERR) && $(TEST) -e $(BUILDINC) && $(TOUCH) $(BUILDINC); \
-		  echo "$$lex"
+		       && $(TEST) -e "$${flexinc}"; } \
+		  && ! $(TEST) "$(FLEXLEXER_LNK)" -ef "$${flexinc}" \
+		       && $(PRINTF) -- "$(NAME): create link $(FLEXLEXER_LNK) -> $${flexinc}\n" $(STDOUT_TO_ERR) \
+		  && ln -sf "$${flexinc}" "$(FLEXLEXER_LNK)" $(NO_STDERR) && $(TEST) -e $(BUILDINC) && $(TOUCH) $(BUILDINC); \
+		  echo "$${lex}"
 tmp_LEX		!= $(cmd_LEX)
 tmp_LEX		?= $(shell $(cmd_LEX))
 LEX		:= $(tmp_LEX)
@@ -500,12 +502,12 @@ sys_DEBUG	= $(DEBUG_$(SYSDEP_SUF))
 
 ############################################################################################
 # Generic Build Flags
-cmd_CPPFLAGS	= srcpref=; srcdirs=; $(cmd_TESTBSDOBJ) && srcpref="$(.CURDIR:Q)/" && srcdirs="$$srcpref $${srcpref}$(SRCDIR)"; \
+cmd_CPPFLAGS	= srcpref=; srcdirs=; $(cmd_TESTBSDOBJ) && srcpref="$(.CURDIR:Q)/" && srcdirs="$${srcpref} $${srcpref}$(SRCDIR)"; \
 		  sep=; incpref=; incs=; for dir in . $(SRCDIR) $(BUILDDIR) $${srcdirs} : $(INCDIRS); do \
-                      test -z "$$sep" -a -n "$$incs" && sep=" " || true; \
-		      test "$$dir" = ":" && incpref=$$srcpref && continue || true; \
+                      test -z "$${sep}" -a -n "$${incs}" && sep=" " || true; \
+		      test "$${dir}" = ":" && incpref=$${srcpref} && continue || true; \
 		      case " $${incs} " in *" -I$${incpref}$${dir} "*) ;; *) incs="$${incs}$${sep}-I$${incpref}$${dir}";; esac; \
-		  done; echo "$$incs"
+		  done; echo "$${incs}"
 tmp_CPPFLAGS	!= $(cmd_CPPFLAGS)
 tmp_CPPFLAGS	?= $(shell $(cmd_CPPFLAGS))
 tmp_CPPFLAGS	:= $(tmp_CPPFLAGS)
@@ -541,38 +543,39 @@ BCOMPAT_SED_YYPREFIX=$(SED) -n -e \
 # will be used on next 'make' and overrided by gcc -MMD.
 # Additionnaly, we use this command to populate git submodules if needed.
 #
-OBJDEPS_version.h	= $(ALLMAKEFILES) $(INCLUDES) $(GENINC)
+OBJDEPS_$(VERSIONINC)	= $(ALLMAKEFILES) $(INCLUDES) $(GENINC)
 DEPS			:= $(OBJ:.o=.d) $(SRCINC_STR:.c=.d) $(SRCINC_Z:.c=.d)
 INCLUDEDEPS		:= .alldeps.d
-CONFIGMAKE_REC_FILE	= .configmake-recursive
-cmd_SINCLUDEDEPS= inc=1; if $(TEST) -e "$(INCLUDEDEPS)" -a -e "$(CONFIGMAKE)"; then echo "$(INCLUDEDEPS)"; \
-		  else echo version.h; $(TEST) -e version.h || $(TOUCH) "version.h"; inc=; $(PRINTF) "include $(CONFIGMAKE)\n" > $(INCLUDEDEPS); fi; \
-		  for f in $(DEPS:.d=); do \
-		      if $(TEST) -z "$$inc" -o ! -e "$$f.d"; then \
-		           dir="`dirname $$f`"; $(TEST) -d "$$dir" || $(MKDIR) -p "$$dir"; \
-		           $(TEST) "$$f.o" = "$(JAVAOBJ)" && echo "" > $$f.d \
-		                                          || echo "$$f.o: $(OBJDEPS_version.h)" > $$f.d; \
-		           echo "include $$f.d" >> $(INCLUDEDEPS); \
-		      fi; \
-		  done; $(RM) -f "$(CONFIGMAKE_REC_FILE)"; \
-		  $(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; ret=true; $(TEST) -x "$(GIT)" && for d in $(SUBDIRS); do \
-		      if ! $(TEST) -e "$$d/Makefile" && $(GIT) submodule status "$$d" $(NO_STDERR) | $(GREP) -Eq "^-.*$$d"; then \
-		          $(GIT) submodule update --init "$$d" $(STDOUT_TO_ERR) || ret=false; \
-		      fi; \
-		  done || true; $$ret
+CONFIGMAKE_REC_FILE	:= .configmake-recursion
+cmd_SINCLUDEDEPS	:= inc=1; ret=true; $(RM) -f -v '$(CONFIGMAKE_REC_FILE)' $(STDOUT_TO_ERR) || true; \
+			  if $(TEST) -e "$(INCLUDEDEPS)" -a -e "$(CONFIGMAKE)"; then $(PRINTF) -- '$(INCLUDEDEPS)'; \
+			  else $(PRINTF) -- '$(VERSIONINC)'; $(TEST) -e "$(VERSIONINC)" || $(TOUCH) "$(VERSIONINC)"; \
+			       inc=; $(PRINTF) -- "include $(CONFIGMAKE)\n" > $(INCLUDEDEPS); fi; \
+			  for f in $(DEPS:.d=); do \
+			      if $(TEST) -n "$${f}" -a \( -z "$${inc}" -o ! -e "$${f}.d" \) ; then \
+			          dir=`dirname "$${f}"`; $(TEST) -d "$${dir}" || $(MKDIR) -p "$${dir}" || echo ">> f:$${f} d:$${dir} mkdir" $(STDOUT_TO_ERR); \
+			          $(TEST) "$${f}.o" = "$(JAVAOBJ)" && $(PRINTF) '\n' > "$${f}.d" \
+			            || $(PRINTF) -- "$${f}.o: $(OBJDEPS_version.h)\n" > "$${f}.d"; \
+			          $(PRINTF) -- "include $${f}.d\n" >> $(INCLUDEDEPS); \
+			      fi; \
+			  done; \
+			  $(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; $(TEST) -x "$(GIT)" && for d in $(SUBDIRS); do \
+			      if ! $(TEST) -e "$${d}/Makefile" && $(GIT) submodule status "$${d}" $(NO_STDERR) | $(GREP) -Eq "^-.*$${d}"; then \
+			          $(GIT) submodule update --init "$${d}" $(STDOUT_TO_ERR) || ret=false; \
+			      fi; \
+			  done || true; $${ret}
+
 tmp_SINCLUDEDEPS != $(cmd_SINCLUDEDEPS)
 tmp_SINCLUDEDEPS ?= $(shell $(cmd_SINCLUDEDEPS))
 SINCLUDEDEPS := $(tmp_SINCLUDEDEPS)
 include $(SINCLUDEDEPS)
 
 # Following vars <var>_$(SINCLUDEDEPS) wil have value only if CONFIGMAKE has been included
-cmd_CONFIGMAKE_INCLUDED	= $(TEST) "$(SINCLUDEDEPS)" = "$(INCLUDEDEPS)"
-cmd_CONFIGMAKE_RECURSE	= { $(TEST) -e "$(CONFIGMAKE_REC_FILE)" && ret=true || ret=false; \
-			    echo "$(NAME): target:$@ ?:$? rec-done:$$ret">/dev/null; $$ret; }
-
-CONFIG_OBJDEPS_version.h	:=
+cmd_CONFIGMAKE_INCLUDED		= $(TEST) '$(SINCLUDEDEPS)' = '$(INCLUDEDEPS)'
+cmd_CONFIGMAKE_RECURSE		= { $(TEST) -e '$(CONFIGMAKE_REC_FILE)' && ret=true || ret=false; $${ret}; }
+CONFIG_OBJDEPS_$(VERSIONINC)	:=
 CONFIG_OBJDEPS_$(INCLUDEDEPS) 	:= $(ALLMAKEFILES) $(VERSIONINC) $(CONFIGINC) $(BUILDINC)
-CONFIG_OBJDEPS	:= $(CONFIG_OBJDEPS_$(SINCLUDEDEPS))
+CONFIG_OBJDEPS			:= $(CONFIG_OBJDEPS_$(SINCLUDEDEPS))
 
 LIB$(CONFIG_OBJDEPS):=
 BIN$(CONFIG_OBJDEPS):=
@@ -649,7 +652,7 @@ clean: cleanme $(CLEANDIRS)
 cleanme:
 	$(RM) $(SRCINC_Z:.c=.*) $(SRCINC_STR:.c=.*) $(OBJ:.class=*.class) $(CLASSES:.class=*.class) \
 	      $(GENSRC) $(GENINC) $(GENJAVA) $(DEPS) $(INCLUDEDEPS) $(CONFIGMAKE_REC_FILE)
-	@$(TEST) -L "$(FLEXLEXER_LNK)" && { cmd="$(RM) $(FLEXLEXER_LNK)"; echo "$$cmd"; $$cmd ; } || true
+	@$(TEST) -L "$(FLEXLEXER_LNK)" && { cmd="$(RM) $(FLEXLEXER_LNK)"; echo "$${cmd}"; $${cmd} ; } || true
 $(CLEANDIRS):
 	@recdir=$(@:-clean=); rectarget=clean; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} clean
 
@@ -659,9 +662,9 @@ distclean: cleanme $(DISTCLEANDIRS)
 	$(RM) -R $(BIN).dSYM || true
 	$(RM) `$(FIND) . -name '.*.sw?' -or -name '*~' -or -name '\#*' $(NO_STDERR)`
 	@$(cmd_TESTBSDOBJ) && { del=; for f in $(BIN) $(LIB) $(JAR) $(BUILDINC) $(BUILDINCJAVA) $(CONFIGMAKE) $(CONFIGINC); do \
-	                                  $(TEST) -n "$$f" && del="$$del $(.CURDIR)/$$f"; done; \
-	                        for f in $(VERSIONINC) $(README) $(LICENSE); do del="$$del $(.OBJDIR)/$$f"; done; \
-	                        echo "$(RM) $$del"; $(RM) $$del $(NO_STDERR); } || true
+	                                  $(TEST) -n "$${f}" && del="$${del} $(.CURDIR)/$${f}"; done; \
+	                        for f in $(VERSIONINC) $(README) $(LICENSE); do del="$${del} $(.OBJDIR)/$${f}"; done; \
+	                        echo "$(RM) $${del}"; $(RM) $${del} $(NO_STDERR); } || true
 	@$(TEST) "$(BUILDDIR)" != "$(SRCDIR)" && $(RMDIR) `$(FIND) $(BUILDDIR) -type d | $(SORT) -r` $(NO_STDERR) || true
 	@$(PRINTF) "$(NAME): distclean done, debug & test disabled.\n"
 $(DISTCLEANDIRS):
@@ -706,20 +709,20 @@ $(DOCDIRS): $(CONFIGMAKE)
 # --- install ---
 installme: $(CONFIGMAKE) all
 	@if ! $(cmd_CONFIGMAKE_RECURSE); then for f in $(INSTALL_FILES); do \
-	     case "$$f" in \
+	     case "$${f}" in \
 	         *.h|*.hh)    install="$(INSTALL)"; dest="$(PREFIX)/include" ;; \
 	         *.a|*.so)    install="$(INSTALL)"; dest="$(PREFIX)/lib" ;; \
-	         *)           if $(TEST) -x "$$f"; then \
+	         *)           if $(TEST) -x "$${f}"; then \
 	                          install="$(INSTALLBIN)"; dest="$(PREFIX)/bin"; \
 		              else \
 			          install="$(INSTALL)"; dest="$(PREFIX)/share/$(NAME)"; \
 	                      fi ;; \
 	     esac; \
-	     if $(TEST) -n "$$install" -a -n "$$dest"; then \
-	         dir=`dirname "$$dest"`; \
-	         if ! $(TEST) -d "$$dir"; then cmd="$(INSTALLDIR) $$dir"; echo "$$cmd"; $$cmd; fi; \
-		 cmd="$$install $$f $$dest"; echo "$$cmd"; \
-		 $$cmd; \
+	     if $(TEST) -n "$${install}" -a -n "$${dest}"; then \
+	         dir=`dirname "$${dest}"`; \
+	         if ! $(TEST) -d "$${dir}"; then cmd="$(INSTALLDIR) $${dir}"; echo "$${cmd}"; $${cmd}; fi; \
+		 cmd="$${install} $${f} $${dest}"; echo "$${cmd}"; \
+		 $${cmd}; \
 	     fi; \
 	 done; fi
 install: $(CONFIGMAKE) installme $(INSTALLDIRS)
@@ -756,14 +759,14 @@ $(CLASSES): $(JAVAOBJ)
 	@true # Used to override implicit rule .java.class:
 $(JAVAOBJ): $(JAVASRC)
 	@# All classes generated/overriten at once. Generate them in tmp dir then check changed ones.
-	@$(MKDIR) -p $(TMPCLASSESDIR)
+	@$(MKDIR) -p "$(TMPCLASSESDIR)"
 	$(GCJ) $(JFLAGS) -d $(TMPCLASSESDIR) -C `echo '$> $^' | $(TR) ' ' '\n' | $(GREP) -E '\.java$$' | $(SORT) | $(UNIQ)` #FIXME
 	@#$(GCJ) $(JFLAGS) -d $(BUILDDIR) -C $(JAVASRC)
 	@for f in `$(FIND) "$(TMPCLASSESDIR)" -type f`; do \
-	     dir=`dirname $$f | $(SED) -e 's|$(TMPCLASSESDIR)||'`; \
-	     file=`$(BASENAME) $$f`; \
-	     $(DIFF) -q "$(BUILDDIR)/$$dir/$$file" "$$f" $(NO_STDERR) $(NO_STDOUT) \
-	       || { $(MKDIR) -p "$(BUILDDIR)/$$dir"; mv "$$f" "$(BUILDDIR)/$$dir"; }; \
+	     dir=`dirname "$${f}" | $(SED) -e 's|$(TMPCLASSESDIR)||'`; \
+	     file=`$(BASENAME) "$${f}"`; \
+	     $(DIFF) -q "$(BUILDDIR)/$${dir}/$${file}" "$${f}" $(NO_STDERR) $(NO_STDOUT) \
+	       || { $(MKDIR) -p "$(BUILDDIR)/$${dir}"; mv "$${f}" "$(BUILDDIR)/$${dir}"; }; \
 	 done; $(RM) -Rf "$(TMPCLASSESDIR)"
 	$(GCJ) $(JFLAGS) -d $(BUILDDIR) -c -o $@ $(CLASSES:.class=*.class)
 $(JCNIINC): $(ALLMAKEFILES) $(BUILDINC) $(CONFIG_OBJDEPS)
@@ -854,9 +857,9 @@ $(CLASSES): $(CONFIG_OBJDEPS) #$(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(CONFI
 # EXT: .l
 # -----------
 LEX_CMD		= opt='-P'; args=`$(BCOMPAT_SED_YYPREFIX)`; \
-		  cmd="$(LEX) $(LFLAGS) $$args $(FLAGS_LEX_$<) -o$@ $<"; \
-		  echo "$$cmd"; \
-		  $$cmd
+		  cmd="$(LEX) $(LFLAGS) $${args} $(FLAGS_LEX_$<) -o$@ $<"; \
+		  echo "$${cmd}"; \
+		  $${cmd}
 .l.c:
 	@$(LEX_CMD)
 #$(BUILDDIR)/%.c: $(SRCDIR)/%.l
@@ -865,9 +868,9 @@ LEX_CMD		= opt='-P'; args=`$(BCOMPAT_SED_YYPREFIX)`; \
 # EXT: .ll
 # -----------
 LEXCXX_CMD	= opt='-P'; args=`$(BCOMPAT_SED_YYPREFIX)`; \
-		  cmd="$(LEX) $(LCXXFLAGS) $$args $(FLAGS_LEX_$<) -o$@ $<"; \
-		  echo "$$cmd"; \
-		  $$cmd
+		  cmd="$(LEX) $(LCXXFLAGS) $${args} $(FLAGS_LEX_$<) -o$@ $<"; \
+		  echo "$${cmd}"; \
+		  $${cmd}
 .ll.cc:
 	@$(LEXCXX_CMD)
 #$(BUILDDIR)/%.cc: $(SRCDIR)/%.ll
@@ -878,11 +881,11 @@ LEXCXX_CMD	= opt='-P'; args=`$(BCOMPAT_SED_YYPREFIX)`; \
 # EXT: .y
 # -----------
 YACC_CMD	= opt='-p'; args=`$(BCOMPAT_SED_YYPREFIX)`; \
-		  cmd="$(YACC) $(YFLAGS) $$args $(FLAGS_YACC_$<) -o $@ $<"; \
-		  echo "$$cmd"; \
-		  $$cmd \
+		  cmd="$(YACC) $(YFLAGS) $${args} $(FLAGS_YACC_$<) -o $@ $<"; \
+		  echo "$${cmd}"; \
+		  $${cmd} \
 		  && case " $(YFLAGS) $(FLAGS_YACC_$<) " in *" -d "*) \
-		      if $(TEST) -e "$(@D)/y.tab.h"; then cmd='$(MV) $(@D)/y.tab.h $(@:.c=.h)'; echo "$$cmd"; $$cmd; fi ;; \
+		      if $(TEST) -e "$(@D)/y.tab.h"; then cmd='$(MV) $(@D)/y.tab.h $(@:.c=.h)'; echo "$${cmd}"; $${cmd}; fi ;; \
 		  esac
 .y.c:
 	@$(YACC_CMD)
@@ -892,12 +895,12 @@ YACC_CMD	= opt='-p'; args=`$(BCOMPAT_SED_YYPREFIX)`; \
 # EXT: .yy
 # -----------
 YACCCXX_CMD	= opt='-p'; args=`$(BCOMPAT_SED_YYPREFIX)`; \
-		  cmd="$(YACC) $(YCXXFLAGS) $$args $(FLAGS_YACC_$<) -o $@ $<"; \
-		  echo "$$cmd"; \
-		  $$cmd \
+		  cmd="$(YACC) $(YCXXFLAGS) $${args} $(FLAGS_YACC_$<) -o $@ $<"; \
+		  echo "$${cmd}"; \
+		  $${cmd} \
 		  && case " $(YCXXFLAGS) $(FLAGS_YACC_$<) " in *" -d "*) \
-		      if $(TEST) -e "$(@:.cc=.h)"; then cmd='$(MV) $(@:.cc=.h) $(@:.cc=.hh)'; echo "$$cmd"; $$cmd; \
-		      elif $(TEST) -e "$(@D)/y.tab.h"; then cmd='$(MV) $(@D)/y.tab.h $(@:.cc=.hh)'; echo "$$cmd"; $$cmd; fi; \
+		      if $(TEST) -e "$(@:.cc=.h)"; then cmd='$(MV) $(@:.cc=.h) $(@:.cc=.hh)'; echo "$${cmd}"; $${cmd}; \
+		      elif $(TEST) -e "$(@D)/y.tab.h"; then cmd='$(MV) $(@D)/y.tab.h $(@:.cc=.hh)'; echo "$${cmd}"; $${cmd}; fi; \
 		  esac
 .yy.cc:
 	@$(YACCCXX_CMD)
@@ -929,21 +932,21 @@ dist:
 	               --exclude='obj/' --exclude='$(NAME)' . | $(TAR) x -C "$(DISTDIR)/$${distname}" $(NO_STDERR) \
 	      || { cp -Rf . "$(DISTDIR)/$${distname}" \
 	           && $(RM) -R `$(FIND) "$(DISTDIR)/$${distname}" -type d -and \( -name '.git' -or -name 'CVS' -or -name '.hg' -or -name '.svn' \) $(NO_STDERR)`; }; } \
-	 && { for d in . $(SUBDIRS); do ver="$(DISTDIR)/$${distname}/$$d/$(VERSIONINC)"; cd "$$d" && "$(MAKE)" update-$(BUILDINC); cd "$${topdir}"; \
+	 && { for d in . $(SUBDIRS); do ver="$(DISTDIR)/$${distname}/$${d}/$(VERSIONINC)"; cd "$${d}" && "$(MAKE)" update-$(BUILDINC); cd "$${topdir}"; \
 	      pat=`$(SED) -n -e "s|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*BUILD_\(GIT[^[:space:]]*\)[[:space:]]*\"\(.*\)|-e 's,DIST_\1 .*,DIST_\1 \"?-from:\2,'|p" \
-	           "$$d/$(BUILDINC)" | $(TR) '\n' ' '`; \
-	      mv "$${ver}" "$${ver}.tmp" && eval "$(SED) $$pat $${ver}.tmp" > "$${ver}" && $(RM) "$${ver}.tmp"; done; } \
+	           "$${d}/$(BUILDINC)" | $(TR) '\n' ' '`; \
+	      mv "$${ver}" "$${ver}.tmp" && eval "$(SED) $${pat} $${ver}.tmp" > "$${ver}" && $(RM) "$${ver}.tmp"; done; } \
 	 && $(PRINTF) "$(NAME): building '$(DISTDIR)/$${distname}'...\n" \
-	 && cd "$(DISTDIR)/$${distname}" && "$(MAKE)" distclean && "$(MAKE)" && "$(MAKE)" distclean && cd "$$topdir" \
+	 && cd "$(DISTDIR)/$${distname}" && "$(MAKE)" distclean && "$(MAKE)" && "$(MAKE)" distclean && cd "$${topdir}" \
 	 && cd "$(DISTDIR)" && { $(TAR) czf "$${distname}.tar.gz" "$${distname}" && targz=true || targz=false; \
-     			         $(TAR) cJf "$${distname}.tar.xz" "$${distname}" || $${targz}; } && cd "$$topdir" \
+	                         $(TAR) cJf "$${distname}.tar.xz" "$${distname}" || $${targz}; } && cd "$${topdir}" \
 	 && $(RM) -R "$(DISTDIR)/$${distname}" \
 	 && $(PRINTF) "$(NAME): archives created: $$(ls $(DISTDIR)/$${distname}.* | $(TR) '\n' ' ')\n"
 
 $(SRCINC_STR): $(SRCINC_CONTENT)
 	@# Generate $(SRCINC) containing all sources.
 	@$(PRINTF) "$(NAME): generate $@\n"
-	@$(MKDIR) -p $(@D)
+	@$(MKDIR) -p "$(@D)"
 	@$(cmd_TESTBSDOBJ) && input="$>" || input="$(SRCINC_CONTENT)"; \
 	 $(PRINTF) "/* generated content */\n" > $@ ; \
 		$(AWK) 'BEGIN { dbl_bkslash="\\"; gsub(/\\/, "\\\\\\", dbl_bkslash); o="awk on ubuntu 12.04"; \
@@ -966,7 +969,7 @@ $(SRCINC_STR): $(SRCINC_CONTENT)
 		           blk=blk "\n" $$0; \
 		   } END { \
 		       printblk(); print "NULL };\n" \
-	           }' $$input >> $@; \
+	           }' $${input} >> '$@'; \
 	     print_getsrc_fun() { \
 	         $(PRINTF) "%s\n" \
 	            '# ifndef BUILD_VLIB' '#  define BUILD_VLIB 0' ' #endif' '# if BUILD_VLIB' '#  include "vlib/util.h"' '# endif' \
@@ -977,51 +980,50 @@ $(SRCINC_STR): $(SRCINC_CONTENT)
 	            '    (void) buffer; (void) buffer_size; (void) ctx; const char *const* src;' \
 	            '    if (out) for (src = s_program_source + 1; *src; src++) fprintf(out, "%s", *src);' 'return 0;' \
 	            '# endif' \
-	            '}' '#endif' >> $@; \
+	            '}' '#endif' >> '$@'; \
 	     }; print_getsrc_fun; \
-	     $(CC) -fsyntax-only $(CPPFLAGS) $(FLAGS_C) $(NO_STDERR) $@ \
+	     $(CC) -fsyntax-only $(CPPFLAGS) $(FLAGS_C) $(NO_STDERR) '$@' \
 	         || { $(PRINTF) "%s\n" '#include <stdlib.h>' '#include <stdio.h>' '#include "$(VERSIONINC)"' '#ifdef APP_INCLUDE_SOURCE' \
 	                             'static const char * const s_program_source[] = { (const char *) 0xabcCafeUL,' \
 				     '    "cannot include source. check awk version or antivirus or bug\n", NULL' \
-				     '};' > $@; print_getsrc_fun; }
+				     '};' > '$@'; print_getsrc_fun; }
 
 $(SRCINC_Z): $(SRCINC_CONTENT)
 	@# Generate $(SRCINC) containing all sources.
 	@$(PRINTF) "$(NAME): generate $@\n"
-	@$(MKDIR) -p $(@D)
+	@$(MKDIR) -p "$(@D)"
 	@$(cmd_TESTBSDOBJ) && input="$>" || input="$(SRCINC_CONTENT)"; \
 	 $(PRINTF) "%s\n" "/* generated content */" \
 	                  "#include <stdlib.h>" \
 	                  "#include <stdio.h>" \
-	                  "#include <zlib.h>" \
 	                  "#include <vlib/util.h>" \
 	                  "#include \"$(VERSIONINC)\"" \
 	                  "#ifdef APP_INCLUDE_SOURCE" \
 	                  "static const unsigned char s_program_source[] = {" \
 	    > $@ ; \
-	 dumpsrc() { for f in $$input; do \
-	     $(cmd_TESTBSDOBJ) && fname=`echo "$$f" | sed -e 's|^$(.CURDIR)/||' -e 's|^$(.OBJDIR)/||'` || fname=$$f; \
-	     $(PRINTF) "\n/* #@@# FILE #@@# $(NAME)/$$fname */\n"; \
-	     cat $$f; \
-	     done; }; dumpsrc | $(GZIP) -c | $(OD) -An -tuC | $(SED) -e 's/[[:space:]][[:space:]]*0*\([0-9][0-9]*\)/\1,/g' >> $@; \
-	 sha=`$(WHICH) shasum sha256 sha256sum $(NO_STDERR) | $(HEADN1)`; case "$$sha" in */shasum) sha="$$sha -a256";; esac; \
-	 $(PRINTF) "%s\n" "};" "static const char * s_program_hash = \"`dumpsrc | $$sha | $(AWK) '{ print $$1; }'`\";" \
+	 dumpsrc() { for f in $${input}; do \
+	     $(cmd_TESTBSDOBJ) && fname=`echo "$${f}" | sed -e 's|^$(.CURDIR)/||' -e 's|^$(.OBJDIR)/||'` || fname=$${f}; \
+	     $(PRINTF) "\n/* #@@# FILE #@@# $(NAME)/$${fname} */\n"; \
+	     cat "$${f}"; \
+	     done; }; dumpsrc | $(GZIP) -c | $(OD) -An -tuC | $(SED) -e 's/[[:space:]][[:space:]]*0*\([0-9][0-9]*\)/\1,/g' >> '$@'; \
+	 sha=`$(WHICH) shasum sha256 sha256sum $(NO_STDERR) | $(HEADN1)`; case "$${sha}" in */shasum) sha="$${sha} -a256";; esac; \
+	 $(PRINTF) "%s\n" "};" "static const char * s_program_hash = \"`dumpsrc | $${sha} | $(AWK) '{ print $$1; }'`\";" \
 	     "int $(NAME)_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx) {" \
 	     "    (void) s_program_hash;" \
 	     "    return vdecode_buffer(out, buffer, buffer_size, ctx, (const char *) s_program_source, sizeof(s_program_source));" \
 	     "} /* ##ZSRC_END */" \
-	     "#endif" >> $@
+	     "#endif" >> '$@'
 
 $(LICENSE):
 	@$(cmd_TESTBSDOBJ) && $(TEST) -e "$(.CURDIR)/$@" || echo "$(NAME): create $@"
-	@$(PRINTF) "GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007 - http://gnu.org/licenses/gpl.html\n" > $@
+	@$(PRINTF) "GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007 - http://gnu.org/licenses/gpl.html\n" > '$@'
 	@if $(cmd_TESTBSDOBJ); then $(TEST) -e "$(.CURDIR)/$@" || mv $@ "$(.CURDIR)"; ln -sf "$(.CURDIR)/$@" .; fi
 
 $(README):
 	@$(cmd_TESTBSDOBJ) && $(TEST) -e "$(.CURDIR)/$@" || echo "$(NAME): create $@"
 	@$(PRINTF) "%s\n" "## $(NAME)" "---------------" "" "* [Overview](#overview)" "* [License](#license)" "" \
-	                  "## Overview" "TODO !" "" "## License" "GPLv3 or later. See LICENSE file." >> $@
-	@if $(cmd_TESTBSDOBJ); then $(TEST) -e "$(.CURDIR)/$@" || mv "$@" "$(.CURDIR)"; ln -sf "$(.CURDIR)/$@" .; fi
+	                  "## Overview" "TODO !" "" "## License" "GPLv3 or later. See LICENSE file." >> '$@'
+	@if $(cmd_TESTBSDOBJ); then $(TEST) -e "$(.CURDIR)/$@" || mv '$@' "$(.CURDIR)"; ln -sf "$(.CURDIR)/$@" .; fi
 
 $(VERSIONINC):
 	@$(cmd_TESTBSDOBJ) && $(TEST) -e "$(.CURDIR)/$@" || echo "$(NAME): create $@"
@@ -1030,8 +1032,8 @@ $(VERSIONINC):
 			  "# undef APP_COMMENT__" "# define APP_VERSION \"0.1\"" \
 			  "# define APP_INCLUDE_SOURCE" "# define APP_BUILD_NUMBER 1" "# define DIST_GITREV \"unknown\"" \
 			  "# define DIST_GITREVFULL \"unknown\"" "# define DIST_GITREMOTE \"unknown\"" \
-			  "# include \"build.h\"" "#endif" >> $@
-	@if $(cmd_TESTBSDOBJ); then $(TEST) -e "$(.CURDIR)/$@" || mv "$@" "$(.CURDIR)"; ln -sf "$(.CURDIR)/$@" .; fi
+			  "# include \"build.h\"" "#endif" >> '$@'
+	@if $(cmd_TESTBSDOBJ); then $(TEST) -e "$(.CURDIR)/$@" || mv '$@' "$(.CURDIR)"; ln -sf "$(.CURDIR)/$@" .; fi
 
 # As defined above, everything depends on $(BUILDINC), and we want they wait for update-$(BUILDINC)
 # create-$(BUILDINC) and update-$(BUILDINC) have .EXEC so that some bsd-make don' taint to outdated
@@ -1049,7 +1051,7 @@ update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 	     echo "$(NAME): create $(BUILDINC)"; \
 	     $(cmd_TESTBSDOBJ) && ! $(TEST) -e "$(VERSIONINC)" && ln -sf "$(.CURDIR)/$(VERSIONINC)" .; \
 	     build=`$(SED) -n -e 's/^[[:space:]]*#define[[:space:]]APP_BUILD_NUMBER[[:space:]][[:space:]]*\([0-9][0-9]*\).*/\1/p' $(VERSIONINC)`; \
-	     $(PRINTF) "%s\n" "#define BUILD_APPNAME \"\"" "#define BUILD_NUMBER $$build" "#define BUILD_PREFIX \"\"" \
+	     $(PRINTF) "%s\n" "#define BUILD_APPNAME \"\"" "#define BUILD_NUMBER $${build}" "#define BUILD_PREFIX \"\"" \
 	       "#define BUILD_GITREV \"\"" "#define BUILD_GITREVFULL \"\"" "#define BUILD_GITREMOTE \"\"" \
 	       "#define BUILD_APPRELEASE \"\"" "#define BUILD_SYSNAME \"\"" "#define BUILD_SYS_unknown" \
 	       "#define BUILD_MAKE \"\"" "#define BUILD_CC_CMD \"\"" "#define BUILD_CXX_CMD \"\"" "#define BUILD_OBJC_CMD \"\"" \
@@ -1061,9 +1063,9 @@ update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 	 fi; \
 	 if gitstatus=`$(GIT) status --untracked-files=no --ignore-submodules=untracked --short --porcelain $(NO_STDERR)`; then \
 	     i=0; for rev in `$(GIT) show --quiet --ignore-submodules=untracked --format="%h %H" HEAD $(NO_STDERR)`; do \
-	         case $$i in 0) gitrev="$$rev";; 1) fullgitrev="$$rev" ;; esac; \
+	         case $${i} in 0) gitrev="$${rev}";; 1) fullgitrev="$${rev}" ;; esac; \
 	         i=$$((i+1)); \
-	     done; if $(TEST) -n "$$gitstatus"; then gitrev="$${gitrev}-dirty"; fullgitrev="$${fullgitrev}-dirty"; fi; \
+	     done; if $(TEST) -n "$${gitstatus}"; then gitrev="$${gitrev}-dirty"; fullgitrev="$${fullgitrev}-dirty"; fi; \
 	     gitremote="\"`$(GIT) remote get-url origin $(NO_STDERR)`\""; \
 	     gitrev="\"$${gitrev}\""; fullgitrev="\"$${fullgitrev}\""; \
 	 else gitrev="DIST_GITREV"; fullgitrev="DIST_GITREVFULL"; gitremote="DIST_GITREMOTE"; fi; \
@@ -1080,7 +1082,7 @@ update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREVFULL[[:space:]]\).*|\1$${fullgitrev}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREMOTE[[:space:]]\).*|\1$${gitremote}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_PREFIX[[:space:]]\).*|\1\"$(PREFIX)\"|" \
-	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_SRCPATH[[:space:]]\).*|\1\"$$PWD\"|" \
+	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_SRCPATH[[:space:]]\).*|\1\"$${PWD}\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_APPNAME[[:space:]]\).*|\1\"$(NAME)\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_APPRELEASE[[:space:]]\).*|\1\"$(RELEASE_MODE)\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_SYSNAME[[:space:]]\).*|\1\"$(SYSDEP_SUF)\"|" \
@@ -1104,7 +1106,7 @@ update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 	 ; then \
 	    if $(DIFF) -q $(BUILDINC) $(BUILDINC).tmp $(NO_STDOUT); then $(RM) $(BUILDINC).tmp; \
 	    else $(MV) $(BUILDINC).tmp $(BUILDINC) && echo "$(NAME): $(BUILDINC) updated" \
-	    && if $(TEST) "$$javaobj" = "1" || $(TEST) "$$jar" = "1"; then \
+	    && if $(TEST) "$${javaobj}" = "1" || $(TEST) "$${jar}" = "1"; then \
 	        debug=false;test=false;echo " $(MACROS) " | $(GREP) -q -- ' -D_TEST ' && test=true; echo " $(MACROS) " | $(GREP) -q -- ' -D_DEBUG ' && debug=true; \
 	        { $(PRINTF) "public final class Build {\n" && \
 	        $(SED) -n -e 's|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*\(BUILD_GIT[^[:space:]]*\)[[:space:]][[:space:]]*\(.*\).*|    public static final String  \1 = \2;|p' \
@@ -1112,10 +1114,10 @@ update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 	                  -e 's|^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*\([^[:space:]]*\)[[:space:]][[:space:]]*\([^[:space:]]*\).*|    public static final int     \1 = \2;|p' \
 	                   $(VERSIONINC) $(BUILDINC) $(CONFIGINC) \
 	        && $(PRINTF) "%s\n" "    public static final String  BUILD_SYS = \"$(UNAME_SYS)\";" \
-	                            "    public static final boolean BUILD_DEBUG = $$debug;" \
-	                            "    public static final boolean BUILD_TEST = $$test;" \
+	                            "    public static final boolean BUILD_DEBUG = $${debug};" \
+	                            "    public static final boolean BUILD_TEST = $${test};" \
 	                            "    public static final String  BUILD_DATE = \"`date '+%Y-%m-%d %H:%M:%S %Z'`\";" \
-	                            "    public static final boolean APP_INCLUDE_SOURCE = $$appsource;" "}"; \
+	                            "    public static final boolean APP_INCLUDE_SOURCE = $${appsource};" "}"; \
 	        } > $(BUILDINCJAVA); \
 	       fi; \
 	    fi; \
@@ -1181,9 +1183,9 @@ CONFTEST_CRYPT_H	= '\#include <crypt.h>\nint main(void) { return 0; }\n'
 $(CONFIGINC) $(CONFIGMAKE): Makefile $(INCLUDEDEPS)
 	 @if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$(CONFIGMAKE)" "$(.CURDIR)" && ln -sf "$(.OBJDIR)/$(CONFIGINC)" "$(.CURDIR)"; \
 		                else $(TEST) -L "$(CONFIGMAKE)" && $(RM) "$(CONFIGMAKE)"; $(TEST) -L "$(CONFIGINC)" && $(RM) "$(CONFIGINC)" || true; fi; \
-	  case " $? " in *" Makefile "*|*" $(.CURDIR)/Makefile "*) doconfigure=1;; *) doconfigure=0;; esac; echo "DO_CONFIGURE: $$doconfigure (?: $?)"; \
-	  if $(TEST) "$$doconfigure" = "1"; then \
-	  $(TEST) -s "$(VERSIONINC)" || $(RM) -f "version.h"; \
+	  case " $? " in *" Makefile "*|*" $(.CURDIR)/Makefile "*) doconfigure=1;; *) doconfigure=0;; esac; \
+	  if $(TEST) "$${doconfigure}" = "1"; then \
+	  $(TEST) -s '$(VERSIONINC)' || $(RM) -f '$(VERSIONINC)'; \
 	  $(PRINTF) "$(NAME): generate $(CONFIGMAKE), $(CONFIGINC)\n"; \
 	  log() { $(PRINTF) "$$@"; $(PRINTF) "$$@" >> "$${configlog}"; }; \
 	  checktest() { \
@@ -1208,11 +1210,11 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile $(INCLUDEDEPS)
 	    $(PRINTF) -- "\n>>>>>>>>>> $${tmpname}.c <<<<<<<<\n" >> "$${configlog}"; \
 	    $(CAT) "$${tmpname}.c" >> "$${configlog}"; \
 	    $(TEST) -n "$${binout}$${binerr}" \
-	        && $(PRINTF) -- "\n>>>>>>>>> $${tmpname} [result:$$ret]\n$${binerr}$${binout}\n" >> "$${configlog}"; \
+	        && $(PRINTF) -- "\n>>>>>>>>> $${tmpname} [result:$${ret}]\n$${binerr}$${binout}\n" >> "$${configlog}"; \
 	    $(RM) -f "$${tmpname}.c" $(NO_STDERR); $(RM) -Rf "$${tmpname}.dSYM" $(NO_STDERR); \
 	    libs=; cflags=; \
 	    configcheck=`$(PRINTF) -- "$${configcheck}" | $(SED) -e "s;[+-]$${plabel} ;;g"`; \
-	    $(TEST) "$$ret" = "0" && confres="+" || confres="-"; configcheck="$${configcheck}$${confres}$${plabel} "; \
+	    $(TEST) "$${ret}" = "0" && confres="+" || confres="-"; configcheck="$${configcheck}$${confres}$${plabel} "; \
 	    $(TEST) "$${ret}" = "0" || case " $(CONFIG_CHECK) " in \
 	        *" +$${plabel} "*) $(PRINTF) -- "$(NAME): error: $${plabel} is mandatory\n"; exit 1;; \
 	        *) false;; esac; \
@@ -1221,7 +1223,7 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile $(INCLUDEDEPS)
 	    incconf=$$1; shift; incval=$$1; shift; libconf=$$1; shift; libval=$$1; shift; confname=$$1; shift; \
 	    checktest "$${confname}" || return 1; \
 	    cctest "$${confname}" "$$@"; ret=$$?; \
-	    if $(TEST) "$$ret" = "0"; then support=1; confres="+$${confname}"; \
+	    if $(TEST) "$${ret}" = "0"; then support=1; confres="+$${confname}"; \
 	                              else support=0; confres="-$${confname}"; incval=; libval=; fi; \
 	    for conf in "$${incconf}" "$${libconf}"; do \
 	        if $(TEST) -n "$${conf}"; then \
@@ -1234,44 +1236,44 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile $(INCLUDEDEPS)
 	                                  $(PRINTF) "$${incconf}=$${incval}\n" >> $(CONFIGMAKE); }; \
 	    $(TEST) -n "$${libconf}" && { $(PRINTF) "#define $${libconf} $${support}\n" >> $(CONFIGINC); \
 	                                  $(PRINTF) "$${libconf}=$${libval}\n" >> $(CONFIGMAKE); }; \
-	    return $$ret; \
+	    return $${ret}; \
 	}; \
 	getldpaths() { \
 	    { for p in `$(CC) -pipe -Wl,--verbose -l__LIB_NOT_FOUND__ 2>&1 \
 	              | $(SED) -n -e "s|.*[[:space:]]\([^[:space:]]*\)/lib__LIB_NOT_FOUND__.*|\1|p" \
 		      | $(SED) -e 's|//*|/|g' | $(SORT) | $(UNIQ)`; do \
-	        $(TEST) -d "$$p" && (cd "$$p" 2>/dev/null && pwd); done; \
+	        $(TEST) -d "$${p}" && (cd "$${p}" 2>/dev/null && pwd); done; \
 	    for p in `$(CC) -pipe -Wl,-v -l__LIB_NOT_FOUND__ 2>&1 \
 	              | $(SED) -n -e "s|^[[:space:]]*\([/_.a-zA-Z0-9-]*\).*|\1|p" \
 	              | $(SED) -e 's|//*|/|g' | $(SORT) | $(UNIQ)`; do \
-	        $(TEST) -d "$$p" && (cd "$$p" 2>/dev/null && pwd); done; } | $(SORT) | $(UNIQ); \
+	        $(TEST) -d "$${p}" && (cd "$${p}" 2>/dev/null && pwd); done; } | $(SORT) | $(UNIQ); \
 	}; \
 	getlibpath() { \
-	    llib=$$1; lver=$$2; $(TEST) -n "$$lver" && lpat="$${lver}" || lpat="*"; \
+	    llib=$$1; lver=$$2; $(TEST) -n "$${lver}" && lpat="$${lver}" || lpat="*"; \
 	    for p in $${ldpaths}; do \
 	        for l in `/bin/ls -1 "$${p}/lib$${llib}"*.* $(NO_STDERR) | $(SORT) -r | $(UNIQ)`; do \
-	           case "$$l" in *"$${llib}".$${lpat}."dylib"|*"$${llib}."$${lpat}".so") \
-		                     l=`$(BASENAME) "$$l"`; l=$${l$(DASH)lib}; l=$${l%.dylib}; echo "-l$$l";; \
-		                 *"$${llib}.so."$${lpat}) echo "-l:`$(BASENAME) \"$$l\"`";; *) continue; esac; \
+	           case "$${l}" in *"$${llib}".$${lpat}."dylib"|*"$${llib}."$${lpat}".so") \
+		                     l=`$(BASENAME) "$${l}"`; l=$${l$(DASH)lib}; l=$${l%.dylib}; echo "-l$${l}";; \
+		                 *"$${llib}.so."$${lpat}) echo "-l:`$(BASENAME) \"$${l}\"`";; *) continue; esac; \
 		$(TEST) -z "$${lver}" && return 0; done; done; \
 	}; \
 	mytmpdir=.; mytmpfile=`$(MKTEMP) "$${mytmpdir}/conftest_XXXXXX" || echo "$${mytmpdir}/conftest_TMP"`; \
 	configcheck=; configlog=$(CONFIGLOG); $(PRINTF) "" > $${configlog}; ldpaths=`getldpaths $(NO_STDERR)`; \
 	$(PRINTF) '$(DASH) generated file\n' > $(CONFIGMAKE); $(PRINTF) '/* generated file */\n' > $(CONFIGINC); \
 	true "**** ZLIB CHECK *****"; \
-	flag=; lib="-lz"; cflags="$${flag}" libs="$${lib}" conftest CONFIG_ZLIB_H "$$flag" CONFIG_ZLIB "$$lib" \
+	flag=; lib="-lz"; cflags="$${flag}" libs="$${lib}" conftest CONFIG_ZLIB_H "$${flag}" CONFIG_ZLIB "$${lib}" \
 	    "zlib" $(CONFTEST_ZLIB) \
-	|| { cflags="" libs="$${lib}" conftest "" "" CONFIG_ZLIB "$$lib" \
+	|| { cflags="" libs="$${lib}" conftest "" "" CONFIG_ZLIB "$${lib}" \
 	    "zlib" $(CONFTEST_ZLIB_NOINC) \
 	; } || true; \
 	true "**** NCURSES CHECK *****"; \
 	flag=; for lib in "-lncurses" "-lncurses -ltinfo" '`getlibpath ncurses` `getlibpath tinfo`' \
 			  "-lcurses" "-ltinfo" '`getlibpath ncurses`' '`getlibpath tinfo`'; do \
-	    case "$$lib" in '`'*|'$$('*) lib=$$(eval echo "$$lib");; esac; \
-	    cflags="$${flag}" libs="$${lib}" conftest CONFIG_CURSES_H "$$flag" CONFIG_CURSES "$$lib" \
+	    case "$${lib}" in '`'*|'$$('*) lib=$$(eval echo "$${lib}");; esac; \
+	    cflags="$${flag}" libs="$${lib}" conftest CONFIG_CURSES_H "$${flag}" CONFIG_CURSES "$${lib}" \
 	        "ncurses" $(CONFTEST_NCURSES) \
 	    && break \
-	    || { cflags="" libs="$${lib}" conftest "" "" CONFIG_CURSES "$$lib" \
+	    || { cflags="" libs="$${lib}" conftest "" "" CONFIG_CURSES "$${lib}" \
 	         "ncurses" $(CONFTEST_NCURSES_NOINC) \
 	    && break; } || true; \
 	done; \
@@ -1309,18 +1311,18 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile $(INCLUDEDEPS)
 	    "crypt.h" $(CONFTEST_CRYPT_H) \
 	    || true; \
 	cflags='' libs='' cctest "crypt_gnu" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n\
-	        #include \"$$PWD/$(CONFIGINC)\"\n#if defined(CONFIG_CRYPT_H) && CONFIG_CRYPT_H\n#include <crypt.h>\n#endif\n\
+	        #include \"$${PWD}/$(CONFIGINC)\"\n#if defined(CONFIG_CRYPT_H) && CONFIG_CRYPT_H\n#include <crypt.h>\n#endif\n\
 	        int main(void) { int ret=1; int f=0; int i; char *s=strdup(\"\$$1\$$abcdefgh\$$\");\nfor(i=1; i <= 9; i++) \
 	        {s[1]='0'+i; if (!strncmp(s, crypt(\"toto\", s), strlen(s))) { \nret=0; f |= 1 << (i-1); } } \
 	        printf(\"0x%%02x\", f); return ret; }\n" \
 	    && $(PRINTF) "#define CONFIG_CRYPT_GNU $${gccout}\n" >> $(CONFIGINC) || true; \
-	cflags='' libs='' cctest "crypt_des_ext" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n#include \"$$PWD/$(CONFIGINC)\"\n\
+	cflags='' libs='' cctest "crypt_des_ext" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n#include \"$${PWD}/$(CONFIGINC)\"\n\
 	        #if defined(CONFIG_CRYPT_H) && CONFIG_CRYPT_H\n#include <crypt.h>\n#endif\nint main(void) { char *s=\"_1200Salt\";\n\
 	        return strncmp(s, crypt(\"toto\", s), strlen(s)); }\n" \
 	    && $(PRINTF) '#define CONFIG_CRYPT_DES_EXT 1\n' >> $(CONFIGINC) || true; \
 	$(PRINTF) -- "#define CONFIG_FEATURES \"$${configcheck}\"\n" >> $(CONFIGINC); \
 	$(RM) -f "$${mytmpfile}"; \
-	$(PRINTF) -- "$(NAME): making recursion...\n"; "$(MAKE)" $(.TARGETS) $(MAKECMDGOALS); $(TOUCH) "$(CONFIGMAKE_REC_FILE)"; fi
+	$(PRINTF) -- "$(NAME): making recursion...\n"; "$(MAKE)" $(.TARGETS) $(MAKECMDGOALS); $(TOUCH) '$(CONFIGMAKE_REC_FILE)'; fi
 
 .gitignore:
 	@$(cmd_TESTBSDOBJ) && cd $(.CURDIR) && build=`echo $(.OBJDIR) | $(SED) -e 's|^$(.CURDIR)||'`/ || build=; \
@@ -1329,19 +1331,19 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile $(INCLUDEDEPS)
 	            $(BUILDINC) $(BUILDINCJAVA) $(CLANGCOMPLETE) $(CONFIGLOG) $(CONFIGMAKE) $(CONFIGINC) obj/ \
 	            `$(TEST) -n "$(BIN)" && echo "$(BIN)" "$(BIN).dSYM" "$(BIN).core" "core" "core.[0-9]*[0-9]" || true` \
 	            `echo "$(FLEXLEXER_LNK)" | $(SED) -e 's|^\./||' || true`; do \
-	       $(TEST) -n "$$f" && $(PRINTF) "/$$f\n" | $(SED) -e 's|^/\./|/|' || true; done; \
-	       for f in $$build '*.o' '*.d' '*.class' '*~' '.*.sw?' '/valgrind_*.log'; do $(PRINTF) "$$f\n"; done; \
+	       $(TEST) -n "$${f}" && $(PRINTF) "/$${f}\n" | $(SED) -e 's|^/\./|/|' || true; done; \
+	       for f in $${build} '*.o' '*.d' '*.class' '*~' '.*.sw?' '/valgrind_*.log'; do $(PRINTF) "$${f}\n"; done; \
 	 } | $(SORT) | $(UNIQ) > .gitignore
 
 gentags: $(CLANGCOMPLETE)
 # CLANGCOMPLETE rule: !FIXME to be cleaned
 $(CLANGCOMPLETE): $(ALLMAKEFILES) $(BUILDINC)
 	@echo "$(NAME): update $@"
-	@moresed="s///"; if $(cmd_TESTBSDOBJ); then base=`$(BASENAME) $@`; $(TEST) -L $(.OBJDIR)/$$base || ln -sf $(.CURDIR)/$$base $(.OBJDIR); \
-	     $(TEST) -e "$(.CURDIR)/$$base" || echo "$(CPPFLAGS)" > $@; moresed="s|-I$(.CURDIR)|-I$(.CURDIR) -I$(.OBJDIR)|g"; \
+	@moresed="s///"; if $(cmd_TESTBSDOBJ); then base=`$(BASENAME) $@`; $(TEST) -L $(.OBJDIR)/$${base} || ln -sf $(.CURDIR)/$${base} $(.OBJDIR); \
+	     $(TEST) -e "$(.CURDIR)/$${base}" || echo "$(CPPFLAGS)" > $@; moresed="s|-I$(.CURDIR)|-I$(.CURDIR) -I$(.OBJDIR)|g"; \
 	 fi; src=`echo $(SRCDIR) | $(SED) -e 's|\.|\\\.|g'`; \
 	 $(TEST) -e $@ -a \! -L $@ \
-	        && $(SED) -e "s%^[^#]*-I$$src[[:space:]].*%$(CPPFLAGS) %" -e "s%^[^#]*-I$$src$$%$(CPPFLAGS)%" -e "$${moresed}" \
+	        && $(SED) -e "s%^[^#]*-I$${src}[[:space:]].*%$(CPPFLAGS) %" -e "s%^[^#]*-I$${src}$$%$(CPPFLAGS)%" -e "$${moresed}" \
 	             "$@" $(NO_STDERR) > "$@.tmp" \
 	        && $(CAT) "$@.tmp" > "$@" && $(RM) "$@.tmp" \
 	    || echo "$(CPPFLAGS)" | $(SED) -e "s|-I$(.CURDIR)|-I$(.CURDIR) -I$(.OBJDIR)|g" > $@
@@ -1353,10 +1355,10 @@ merge-makefile:
 	     $(GREP) -E -i -B10000 '^[[:space:]]*#[[:space:]]*generic[[:space:]]part' "$${makefile}" > "$${makefile}.tmp" \
 	     && $(GREP) -E -i -A10000 '^[[:space:]]*#[[:space:]]*generic[[:space:]]part' Makefile | tail -n +2 >> "$${makefile}.tmp" \
 	     && mv "$${makefile}.tmp" "$${makefile}" && echo "merged $${makefile}" || echo "! cannot merge $${makefile}" && $(RM) -f "$${makefile}.tmp"; \
-	     file=make-fallback; target="`dirname $${makefile}`/$${file}"; if $(TEST) -e "$$file" -a -e "$$target"; then \
-	         $(GREP) -E -i -B10000 '^[[:space:]]*#[[:space:]]*This program is free software;' "$$target" > "$${target}.tmp" \
-	         && $(GREP) -E -i -A10000 '^[[:space:]]*#[[:space:]]*This program is free software;' "$$file" | tail -n +2 >> "$${target}.tmp" \
-	         && mv "$${target}.tmp" "$${target}" && echo "merged $${target}" && chmod +x "$$target" || echo "! cannot merge $${target}" && $(RM) -f "$${target}.tmp"; \
+	     file=make-fallback; target="`dirname $${makefile}`/$${file}"; if $(TEST) -e "$${file}" -a -e "$${target}"; then \
+	         $(GREP) -E -i -B10000 '^[[:space:]]*#[[:space:]]*This program is free software;' "$${target}" > "$${target}.tmp" \
+	         && $(GREP) -E -i -A10000 '^[[:space:]]*#[[:space:]]*This program is free software;' "$${file}" | tail -n +2 >> "$${target}.tmp" \
+	         && mv "$${target}.tmp" "$${target}" && echo "merged $${target}" && chmod +x "$${target}" || echo "! cannot merge $${target}" && $(RM) -f "$${target}.tmp"; \
 	     fi; \
 	   done; fi
 
@@ -1371,30 +1373,30 @@ merge-makefile:
 subsubmodules:
 	@if ! $(cmd_CONFIGMAKE_RECURSE) && $(TEST) -n "$(SUBMODROOTDIR)"; then \
 	     mods=`$(GIT) submodule status --recursive | $(SED) -e 's/^[[:space:]]/=;/' -e 's/^\([U+-]\)/\1;/' -e 's/[[:space:]]/;/g'`; \
-	     for mod in $$mods; do \
-	         stat=; sha=; dir=; IFSbak=$$IFS; IFS=';'; for tok in $$mod; do \
-	             { $(TEST) -z "$$stat" && stat=$$tok; } \
-	             || { $(TEST) -z "$$sha" && sha=$$tok; } \
-		     || { $(TEST) -z "$$dir" && dir=$$tok; }; \
-	         done; IFS=$$IFSbak; \
-	         if $(TEST) "$$stat" = "-"; then \
-	             for mod2 in $$mods; do \
-		         if $(TEST) "$$mod2" != "$$mod"; then \
-		             stat2=; sha2=; dir2=; IFSbak2=$$IFS; IFS=';'; for tok2 in $$mod2; do \
-  	                         { $(TEST) -z "$$stat2" && stat2=$$tok2; } \
-	                         || { $(TEST) -z "$$sha2" && sha2=$$tok2; } \
-		                 || { $(TEST) -z "$$dir2" && dir2=$$tok2; }; \
-	                    done; IFS=$$IFSbak2; \
-	                    if $(TEST) "$$sha" != "$$sha2" && $(GIT) -C "$$dir2" show --summary --pretty=oneline "$$sha" $(NO_STDERR) $(NO_STDOUT); then \
-			        $(PRINTF) "+ setting index of <$$dir> to index of <$$dir2> ($$sha2)\n"; \
-	                        lsfiles=`$(GIT) -C "$$dir/.." ls-files -s --full-name $$($(BASENAME) "$$dir") | $(GREP) $$sha | $(AWK) '{ print $$1 " " $$4}'` && \
-	                        { index=; for tok in $$lsfiles; do $(TEST) -z "$$index" && index=$$tok || moddir=$$tok; done; } \
-	                        && $(TEST) -n "$$index" -a -n "$$moddir" && $(GIT) -C "$$dir/.." update-index --cacheinfo "$$index" "$$sha2" "$$moddir" \
-	                        || $(PRINTF) "! cannot set index <$$index> of <$$dir>.\n"; break; \
+	     for mod in $${mods}; do \
+	         stat=; sha=; dir=; IFSbak=$${IFS}; IFS=';'; for tok in $${mod}; do \
+	             { $(TEST) -z "$${stat}" && stat=$${tok}; } \
+	             || { $(TEST) -z "$${sha}" && sha=$${tok}; } \
+	             || { $(TEST) -z "$${dir}" && dir=$${tok}; }; \
+	         done; IFS=$${IFSbak}; \
+	         if $(TEST) "$${stat}" = "-"; then \
+	             for mod2 in $${mods}; do \
+	                 if $(TEST) "$${mod2}" != "$${mod}"; then \
+	                     stat2=; sha2=; dir2=; IFSbak2=$${IFS}; IFS=';'; for tok2 in $${mod2}; do \
+	                         { $(TEST) -z "$${stat2}" && stat2=$${tok2}; } \
+	                         || { $(TEST) -z "$${sha2}" && sha2=$${tok2}; } \
+	                         || { $(TEST) -z "$${dir2}" && dir2=$${tok2}; }; \
+	                    done; IFS=$${IFSbak2}; \
+	                    if $(TEST) "$${sha}" != "$${sha2}" && $(GIT) -C "$${dir2}" show --summary --pretty=oneline "$${sha}" $(NO_STDERR) $(NO_STDOUT); then \
+	                        $(PRINTF) "+ setting index of <$${dir}> to index of <$${dir2}> ($${sha2})\n"; \
+	                        lsfiles=`$(GIT) -C "$${dir}/.." ls-files -s --full-name $$($(BASENAME) "$${dir}") | $(GREP) $${sha} | $(AWK) '{ print $$1 " " $$4}'` && \
+	                        { index=; for tok in $${lsfiles}; do $(TEST) -z "$${index}" && index=$${tok} || moddir=$${tok}; done; } \
+	                        && $(TEST) -n "$${index}" -a -n "$${moddir}" && $(GIT) -C "$${dir}/.." update-index --cacheinfo "$${index}" "$${sha2}" "$${moddir}" \
+	                        || $(PRINTF) "! cannot set index <$${index}> of <$${dir}>.\n"; break; \
 	                    fi; \
-			fi; \
-		     done; \
-		 fi; \
+	                 fi; \
+	             done; \
+	         fi; \
 	     done; \
 	 fi;
 
@@ -1406,8 +1408,8 @@ debug-makefile:
 
 #$(VALGRINDSUPP):
 #	@$(cmd_TESTBSDOBJ) && $(TEST) -e "$(.CURDIR)/$@" || echo "$(NAME): create $@"
-#	@$(TOUCH) "$@"
-#	@if $(cmd_TESTBSDOBJ); then $(TEST) -e "$(.CURDIR)/$@" || mv "$@" "$(.CURDIR)"; ln -sf "$(.CURDIR)/$@" .; fi
+#	@$(TOUCH) '$@'
+#	@if $(cmd_TESTBSDOBJ); then $(TEST) -e "$(.CURDIR)/$@" || mv '$@' "$(.CURDIR)"; ln -sf "$(.CURDIR)/$@" .; fi
 # Run Valgrind filter output
 valgrind: all $(CONFIGMAKE)
 	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
@@ -1548,8 +1550,8 @@ info: $(CONFIGMAKE)
 	  fi
 rinfo: info $(CONFIGMAKE)
 	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
-	   old="$$PWD"; for d in $(SUBDIRS); do recdir="$$d"; rectarget=rinfo; $(RECURSEMAKEARGS); \
-	     cd "$${recdir}" && "$(MAKE)" $${recargs} rinfo; cd "$$old"; done; fi
+	   old="$${PWD}"; for d in $(SUBDIRS); do recdir="$${d}"; rectarget=rinfo; $(RECURSEMAKEARGS); \
+	     cd "$${recdir}" && "$(MAKE)" $${recargs} rinfo; cd "$${old}"; done; fi
 
 .PHONY: subdirs $(SUBDIRS)
 .PHONY: subdirs $(BUILDDIRS)
