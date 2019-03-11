@@ -1192,9 +1192,17 @@ CONFTEST_LIBINTL	= '\#include <stdio.h>\n\#include <libintl.h>\nint main(void)\n
 
 CONFTEST_SIGQUEUE	= '\#include <signal.h>\nint main(void) { union sigval si; sigqueue(0,0,si); return 0; }\n'
 
+CONFTEST_SIGRTMIN	= '\#include <signal.h>\n\#include <stdio.h>\nint main(void) { printf("%%d", SIGRTMIN); return 0; }\n'
+
 CONFTEST_LIBCRYPT	= 'int main(void) { return 0; }\n'
 
 CONFTEST_CRYPT_H	= '\#include <crypt.h>\nint main(void) { return 0; }\n'
+
+CONFTEST_CRYPT_GNU	= '\#include <stdio.h>\n\#include <string.h>\n\#include <unistd.h>\n\#include "'"$${PWD}"'/$(CONFIGINC)"\n\
+			   \#if defined(CONFIG_CRYPT_H) && CONFIG_CRYPT_H\n\#include <crypt.h>\n\#endif\n\
+			   int main(void) { int ret=1; int f=0; int i; char *cr, *s=strdup("$$1$$abcdefgh$$");\nfor(i=1; i <= 9; i++) \
+			   {s[1]='"'0'"'+i; cr = crypt("toto", s); if (cr && !strncmp(s, cr, strlen(s))) { \nret=0; f |= 1 << (i-1); } } \
+			   printf("0x%%02x", f); return ret; }\n'
 
 $(CONFIGINC) $(CONFIGMAKE): Makefile $(INCLUDEDEPS)
 	 @if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$(CONFIGMAKE)" "$(.CURDIR)" && ln -sf "$(.OBJDIR)/$(CONFIGINC)" "$(.CURDIR)"; \
@@ -1216,13 +1224,13 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile $(INCLUDEDEPS)
 	    $(TEST) -n "$${libs}" && logheader="$${logheader} ($${libs})"; \
 	    logheader="$${logheader}... "; \
 	    $(PRINTF) -- "$${lcode}" > "$${tmpname}.c"; \
-	    gccout=`$(CC) -pipe $${cflags} -o "$${tmpname}" "$${tmpname}.c" $${libs} 2>&1` \
+	    ccout=`$(CC) -pipe $${cflags} -o "$${tmpname}" "$${tmpname}.c" $${libs} 2>&1` \
 		&& binout=`"$${tmpname}" 2>$${mytmpfile}` && binerr=`$(CAT) "$${mytmpfile}"` && ret=0 || ret=1; \
 	    $(TEST) -n "$${binerr}" && binerr="$${binerr}\n" || true; \
 	    $(RM) -f "$${tmpname}" $(NO_STDERR); \
 	    $(PRINTF) -- "\n------------------------------------------------------\n" >> "$${configlog}"; \
 	    $(TEST) "$${ret}" = "0" && log "$${logheader}yes $${binout}\n" || log "$${logheader}no\n"; \
-	    $(TEST) -n "$${gccout}" && $(PRINTF) -- "\n*********** $(CC) $${cflags} $${libs}\n$${gccout}\n" >> "$${configlog}"; \
+	    $(TEST) -n "$${ccout}" && $(PRINTF) -- "\n*********** $(CC) $${cflags} $${libs}\n$${ccout}\n" >> "$${configlog}"; \
 	    $(PRINTF) -- "\n>>>>>>>>>> $${tmpname}.c <<<<<<<<\n" >> "$${configlog}"; \
 	    $(CAT) "$${tmpname}.c" >> "$${configlog}"; \
 	    $(TEST) -n "$${binout}$${binerr}" \
@@ -1248,9 +1256,9 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile $(INCLUDEDEPS)
 	            $(GREP) -Ev '^[[:space:]]*'"$${conf}"'[[:space:]]*=' $(CONFIGMAKE) > "$${mytmpfile}"; \
 	            $(MV) "$${mytmpfile}" "$(CONFIGMAKE)"; \
 	        fi; done; \
-	    $(TEST) -n "$${incconf}" && { $(PRINTF) "#define $${incconf} $${support}\n" >> $(CONFIGINC); \
+	    $(TEST) -n "$${incconf}" && { $(PRINTF) "$(DASH)define $${incconf} $${support}\n" >> $(CONFIGINC); \
 	                                  $(PRINTF) "$${incconf}=$${incval}\n" >> $(CONFIGMAKE); }; \
-	    $(TEST) -n "$${libconf}" && { $(PRINTF) "#define $${libconf} $${support}\n" >> $(CONFIGINC); \
+	    $(TEST) -n "$${libconf}" && { $(PRINTF) "$(DASH)define $${libconf} $${support}\n" >> $(CONFIGINC); \
 	                                  $(PRINTF) "$${libconf}=$${libval}\n" >> $(CONFIGMAKE); }; \
 	    return $${ret}; \
 	}; \
@@ -1295,6 +1303,7 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile $(INCLUDEDEPS)
 	done; \
 	true "**** LIBCRYPTO CHECK *****"; \
 	for lib in "-lcrypto" '`getlibpath crypto`'; do \
+	    case "$${lib}" in '`'*|'$$('*) lib=$$(eval echo "$${lib}");; esac; \
 	    flag=''; cflags="$${flag}" libs="$${lib}" conftest "" "$${flag}" CONFIG_LIBCRYPTO "$${lib}" \
 	        "libcrypto" $(CONFTEST_LIBCRYPTO) && flagcrypto="$${flag}" && libcrypto="$${lib}" && break \
 		|| { flagcrypto=; libcrypto=; true; }; \
@@ -1321,8 +1330,8 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile $(INCLUDEDEPS)
 	done; \
 	flag=''; lib=''; cflags="$${flag}" libs="$${lib}" conftest CONFIG_SIGQUEUE "$${flag}" "" "$${lib}" \
 	    "sigqueue" $(CONFTEST_SIGQUEUE) || true; \
-	cflags='' libs='' cctest "sigrtmin" '#include <signal.h>\n#include <stdio.h>\nint main(void) { printf("%%d", SIGRTMIN); return 0; }\n' \
-	    && $(PRINTF) "#define CONFIG_SIGRTMIN ${gccout}\n" >> $(CONFIGINC) || true; \
+	cflags='' libs='' cctest "sigrtmin" $(CONFTEST_SIGRTMIN) \
+	    && $(PRINTF) "#define CONFIG_SIGRTMIN $${binout}\n" >> $(CONFIGINC) || true; \
 	flag=''; lib="-lcrypt"; cflags="$${flag}" libs="$${lib}" conftest "" "$${flag}" CONFIG_LIBCRYPT "$${lib}" \
 	    "libcrypt" $(CONFTEST_LIBCRYPT) && libcrypt="$${lib}" && flagcrypt="$${flag}" \
 	    || { libcrypt=; flagcrypt=; true; }; \
@@ -1330,12 +1339,8 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile $(INCLUDEDEPS)
 	    "crypt.h" $(CONFTEST_CRYPT_H) \
 	    || true; \
 	flag=; lib=; cflags="$${flag} $${flagcrypt}" libs="$${lib} $${libcrypt}" \
-	     cctest "crypt_gnu" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n\
-	        #include \"$${PWD}/$(CONFIGINC)\"\n#if defined(CONFIG_CRYPT_H) && CONFIG_CRYPT_H\n#include <crypt.h>\n#endif\n\
-	        int main(void) { int ret=1; int f=0; int i; char *s=strdup(\"\$$1\$$abcdefgh\$$\");\nfor(i=1; i <= 9; i++) \
-	        {s[1]='0'+i; if (!strncmp(s, crypt(\"toto\", s), strlen(s))) { \nret=0; f |= 1 << (i-1); } } \
-	        printf(\"0x%%02x\", f); return ret; }\n" \
-	    && $(PRINTF) "#define CONFIG_CRYPT_GNU $${gccout}\n" >> $(CONFIGINC) || true; \
+	    cctest "crypt_gnu" $(CONFTEST_CRYPT_GNU) \
+	    && $(PRINTF) "#define CONFIG_CRYPT_GNU $${binout}\n" >> $(CONFIGINC) || true; \
 	cflags='' libs='' cctest "crypt_des_ext" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n#include \"$${PWD}/$(CONFIGINC)\"\n\
 	        #if defined(CONFIG_CRYPT_H) && CONFIG_CRYPT_H\n#include <crypt.h>\n#endif\nint main(void) { char *s=\"_1200Salt\";\n\
 	        return strncmp(s, crypt(\"toto\", s), strlen(s)); }\n" \
