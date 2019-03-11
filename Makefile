@@ -547,10 +547,10 @@ OBJDEPS_$(VERSIONINC)	= $(ALLMAKEFILES) $(INCLUDES) $(GENINC)
 DEPS			:= $(OBJ:.o=.d) $(SRCINC_STR:.c=.d) $(SRCINC_Z:.c=.d)
 INCLUDEDEPS		:= .alldeps.d
 CONFIGMAKE_REC_FILE	:= .configmake-recursion
-cmd_SINCLUDEDEPS	:= inc=1; ret=true; $(RM) -f -v '$(CONFIGMAKE_REC_FILE)' $(STDOUT_TO_ERR) || true; \
+cmd_SINCLUDEDEPS	= inc=1; ret=true; $(RM) -f '$(CONFIGMAKE_REC_FILE)' $(STDOUT_TO_ERR) || true; \
 			  if $(TEST) -e "$(INCLUDEDEPS)" -a -e "$(CONFIGMAKE)"; then $(PRINTF) -- '$(INCLUDEDEPS)'; \
 			  else $(PRINTF) -- '$(VERSIONINC)'; $(TEST) -e "$(VERSIONINC)" || $(TOUCH) "$(VERSIONINC)"; \
-			       inc=; $(PRINTF) -- "include $(CONFIGMAKE)\n" > $(INCLUDEDEPS); fi; \
+			       inc=; $(PRINTF) -- "include $(CONFIGMAKE)\n" > '$(INCLUDEDEPS)'; fi; \
 			  for f in $(DEPS:.d=); do \
 			      if $(TEST) -n "$${f}" -a \( -z "$${inc}" -o ! -e "$${f}.d" \) ; then \
 			          dir=`dirname "$${f}"`; $(TEST) -d "$${dir}" || $(MKDIR) -p "$${dir}" || echo ">> f:$${f} d:$${dir} mkdir" $(STDOUT_TO_ERR); \
@@ -638,6 +638,23 @@ RECURSEMAKEARGS	= $(TEST) -n "$(SUBMODROOTDIR)" && recargs="SUBMODROOTDIR=\"`ech
 # .WAIT might not be mandatory
 .POSIX:
 .PHONY: .WAIT .EXEC
+
+.PHONY: subdirs $(SUBDIRS)
+.PHONY: subdirs $(BUILDDIRS)
+.PHONY: subdirs $(INSTALLDIRS)
+.PHONY: subdirs $(TESTDIRS)
+.PHONY: subdirs $(CLEANDIRS)
+.PHONY: subdirs $(DISTCLEANDIRS)
+.PHONY: subdirs $(DEBUGDIRS)
+.PHONY: subdirs $(TESTBUILDDIRS)
+.PHONY: subdirs $(DOCDIRS)
+.PHONY: subdirs $(CONFIGUREDIRS)
+.PHONY: default_rule all build_all cleanme clean distclean dist check info rinfo \
+	doc installme install debug gentags update-$(BUILDINC) create-$(BUILDINC) \
+	.gitignore merge-makefile debug-makefile valgrind help test \
+	subsubmodules configure
+############################################################################################
+
 default_rule: update-$(BUILDINC) $(BUILDDIRS) .WAIT $(BIN) $(LIB) $(JAR) gentags
 
 $(SUBDIRS): $(BUILDDIRS)
@@ -732,8 +749,7 @@ $(INSTALLDIRS): $(CONFIGMAKE)
 
 # --- check: run tests ---
 check: $(CONFIGMAKE) all $(CHECKDIRS)
-	@if ! $(cmd_CONFIGMAKE_RECURSE); then set -x \
-		$(CHECK_RUN); fi
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then set -x; $(CHECK_RUN); fi
 $(CHECKDIRS): $(CONFIGMAKE) all
 	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
 	 recdir=$(@:-check=); rectarget=check; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} check; fi
@@ -1126,7 +1142,7 @@ update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 # configure, CONFIGMAKE, ... config.h, config.make, config.log generation
 configure: $(CONFIGUREDIRS)
 	@$(RM) -f $(CONFIGMAKE) $(INCLUDEDEPS)
-	@"$(MAKE)" $(CONFIGMAKE)
+	@$(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true; "$(MAKE)" $(CONFIGMAKE)
 $(CONFIGUREDIRS):
 	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
 	 recdir=$(@:-configure=); rectarget=configure; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} configure; fi
@@ -1322,7 +1338,10 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile $(INCLUDEDEPS)
 	    && $(PRINTF) '#define CONFIG_CRYPT_DES_EXT 1\n' >> $(CONFIGINC) || true; \
 	$(PRINTF) -- "#define CONFIG_FEATURES \"$${configcheck}\"\n" >> $(CONFIGINC); \
 	$(RM) -f "$${mytmpfile}"; \
-	$(PRINTF) -- "$(NAME): making recursion...\n"; "$(MAKE)" $(.TARGETS) $(MAKECMDGOALS); $(TOUCH) '$(CONFIGMAKE_REC_FILE)'; fi
+	$(PRINTF) -- "$(NAME): making recursion ($(.TARGETS) $(MAKECMDGOALS))...\n"; \
+	$(cmd_TESTBSDOBJ) && cd $(.CURDIR) || true; "$(MAKE)" $(.TARGETS) $(MAKECMDGOALS) && ret=true || ret=false; \
+	$(cmd_TESTBSDOBJ) && cd $(.OBJDIR) || true; $(TOUCH) '$(CONFIGMAKE_REC_FILE)'; \
+	$${ret}; fi
 
 .gitignore:
 	@$(cmd_TESTBSDOBJ) && cd $(.CURDIR) && build=`echo $(.OBJDIR) | $(SED) -e 's|^$(.CURDIR)||'`/ || build=; \
@@ -1344,8 +1363,8 @@ $(CLANGCOMPLETE): $(ALLMAKEFILES) $(BUILDINC)
 	 fi; src=`echo $(SRCDIR) | $(SED) -e 's|\.|\\\.|g'`; \
 	 $(TEST) -e $@ -a \! -L $@ \
 	        && $(SED) -e "s%^[^#]*-I$${src}[[:space:]].*%$(CPPFLAGS) %" -e "s%^[^#]*-I$${src}$$%$(CPPFLAGS)%" -e "$${moresed}" \
-	             "$@" $(NO_STDERR) > "$@.tmp" \
-	        && $(CAT) "$@.tmp" > "$@" && $(RM) "$@.tmp" \
+	             '$@' $(NO_STDERR) > "$@.tmp" \
+	        && $(CAT) "$@.tmp" > '$@' && $(RM) "$@.tmp" \
 	    || echo "$(CPPFLAGS)" | $(SED) -e "s|-I$(.CURDIR)|-I$(.CURDIR) -I$(.OBJDIR)|g" > $@
 
 # to spread 'generic' makefile part to sub-directories
@@ -1553,18 +1572,4 @@ rinfo: info $(CONFIGMAKE)
 	   old="$${PWD}"; for d in $(SUBDIRS); do recdir="$${d}"; rectarget=rinfo; $(RECURSEMAKEARGS); \
 	     cd "$${recdir}" && "$(MAKE)" $${recargs} rinfo; cd "$${old}"; done; fi
 
-.PHONY: subdirs $(SUBDIRS)
-.PHONY: subdirs $(BUILDDIRS)
-.PHONY: subdirs $(INSTALLDIRS)
-.PHONY: subdirs $(TESTDIRS)
-.PHONY: subdirs $(CLEANDIRS)
-.PHONY: subdirs $(DISTCLEANDIRS)
-.PHONY: subdirs $(DEBUGDIRS)
-.PHONY: subdirs $(TESTBUILDDIRS)
-.PHONY: subdirs $(DOCDIRS)
-.PHONY: subdirs $(CONFIGUREDIRS)
-.PHONY: default_rule all build_all cleanme clean distclean dist check info rinfo \
-	doc installme install debug gentags update-$(BUILDINC) create-$(BUILDINC) \
-	.gitignore merge-makefile debug-makefile valgrind help test \
-	subsubmodules configure
 
