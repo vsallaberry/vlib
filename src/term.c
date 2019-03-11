@@ -26,7 +26,8 @@
 
 #include "version.h"
 
-#define VLIB_CURSESDL
+/* using libdl to get curses is deprecated */
+/* #define VLIB_CURSESDL */
 
 /* checks ncurses includes */
 #ifndef CONFIG_CURSES
