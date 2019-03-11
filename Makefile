@@ -1190,7 +1190,7 @@ CONFTEST_OPENSSL	= '\#include <openssl/sha.h>\n\
 CONFTEST_LIBINTL	= '\#include <stdio.h>\n\#include <libintl.h>\nint main(void)\n \
 			  { fprintf(stderr, gettext("Hello Intl\\n")); return 0; }\n'
 
-CONFTEST_SIGQUEUE	= '\#include <signal.h>\nint main(void) { sigqueue(0,0,0); return 0; }\n'
+CONFTEST_SIGQUEUE	= '\#include <signal.h>\nint main(void) { union sigval si; sigqueue(0,0,si); return 0; }\n'
 
 CONFTEST_LIBCRYPT	= 'int main(void) { return 0; }\n'
 
@@ -1294,8 +1294,11 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile $(INCLUDEDEPS)
 	    && break; } || true; \
 	done; \
 	true "**** LIBCRYPTO CHECK *****"; \
-	flag=''; lib="-lcrypto"; cflags="$${flag}" libs="$${lib}" conftest "" "$${flag}" CONFIG_LIBCRYPTO "$${lib}" \
-	    "libcrypto" $(CONFTEST_LIBCRYPTO) || true; \
+	for lib in "-lcrypto" '`getlibpath crypto`'; do \
+	    flag=''; cflags="$${flag}" libs="$${lib}" conftest "" "$${flag}" CONFIG_LIBCRYPTO "$${lib}" \
+	        "libcrypto" $(CONFTEST_LIBCRYPTO) && flagcrypto="$${flag}" && libcrypto="$${lib}" && break \
+		|| { flagcrypto=; libcrypto=; true; }; \
+	done; \
 	flag=''; lib=''; cflags="$${flag}" libs="$${lib}" conftest "CONFIG_APPLECRYPTO" "$${flag}" "" "$${lib}" \
 	    "applecrypto" $(CONFTEST_APPLECRYPTO) || true; \
         for prefix in $(CONFIG_CHECK_PREFIXES); do \
@@ -1321,12 +1324,13 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile $(INCLUDEDEPS)
 	cflags='' libs='' cctest "sigrtmin" '#include <signal.h>\n#include <stdio.h>\nint main(void) { printf("%%d", SIGRTMIN); return 0; }\n' \
 	    && $(PRINTF) "#define CONFIG_SIGRTMIN ${gccout}\n" >> $(CONFIGINC) || true; \
 	flag=''; lib="-lcrypt"; cflags="$${flag}" libs="$${lib}" conftest "" "$${flag}" CONFIG_LIBCRYPT "$${lib}" \
-	    "libcrypt" $(CONFTEST_LIBCRYPT) \
-	    || true; \
+	    "libcrypt" $(CONFTEST_LIBCRYPT) && libcrypt="$${lib}" && flagcrypt="$${flag}" \
+	    || { libcrypt=; flagcrypt=; true; }; \
 	flag=; lib=; cflags="$${flag}" libs="$${lib}" conftest CONFIG_CRYPT_H "$${flag}" "" "$${lib}" \
 	    "crypt.h" $(CONFTEST_CRYPT_H) \
 	    || true; \
-	cflags='' libs='' cctest "crypt_gnu" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n\
+	flag=; lib=; cflags="$${flag} $${flagcrypt}" libs="$${lib} $${libcrypt}" \
+	     cctest "crypt_gnu" "#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n\
 	        #include \"$${PWD}/$(CONFIGINC)\"\n#if defined(CONFIG_CRYPT_H) && CONFIG_CRYPT_H\n#include <crypt.h>\n#endif\n\
 	        int main(void) { int ret=1; int f=0; int i; char *s=strdup(\"\$$1\$$abcdefgh\$$\");\nfor(i=1; i <= 9; i++) \
 	        {s[1]='0'+i; if (!strncmp(s, crypt(\"toto\", s), strlen(s))) { \nret=0; f |= 1 << (i-1); } } \
