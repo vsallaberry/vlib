@@ -690,17 +690,16 @@ static int          avltree_visit_insert(
         }
         /* replace or ignore exsting element: previous one is returned */
         void * prevdata = node->data;
+        if (cmp == AFL_INSERT_REPLACE) {
+            /* replace data in the node, return previous data, and free it if needed */
+            node->data = idata->newdata;
+            if (tree->free != NULL && (tree->flags & AFL_REMOVE_NOFREE) == 0) {
+                tree->free(prevdata);
+            }
+        }
         idata->newnode = node;
-        idata->newdata = prevdata;
         idata->new_balance = 0;
-        if (cmp == AFL_INSERT_IGNDOUBLE) {
-            return AVS_FINISHED;
-        }
-        /* replace data in the node, free previous data if needed */
-        node->data = idata->newdata;
-        if (tree->free != NULL && (tree->flags & AFL_REMOVE_NOFREE) == 0) {
-            tree->free(prevdata);
-        }
+        idata->newdata = prevdata;
         return AVS_FINISHED;
     } else if (cmp <= 0) {
         /* go left */
