@@ -636,6 +636,9 @@ RECURSEMAKEARGS	= $(TEST) -n "$(SUBMODROOTDIR)" && recargs="SUBMODROOTDIR=\"`ech
 		  echo "cd \"$${recdir}\" && \"$(MAKE)\" \"$${rectarget}\" $${recargs}"; \
 		  $(cmd_TESTBSDOBJ) && cd "$(.CURDIR)" || true
 
+# Default CHECK_RUN
+CHECK_RUN	?= $(PRINTF) -- 'CHECK_RUN variable empty -> no test is done for this project\n'
+
 ############################################################################################
 # .POSIX: for bsd-like dependency management
 # .PHONY: .WAIT and .EXEC for compatibility, when not supported.
@@ -755,7 +758,7 @@ $(INSTALLDIRS): $(CONFIGMAKE)
 
 # --- check: run tests ---
 check: $(CONFIGMAKE) all $(CHECKDIRS)
-	@if ! $(cmd_CONFIGMAKE_RECURSE); then set -x; $(CHECK_RUN); fi
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then $(CHECK_RUN); fi
 $(CHECKDIRS): $(CONFIGMAKE) all
 	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
 	 recdir=$(@:-check=); rectarget=check; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} check; fi
