@@ -543,13 +543,16 @@ BCOMPAT_SED_YYPREFIX=$(SED) -n -e \
 # will be used on next 'make' and overrided by gcc -MMD.
 # Additionnaly, we use this command to populate git submodules if needed.
 #
+cmd_DEBUGMAKEFILE=false
 OBJDEPS_$(VERSIONINC)	= $(ALLMAKEFILES) $(INCLUDES) $(GENINC)
 DEPS			:= $(OBJ:.o=.d) $(SRCINC_STR:.c=.d) $(SRCINC_Z:.c=.d)
 INCLUDEDEPS		:= .alldeps.d
 CONFIGMAKE_REC_FILE	:= .configmake-recursion
 cmd_SINCLUDEDEPS	= inc=1; ret=true; $(RM) -f '$(CONFIGMAKE_REC_FILE)' $(STDOUT_TO_ERR) || true; \
-			  if $(TEST) -e "$(INCLUDEDEPS)" -a -e "$(CONFIGMAKE)"; then $(PRINTF) -- '$(INCLUDEDEPS)'; \
-			  else $(PRINTF) -- '$(VERSIONINC)'; $(TEST) -e "$(VERSIONINC)" || $(TOUCH) "$(VERSIONINC)"; \
+			  $(cmd_DEBUGMAKEFILE) && { printf -- '$(NAME): SINCLUDEDEPS pwd: '; pwd; } $(STDOUT_TO_ERR) || true; \
+			  if $(TEST) -e '$(INCLUDEDEPS)' -a -e '$(CONFIGMAKE)'; then $(PRINTF) -- '$(INCLUDEDEPS)'; \
+			  else $(TEST) -e '$(CONFIGMAKE)' && $(PRINTF) -- '$(CONFIGMAKE)' || $(PRINTF) -- '$(VERSIONINC)'; \
+			       $(TEST) -e "$(VERSIONINC)" || $(TOUCH) "$(VERSIONINC)"; \
 			       inc=; $(PRINTF) -- "include $(CONFIGMAKE)\n" > '$(INCLUDEDEPS)'; fi; \
 			  for f in $(DEPS:.d=); do \
 			      if $(TEST) -n "$${f}" -a \( -z "$${inc}" -o ! -e "$${f}.d" \) ; then \
@@ -563,7 +566,7 @@ cmd_SINCLUDEDEPS	= inc=1; ret=true; $(RM) -f '$(CONFIGMAKE_REC_FILE)' $(STDOUT_T
 			      if ! $(TEST) -e "$${d}/Makefile" && $(GIT) submodule status "$${d}" $(NO_STDERR) | $(GREP) -Eq "^-.*$${d}"; then \
 			          $(GIT) submodule update --init "$${d}" $(STDOUT_TO_ERR) || ret=false; \
 			      fi; \
-			  done || true; $${ret}
+			      done || true; $(cmd_DEBUGMAKEFILE) && { printf -- "SINCLUDEDEPS END ret:$${ret}\n"; } $(STDOUT_TO_ERR) || true; $${ret}
 
 tmp_SINCLUDEDEPS != $(cmd_SINCLUDEDEPS)
 tmp_SINCLUDEDEPS ?= $(shell $(cmd_SINCLUDEDEPS))
@@ -571,10 +574,12 @@ SINCLUDEDEPS := $(tmp_SINCLUDEDEPS)
 include $(SINCLUDEDEPS)
 
 # Following vars <var>_$(SINCLUDEDEPS) wil have value only if CONFIGMAKE has been included
-cmd_CONFIGMAKE_INCLUDED		= $(TEST) '$(SINCLUDEDEPS)' = '$(INCLUDEDEPS)'
-cmd_CONFIGMAKE_RECURSE		= { $(TEST) -e '$(CONFIGMAKE_REC_FILE)' && ret=true || ret=false; $${ret}; }
+cmd_CONFIGMAKE_INCLUDED		= $(TEST) '$(SINCLUDEDEPS)' != '$(VERSIONINC)'
+cmd_CONFIGMAKE_RECURSE		= { $(TEST) -e '$(CONFIGMAKE_REC_FILE)' && ret=true || ret=false; \
+				    $(cmd_DEBUGMAKEFILE) && { $(PRINTF) "$(NAME): target:$@ ?:$? rec-done:$${ret}\n"; } || true; $${ret}; }
 CONFIG_OBJDEPS_$(VERSIONINC)	:=
 CONFIG_OBJDEPS_$(INCLUDEDEPS) 	:= $(ALLMAKEFILES) $(VERSIONINC) $(CONFIGINC) $(BUILDINC)
+CONFIG_OBJDEPS_$(CONFIGMAKE) 	:= $(ALLMAKEFILES) $(INCLUDES) $(GENINC)
 CONFIG_OBJDEPS			:= $(CONFIG_OBJDEPS_$(SINCLUDEDEPS))
 
 LIB$(CONFIG_OBJDEPS):=
@@ -588,13 +593,14 @@ MANIFEST$(CONFIG_OBJDEPS):=
 # TODO: removing heading './' (| $(SED) -e 's|^\./||') causes issues with bsd make
 cmd_HAVEVLIB	= case " $(INCLUDES) " in *"include/vlib/avltree.h "*) true ;; *) false ;; esac
 cmd_HAVEZLIB	= $(TEST) -n '$(CONFIG_ZLIB)'
-cmd_SRCINC	= $(cmd_FINDBSDOBJ); $(TEST) -e $(VERSIONINC) -a "$(SINCLUDEDEPS)" = "$(INCLUDEDEPS)" \
-		  && $(GREP) -Eq '^[[:space:]]*\#[[:space:]]*define[[:space:]][[:space:]]*APP_INCLUDE_SOURCE([[:space:]]|$$)' \
-	                                $(VERSIONINC) $(NO_STDERR) \
-		       && { $(cmd_HAVEVLIB) && $(cmd_HAVEZLIB) \
-		            && $(TEST) -x "`$(WHICH) \"$(OD)\" | $(HEADN1) $(NO_STDERR)`" \
-		                    -a -x "`$(WHICH) \"$(GZIP)\" | $(HEADN1) $(NO_STDERR)`" \
-		            && echo $(SRCINC_Z) || echo $(SRCINC_STR); } || true
+cmd_SRCINC	= $(cmd_FINDBSDOBJ); if $(TEST) "$(SINCLUDEDEPS)" != "$(VERSIONINC)"; then \
+		    { ! $(TEST) -e $(VERSIONINC) \
+		      || $(GREP) -Eq '^[[:space:]]*\#[[:space:]]*define[[:space:]][[:space:]]*APP_INCLUDE_SOURCE([[:space:]]|$$)' \
+		               $(VERSIONINC) $(NO_STDERR); } \
+		    && { $(cmd_HAVEVLIB) && $(cmd_HAVEZLIB) \
+		              && $(TEST) -x "`$(WHICH) \"$(OD)\" | $(HEADN1) $(NO_STDERR)`" \
+		                      -a -x "`$(WHICH) \"$(GZIP)\" | $(HEADN1) $(NO_STDERR)`" \
+		              && echo $(SRCINC_Z) || echo $(SRCINC_STR); } || true; fi
 tmp_SRCINC	!= $(cmd_SRCINC)
 tmp_SRCINC	?= $(shell $(cmd_SRCINC))
 SRCINC		:= $(tmp_SRCINC)
@@ -813,11 +819,11 @@ $(JAR): $(JAVASRC) $(SUBLIBS) $(MANIFEST) $(ALLMAKEFILES)
 #$(YACCGENJAVA): $(ALLMAKEFILES) $(BUILDINC)
 
 ### WITH -MD
-$(OBJ): $(CONFIG_OBJDEPS) #$(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(CONFIGINC)
-$(OBJ_NOJAVA): $(OBJDEPS_$(SINCLUDEDEPS)) $(CONFIG_OBJDEPS) #$(ALLMAKEFILES) $(CONFIGINC)
-$(GENSRC): $(CONFIG_OBJDEPS) #$(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(CONFIGINC)
-$(GENJAVA): $(CONFIG_OBJDEPS) #$(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(CONFIGINC)
-$(CLASSES): $(CONFIG_OBJDEPS) #$(ALLMAKEFILES) $(VERSIONINC) $(BUILDINC) $(CONFIGINC)
+$(OBJ): $(CONFIG_OBJDEPS)
+$(OBJ_NOJAVA): $(OBJDEPS_$(SINCLUDEDEPS)) $(CONFIG_OBJDEPS)
+$(GENSRC): $(CONFIG_OBJDEPS)
+$(GENJAVA): $(CONFIG_OBJDEPS)
+$(CLASSES): $(CONFIG_OBJDEPS)
 
 # Implicit rules: old-fashionned double suffix rules to be compatible with most make.
 # -----------
@@ -1204,10 +1210,11 @@ CONFTEST_CRYPT_GNU	= '\#include <stdio.h>\n\#include <string.h>\n\#include <unis
 			   {s[1]='"'0'"'+i; cr = crypt("toto", s); if (cr && !strncmp(s, cr, strlen(s))) { \nret=0; f |= 1 << (i-1); } } \
 			   printf("0x%%02x", f); return ret; }\n'
 
-$(CONFIGINC) $(CONFIGMAKE): Makefile $(INCLUDEDEPS)
+$(CONFIGINC) $(CONFIGMAKE): Makefile
 	 @if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$(CONFIGMAKE)" "$(.CURDIR)" && ln -sf "$(.OBJDIR)/$(CONFIGINC)" "$(.CURDIR)"; \
 		                else $(TEST) -L "$(CONFIGMAKE)" && $(RM) "$(CONFIGMAKE)"; $(TEST) -L "$(CONFIGINC)" && $(RM) "$(CONFIGINC)" || true; fi; \
-	  case " $? " in *" Makefile "*|*" $(.CURDIR)/Makefile "*) doconfigure=1;; *) doconfigure=0;; esac; \
+	  case " $? " in *" Makefile "*|*" $(.CURDIR)/Makefile "*) doconfigure=1;; *) doconfigure=1;; esac; \
+	  $(cmd_DEBUGMAKEFILE) && $(PRINTF) -- "$(NAME): CONFIGMAKE ?:<$?> DO_CONFIGURE:$${doconfigure}\n" || true; \
 	  if $(TEST) "$${doconfigure}" = "1"; then \
 	  $(TEST) -s '$(VERSIONINC)' || $(RM) -f '$(VERSIONINC)'; \
 	  $(PRINTF) "$(NAME): generate $(CONFIGMAKE), $(CONFIGINC)\n"; \
@@ -1366,15 +1373,15 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile $(INCLUDEDEPS)
 gentags: $(CLANGCOMPLETE)
 # CLANGCOMPLETE rule: !FIXME to be cleaned
 $(CLANGCOMPLETE): $(ALLMAKEFILES) $(BUILDINC)
-	@echo "$(NAME): update $@"
-	@moresed="s///"; if $(cmd_TESTBSDOBJ); then base=`$(BASENAME) $@`; $(TEST) -L $(.OBJDIR)/$${base} || ln -sf $(.CURDIR)/$${base} $(.OBJDIR); \
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then echo "$(NAME): update $@"; \
+	 moresed="s///"; if $(cmd_TESTBSDOBJ); then base=`$(BASENAME) $@`; $(TEST) -L $(.OBJDIR)/$${base} || ln -sf $(.CURDIR)/$${base} $(.OBJDIR); \
 	     $(TEST) -e "$(.CURDIR)/$${base}" || echo "$(CPPFLAGS)" > $@; moresed="s|-I$(.CURDIR)|-I$(.CURDIR) -I$(.OBJDIR)|g"; \
 	 fi; src=`echo $(SRCDIR) | $(SED) -e 's|\.|\\\.|g'`; \
 	 $(TEST) -e $@ -a \! -L $@ \
 	        && $(SED) -e "s%^[^#]*-I$${src}[[:space:]].*%$(CPPFLAGS) %" -e "s%^[^#]*-I$${src}$$%$(CPPFLAGS)%" -e "$${moresed}" \
 	             '$@' $(NO_STDERR) > "$@.tmp" \
 	        && $(CAT) "$@.tmp" > '$@' && $(RM) "$@.tmp" \
-	    || echo "$(CPPFLAGS)" | $(SED) -e "s|-I$(.CURDIR)|-I$(.CURDIR) -I$(.OBJDIR)|g" > $@
+	    || echo "$(CPPFLAGS)" | $(SED) -e "s|-I$(.CURDIR)|-I$(.CURDIR) -I$(.OBJDIR)|g" > $@; fi
 
 # to spread 'generic' makefile part to sub-directories
 merge-makefile:
