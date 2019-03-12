@@ -553,7 +553,9 @@ CONFIGMAKE_REC_FILE	:= .configmake-recursion
 cmd_SINCLUDEDEPS	= inc=1; ret=true; $(RM) -f '$(CONFIGMAKE_REC_FILE)' $(STDOUT_TO_ERR) || true; \
 			  $(cmd_DEBUGMAKEFILE) && { printf -- '$(NAME): SINCLUDEDEPS pwd: '; pwd; } $(STDOUT_TO_ERR) || true; \
 			  if $(TEST) -e '$(INCLUDEDEPS)' -a -e '$(CONFIGMAKE)'; then $(PRINTF) -- '$(INCLUDEDEPS)'; \
-			  else $(TEST) -e '$(CONFIGMAKE)' && $(PRINTF) -- '$(CONFIGMAKE)' || $(PRINTF) -- '$(VERSIONINC)'; \
+			  else $(TEST) -e '$(CONFIGMAKE)' && $(PRINTF) -- '$(CONFIGMAKE)' \
+			       || { $(cmd_TESTBSDOBJ) && $(TEST) -e '$(.CURDIR)/$(CONFIGMAKE)' \
+			            && $(RM) -f '$(.CURDIR)/$(CONFIGMAKE)' || true; $(PRINTF) -- '$(VERSIONINC)'; };\
 			       $(TEST) -e "$(VERSIONINC)" || $(TOUCH) "$(VERSIONINC)"; \
 			       inc=; $(PRINTF) -- "include $(CONFIGMAKE)\n" > '$(INCLUDEDEPS)'; fi; \
 			  for f in $(DEPS:.d=); do \
