@@ -314,10 +314,19 @@ tmp_LEX		?= $(shell $(cmd_LEX))
 LEX		:= $(tmp_LEX)
 
 # Search gcj compiler.
-cmd_GCJ		= $(WHICH) ${GCJ} gcj gcj-mp gcj-mp-6 gcj-mp-5 gcj-mp-4.9 gcj-mp-4.8 gcj-mp-4.7 gcj-mp-4.6 $(NO_STDERR) | $(HEADN1)
+cmd_GCJ		= $(WHICH) ${GCJ} gcj gcj-6 gcj-5 gcj-mp gcj-mp-6 gcj-mp-5 gcj-mp-4.9 gcj-mp-4.8 gcj-mp-4.7 gcj-mp-4.6 $(NO_STDERR) | $(HEADN1)
 tmp_GCJ		!= $(cmd_GCJ)
 tmp_GCJ		?= $(shell $(cmd_GCJ))
 GCJ		:= $(tmp_GCJ)
+
+# Search gnat compiler.
+cmd_GNAT	= $(WHICH) ${GNAT} gnat gnat-6 gnat-5 gnat-4 $(NO_STDERR) | $(HEADN1)
+tmp_GNAT	!= $(cmd_GNAT)
+tmp_GNAT	?= $(shell $(cmd_GNAT))
+GNAT		:= $(tmp_GNAT)
+GNATC		:= $(GNAT) compile
+GNATBIND	:= $(GNAT) bind
+GNATMAKE	:= $(GNAT) make
 
 ############################################################################################
 # Scan for sources
@@ -407,6 +416,37 @@ JCNIINC		:= $(JAVASRC:.java=.hh)
 JCNISRC		:= $(JAVASRC:.java=.cc)
 GENINC		:= $(GENINC) $(JCNIINC)
 CLASSES		:= $(JAVASRC:.java=.class)
+# JABAOBJ the .o file containing Java code
+JAVAOBJNAME	:= Java.o
+JAVAOBJ$(BUILDDIR) := $(BUILDDIR)/$(JAVAOBJNAME)
+JAVAOBJ.	:= $(JAVAOBJNAME)
+JAVAOBJ		:= $(JAVAOBJ$(BUILDDIR))
+TMPCLASSESDIR	= $(BUILDDIR)/.tmp_classes
+# ADAOBJNAME the .o file containing ada stub
+ADAOBJNAME	:= _ada-stub_.o
+ADAOBJ$(BUILDDIR):= $(BUILDDIR)/$(ADAOBJNAME)
+ADAOBJ.		:= $(ADAOBJNAME)
+ADAOBJ		:= $(ADAOBJ$(BUILDDIR))
+
+# Search non-generated ADA sources and headers. Extensions must be in low-case.
+# Include ada only if GNAT is found. In FOREIGN_MAIN is ada, put it at head
+# of list (needed by gnatbind).
+# Ada ads files without adb body are considered as sources files, and must be compiled.
+cmd_ADASRC	= $(cmd_FINDBSDOBJ); \
+		  $(TEST) -x "$(GNAT)" \
+		  && { $(TEST) -e '$(FOREIGN_MAIN)' -a '$(FOREIGN_MAIN:.adb=).adb' = '$(FOREIGN_MAIN)' && $(PRINTF) -- '$(FOREIGN_MAIN) ' || true; \
+		  $(FIND) $(SRCDIR) \! -name '$(FOREIGN_MAIN)' -and \( -name '*.adb' \
+		           -or \( -name '*.ads' -and -exec "$(SHELL)" -c 'f={}; f=$${f%.ads}.adb; ! $(TEST) -e "$${f}"' \; \) \) \
+		           -and \! -path '$(ADAOBJ:.o=.adb)' -and \! -path './$(ADAOBJ:.o=.adb)' \
+		           $(find_AND_NOGEN) $(find_AND_SYSDEP) \
+			   -print $(NO_STDERR) | $(SED) -e 's|^\./||'; } || true
+# JAVASRC variable, filled from the 'find' command (cmd_JAVA) defined above.
+tmp_ADASRC	!= $(cmd_ADASRC)
+tmp_ADASRC	?= $(shell $(cmd_ADASRC))
+tmp_ADASRC	:= $(tmp_ADASRC)
+ADASRC		:= $(tmp_ADASRC) $(GENADA)
+tmp_ADAALI	:= $(ADASRC:.adb=.ali)
+ADAALI		:= $(tmp_ADAALI:.ads=.ali)
 
 # Add Java CNI headers to include search exclusion.
 cmd_FIND_NOGEN2	= echo $(JCNIINC) | $(SED) -e 's|\([^[:space:]]*\)|-and \! -path "\1" -and \! -path "./\1"|g'
@@ -420,12 +460,14 @@ cmd_SRC		= $(cmd_FINDBSDOBJ); \
 		                      -and \! -path '$(SRCINC_STR)' -and \! -path './$(SRCINC_STR)' \
 		    $(find_AND_SYSDEP) -print $(NO_STDERR) | $(SED) -e 's|^\./||'
 cmd_INCLUDES	= $(cmd_FINDBSDOBJ); \
-		  $(FIND) $(INCDIRS) $(SRCDIR) \( -name '*.h' -or -name '*.hh' -or -name '*.hpp' \) \
+		  $(FIND) $(INCDIRS) $(SRCDIR) \( -name '*.h' -or -name '*.hh' -or -name '*.hpp' \
+		                                  -or -name '*.ads' \) \
 		    $(find_AND_NOGEN) $(find_AND_NOGEN2) \
 		    -and \! -path $(VERSIONINC) -and \! -path ./$(VERSIONINC) \
 		    -and \! \( -path $(FLEXLEXER_LNK) -and -type l \) \
 		    -and \! -path $(BUILDINC) -and \! -path ./$(BUILDINC) \
 		    -and \! -path $(CONFIGINC) -and \! -path ./$(CONFIGINC) \
+		    -and \! -path '$(ADAOBJ:.o=.ads)' -and \! -path './$(ADAOBJ:.o=.ads)' \
 		    $(find_AND_SYSDEP) -print $(NO_STDERR) | $(SED) -e 's|^\./||'
 
 # INCLUDE VARIABLE, filled from the 'find' command (cmd_INCLUDES) defined above.
@@ -437,23 +479,22 @@ INCLUDES	:= $(VERSIONINC) $(BUILDINC) $(CONFIGINC) $(tmp_INCLUDES)
 # SRC variable, filled from the 'find' command (cmd_SRC) defined above.
 tmp_SRC		!= $(cmd_SRC)
 tmp_SRC		?= $(shell $(cmd_SRC))
-tmp_SRC		:= $(tmp_SRC)
+tmp_SRC		:= $(tmp_SRC) $(ADASRC)
 SRC		:= $(tmp_SRC) $(GENSRC)
 
 # OBJ variable computed from SRC, replacing SRCDIR by BUILDDIR and extension by .o
 # Add Java.o if BIN, GCJ and JAVASRC are defined.
-JAVAOBJNAME	:= Java.o
-JAVAOBJ$(BUILDDIR) := $(BUILDDIR)/$(JAVAOBJNAME)
-JAVAOBJ.	:= $(JAVAOBJNAME)
-JAVAOBJ		:= $(JAVAOBJ$(BUILDDIR))
-TMPCLASSESDIR	= $(BUILDDIR)/.tmp_classes
+# Add _ada-stub_.o if GNAT is defined, and if there are ada sources.
 tmp_OBJ1	:= $(SRC:.m=.o)
 tmp_OBJ2	:= $(tmp_OBJ1:.mm=.o)
 tmp_OBJ3	:= $(tmp_OBJ2:.cpp=.o)
 tmp_OBJ4	:= $(tmp_OBJ3:.cc=.o)
-OBJ_NOJAVA	:= $(tmp_OBJ4:.c=.o)
+tmp_OBJ5	:= $(tmp_OBJ4:.adb=.o)
+tmp_OBJ6	:= $(tmp_OBJ5:.ads=.o)
+OBJ_NOJAVA	:= $(tmp_OBJ6:.c=.o)
 cmd_SRC_BUILD	:= echo " $(OBJ_NOJAVA)" | $(SED) -e 's| $(SRCDIR)/| $(BUILDDIR)/|g'; \
-		   case " $(JAVASRC) " in *" "*".java "*) $(TEST) -n "$(GCJ)" -a -n "$(BIN)" && echo "$(JAVAOBJ)";; esac
+		   case " $(JAVASRC) " in *" "*".java "*) $(TEST) -n "$(GCJ)" -a -n "$(BIN)" && echo "$(JAVAOBJ)";; esac; \
+		   case " $(SRC) " in *" "*".adb "*|*" "*".ads "*) $(TEST) -x "$(GNAT)" && echo "$(ADAOBJ)";; esac
 tmp_SRC_BUILD	!= $(cmd_SRC_BUILD)
 tmp_SRC_BUILD	?= $(shell $(cmd_SRC_BUILD))
 OBJ		:= $(tmp_SRC_BUILD)
@@ -477,7 +518,7 @@ tmp_GCJH	?= $(shell $(cmd_GCJH))
 GCJH		:= $(tmp_GCJH)
 
 # CCLD: use $(GCJ) if Java.o, use $(CXX) if .cc,.cpp,.mm files, otherwise use $(CC).
-cmd_CCLD	= case " $(OBJ) $(SRC) " in *" $(JAVAOBJ) "*) echo $(GCJ) ;; \
+cmd_CCLD	= case " $(OBJ) $(SRC) " in *" $(JAVAOBJ) "*) echo "$(GCJ)";; \
 		                            *" "*".cpp "*|*" "*".cc "*|*" "*".mm "*) echo $(CXX);; *) echo $(CC) ;; esac
 tmp_CCLD	!= $(cmd_CCLD)
 tmp_CCLD	?= $(shell $(cmd_CCLD))
@@ -519,8 +560,10 @@ OBJCFLAGS	= -MMD $(FLAGS_OBJC) $(FLAGS_COMMON)
 OBJCXXFLAGS	= -MMD $(FLAGS_OBJCXX) $(FLAGS_COMMON)
 JFLAGS		= $(FLAGS_GCJ) $(FLAGS_COMMON) -I$(BUILDDIR)
 JHFLAGS		= -I$(BUILDDIR)
+ADAFLAGS	= -MMD $(FLAGS_ADA) $(FLAGS_COMMON)
 LIBFORGCJ$(GCJ)	= -lstdc++
-LDFLAGS		= $(ARCH) $(OPTI) $(LIBS) $(LIBFORGCJ$(CCLD))
+MAINFORGCJ$(GCJ)$(FOREIGN_MAIN:.java=).java	= --main=$(FOREIGN_MAIN:.java=)
+LDFLAGS		= $(ARCH) $(OPTI) $(LIBS) $(LIBFORGCJ$(CCLD)) $(MAINFORGCJ$(CCLD)$(FOREIGN_MAIN))
 ARFLAGS		= r
 LFLAGS		=
 LCXXFLAGS	= $(LFLAGS)
@@ -682,7 +725,8 @@ $(BUILDDIRS): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 clean: cleanme $(CLEANDIRS)
 cleanme:
 	$(RM) $(SRCINC_Z:.c=.*) $(SRCINC_STR:.c=.*) $(OBJ:.class=*.class) $(CLASSES:.class=*.class) \
-	      $(GENSRC) $(GENINC) $(GENJAVA) $(DEPS) $(INCLUDEDEPS) $(CONFIGMAKE_REC_FILE)
+	      $(GENSRC) $(GENINC) $(GENJAVA) $(DEPS) $(INCLUDEDEPS) $(CONFIGMAKE_REC_FILE) \
+	      $(ADAOBJ:.o=.adb) $(ADAOBJ:.o=.ads) $(ADAOBJ:.o=.ali) $(ADAOBJ:.o=.ali) $(ADAALI)
 	@$(TEST) -L "$(FLEXLEXER_LNK)" && { cmd="$(RM) $(FLEXLEXER_LNK)"; echo "$${cmd}"; $${cmd} ; } || true
 $(CLEANDIRS):
 	@recdir=$(@:-clean=); rectarget=clean; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} clean
@@ -771,7 +815,13 @@ $(CHECKDIRS): $(CONFIGMAKE) all
 # --- build BIN ---
 $(BIN): $(OBJ) $(SUBLIBS) $(JCNIINC)
 	@if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/`$(BASENAME) $@`" "$(.CURDIR)"; else $(TEST) -L $@ && $(RM) $@ || true; fi
-	$(CCLD) $(OBJ:.class=*.class) $(LDFLAGS) -o $@
+	@cmd="$(CCLD) $(OBJ:.class=*.class) $(LDFLAGS) -o $@"; \
+		case " $(SRC) " in *" "*".adb "*) $(CP) $(ADAOBJ:.o=.ali) $(ADAOBJ:.o=.tmp.ali); \
+		                   cmd="$${cmd} "`$(GNAT) bind -shared -n -x -K $(ADAOBJ:.o=.tmp.ali) -o $(ADAOBJ:.o=.tmp.adb) \
+		                      | $(SED) -n -e 's|^[[:space:]]*\(-[^lL]\)|\1|p' -e 's|^[[:space:]]*\(-l\)|\1|p' \
+	                                          -e 's|^[[:space:]]*-L\([^.].*\)|-Wl,-rpath,\1 -L\1|p' | $(TR) '\n' ' '`; $(RM) -f $(ADAOBJ:.o=).tmp.*;; esac; \
+	 $(PRINTF) -- "$${cmd}\n"; \
+	 $${cmd}
 	@$(PRINTF) "$@: build done.\n"
 
 # --- build LIB ---
@@ -813,7 +863,8 @@ $(JAR): $(JAVASRC) $(SUBLIBS) $(MANIFEST) $(ALLMAKEFILES)
 	@$(PRINTF) "$@: build done.\n"
 
 ##########################################################################################
-.SUFFIXES: .o .c .h .cpp .hpp .cc .hh .m .mm .java .class .y .l .yy .ll .yyj .llj
+.SUFFIXES:	.o .c .h .cpp .hpp .cc .hh .m .mm .adb .ads .ali _h.ads _hh.ads \
+		.java .class .y .l .yy .ll .yyj .llj
 
 #### WITHOUT -MD
 # OBJS are rebuilt on Makefile or headers update. Alternative: could use gcc -MD and sinclude.
@@ -869,6 +920,36 @@ $(CLASSES): $(CONFIG_OBJDEPS)
 	$(CXX) $(CXXFLAGS) $(FLAGS_CXX_$<) $(CPPFLAGS) -c -o $@ $<
 #$(BUILDDIR)/%.o: $(SRCDIR)/%.cc
 #	$(CXX) $(CXXFLAGS) $(FLAGS_CXX_$<) $(CPPFLAGS) -c -o $@ $<
+# -----------
+# EXT: .adb
+# -----------
+# TODO, temporary workaround: on first build, 'gnatmake -M' (generates ada dependency files)
+#       might not work, then, if the .d file is empty, restore default dependencies (headers, ...).
+.adb.o .ads.o:
+	$(GNATC) $(ADAFLAGS) $(FLAGS_ADA_$<) $(CPPFLAGS) -c -o $@ $<
+	@$(GNATMAKE) -c -gnats -M $(ADAFLAGS) $(FLAGS_ADA_$<) $(CPPFLAGS) -o $@ $< > $(@:.o=.d).tmp; \
+	 $(TEST) -s "$(@:.o=.d).tmp" && $(MV) "$(@:.o=.d).tmp" "$(@:.o=.d)" || $(RM) -f "$(@:.o=.d).tmp"
+
+#$(BUILDDIR)/%.o: $(SRCDIR)/%.adb
+#	$(GNATC) $(ADAFLAGS) $(FLAGS_ADA_$<) $(CPPFLAGS) -c -o $@ $<
+.o.ali:
+	@true
+.adb.h:
+	@true
+# -----------
+# EXT: .ads  TODO, .h.ads files not part of INCLUDES or OBJ then .h.ads generation is never done.
+#            TODO: gc- fdump-ada-spec changes '-' into '_' and puts all in lower case.
+# -----------
+# generates .ads files importing c symbols from a h header file.
+.h_h.ads .hh_hh.ads:
+	$(CC) -fdump-ada-spec -o $@ $<
+# -----------
+# _ada-stub_
+# -----------
+$(ADAOBJ:.o=.adb): $(ADAALI)
+	@case '$(FOREIGN_MAIN)' in *.adb) arg=;; *) arg="-n";; esac; \
+	 cmd="$(GNATBIND) -shared $${arg} $(FLAGS_ADA_$@) -o $@ $(ADAALI)"; \
+	 $(PRINTF) -- "$${cmd}\n"; $${cmd}
 # -----------
 # EXT: .java
 # -----------
@@ -1084,9 +1165,10 @@ update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 	     $(PRINTF) "%s\n" "#define BUILD_APPNAME \"\"" "#define BUILD_NUMBER $${build}" "#define BUILD_PREFIX \"\"" \
 	       "#define BUILD_GITREV \"\"" "#define BUILD_GITREVFULL \"\"" "#define BUILD_GITREMOTE \"\"" \
 	       "#define BUILD_APPRELEASE \"\"" "#define BUILD_SYSNAME \"\"" "#define BUILD_SYS_unknown" \
+	       '#define BUILD_FOREIGN_MAIN 0' '#define BUILD_JAVA_MAIN 0' '#define BUILD_ADA_MAIN 0' \
 	       "#define BUILD_MAKE \"\"" "#define BUILD_CC_CMD \"\"" "#define BUILD_CXX_CMD \"\"" "#define BUILD_OBJC_CMD \"\"" \
-	       "#define BUILD_GCJ_CMD \"\"" "#define BUILD_CCLD_CMD \"\"" "#define BUILD_SRCPATH \"\"" \
-	       "#define BUILD_JAVAOBJ 0" "#define BUILD_JAR 0" "#define BUILD_BIN 0" "#define BUILD_LIB 0" \
+	       "#define BUILD_GCJ_CMD \"\"" '#define BUILD_GNATC_CMD ""' "#define BUILD_CCLD_CMD \"\"" "#define BUILD_SRCPATH \"\"" \
+	       "#define BUILD_JAVAOBJ 0" '#define BUILD_GNAT 0' "#define BUILD_JAR 0" "#define BUILD_BIN 0" "#define BUILD_LIB 0" \
 	       "#define BUILD_YACC 0" "#define BUILD_LEX 0" "#define BUILD_BISON3 0" "#define BUILD_CONFIG_CHECK \"\"" \
 	       "#include \"$(CONFIGINC)\"" "#include <stdio.h>" "#ifdef __cplusplus" "extern \"C\" " "#endif" \
 	       "int $(NAME)_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx);" >> $(BUILDINC); \
@@ -1107,6 +1189,10 @@ update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 	 $(TEST) -n "$(LEX)" && lex=1 || lex=0; \
 	 $(TEST) -n "$(BISON3)" && bison3=1 || bison3=0; \
 	 $(TEST) -n "$(SRCINC)" && appsource=true || appsource=false; \
+	 foreign_main=0; java_main=0; ada_main=0; $(TEST) -n "$(FOREIGN_MAIN)" \
+	     && case " $(SRC) $(JAVASRC) " in *" $(FOREIGN_MAIN) "*) foreign_main=1; \
+	         case "$(FOREIGN_MAIN)" in *.adb) ada_main=1;; *.java) java_main=1;; esac;; esac; \
+	 gnat=0; $(TEST) -x "$(GNAT)" && case " $(SRC) " in *" "*".adb "*) gnat=1;; esac || true; \
 	 $(cmd_HAVEVLIB) && vlib=1 || vlib=0; \
 	 if $(SED) -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREV[[:space:]]\).*|\1$${gitrev}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GITREVFULL[[:space:]]\).*|\1$${fullgitrev}|" \
@@ -1122,11 +1208,16 @@ update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_CXX_CMD[[:space:]]\).*|\1\"$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_OBJC_CMD[[:space:]]\).*|\1\"$(OBJC) $(OBJCFLAGS) $(CPPFLAGS) -c\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GCJ_CMD[[:space:]]\).*|\1\"$(GCJ) $(JFLAGS) -c\"|" \
+	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GNATC_CMD[[:space:]]\).*|\1\"$(GNATC) $(ADAFLAGS) $(CPPFLAGS) -c\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_CCLD_CMD[[:space:]]\).*|\1\"$(CCLD) $(LDFLAGS)\"|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_JAVAOBJ[[:space:]]\).*|\1$${javaobj}|" \
+	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_GNAT[[:space:]]\).*|\1$${gnat}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_JAR[[:space:]]\).*|\1$${jar}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_BIN[[:space:]]\).*|\1$${bin}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_LIB[[:space:]]\).*|\1$${lib}|" \
+	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_FOREIGN_MAIN[[:space:]]\).*|\1$${foreign_main}|" \
+	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_JAVA_MAIN[[:space:]]\).*|\1$${java_main}|" \
+	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_ADA_MAIN[[:space:]]\).*|\1$${ada_main}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_YACC[[:space:]]\).*|\1$${yacc}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_LEX[[:space:]]\).*|\1$${lex}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_BISON3[[:space:]]\).*|\1$${bison3}|" \
@@ -1375,7 +1466,7 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile
 	            `$(TEST) -n "$(BIN)" && echo "$(BIN)" "$(BIN).dSYM" "$(BIN).core" "core" "core.[0-9]*[0-9]" || true` \
 	            `echo "$(FLEXLEXER_LNK)" | $(SED) -e 's|^\./||' || true`; do \
 	       $(TEST) -n "$${f}" && $(PRINTF) "/$${f}\n" | $(SED) -e 's|^/\./|/|' || true; done; \
-	       for f in $${build} '*.o' '*.d' '*.class' '*~' '.*.sw?' '/valgrind_*.log'; do $(PRINTF) "$${f}\n"; done; \
+	       for f in $${build} '*.o' '*.d' '*.class' '*~' '.*.sw?' '/valgrind_*.log' '*.ali' '$(ADAOBJ:.o=).ad[bs]'; do $(PRINTF) "$${f}\n"; done; \
 	 } | $(SORT) | $(UNIQ) > .gitignore
 
 gentags: $(CLANGCOMPLETE)
@@ -1486,6 +1577,8 @@ help: $(CONFIGMAKE)
 	  "  CXX          [$(CXX)]" \
 	  "  OBJC         [$(OBJC)]" \
 	  "  GCJ          [$(GCJ)]" \
+	  "  GNAT         [$(GNAT)]" \
+	  "  CCLD         [$(CCLD)]" \
 	  "  MACROS       [$(MACROS)]" \
 	  "  OPTI         [$(OPTI)]" \
 	  "  WARN         [$(WARN)]" \
@@ -1497,6 +1590,7 @@ help: $(CONFIGMAKE)
 	  "  FLAGS_CXX    [$(FLAGS_CXX)]" \
 	  "  FLAGS_OBJC   [$(FLAGS_OBJC)]" \
 	  "  FLAGS_GCJ    [$(FLAGS_GCJ)]" \
+	  "  FLAGS_ADA    [$(FLAGS_ADA)]" \
 	  "  ..." \
 	  "  to disable propagation to sub-makes: '<make> <variable>=<value> MAKEFLAGS='" \
 	  "  for a specific subdir: '<make> <subdir-path>-{build,test,debug,check,clean,distclean,...}'" \
@@ -1526,8 +1620,8 @@ help: $(CONFIGMAKE)
 	  "  PREFIX         [$(PREFIX)]" \
 	  "  INSTALL_FILES  [$(INSTALL_FILES)]" \
 	  "" \
-	  "make check" \
-	  "  CHECK_RUN      ["; $(PRINTF) -- '$(CHECK_RUN:S/'/'"'"'/g)$(subst ','"'"',$(CHECK_RUN))]\n'; \
+	  "make check"; \
+	  $(PRINTF) -- '  CHECK_RUN      [$(CHECK_RUN:S/'/'"'"'/g)$(subst ','"'"',$(CHECK_RUN))]\n'; \
 	  $(PRINTF) '%s\n' \
 	  "" \
 	  "make .gitignore" \
@@ -1555,8 +1649,11 @@ info: $(CONFIGMAKE)
 	  "CC               : $(CC)  [`$(CC) --version $(NO_STDERR) | $(HEADN1)`]" \
 	  "CXX              : $(CXX)  [`$(CXX) --version $(NO_STDERR) | $(HEADN1)`]" \
 	  "OBJC             : $(OBJC)" \
-	  "GCJ              : $(GCJ)  [`$(GCJ) --version $(NO_STDERR) | $(HEADN1)`]" \
+	  "GCJ              : $(GCJ)  [`$(GCJ) --version $(NO_STDERR) | $(HEADN1) || true`]" \
 	  "GCJH             : $(GCJH)" \
+	  "GNAT             : $(GNAT)  [`$(GNAT) --version $(NO_STDERR) | $(HEADN1) || true`]" \
+	  "GNATC            : $(GNAT)  [`$(GNATC) --version $(NO_STDERR) | $(HEADN1) || true`]" \
+	  "GNATBIND         : $(GNAT)  [`$(GNATBIND) --version $(NO_STDERR) | $(HEADN1) || true`]" \
 	  "CPP              : $(CPP)" \
 	  "CCLD             : $(CCLD)" \
 	  "YACC             : $(YACC)  [`$(YACC) --version $(NO_STDERR) | $(HEADN1) || $(YACC) -V $(NO_STDERR) | $(HEADN1)`]" \
@@ -1566,6 +1663,7 @@ info: $(CONFIGMAKE)
 	  "CXXFLAGS         : $(CXXFLAGS)" \
 	  "OBJCFLAGS        : $(OBJCFLAGS)" \
 	  "JFLAGS           : $(JFLAGS)" \
+	  "ADAFLAGS         : $(ADAFLAGS)" \
 	  "CPPFLAGS         : $(CPPFLAGS)" \
 	  "LDFLAGS          : $(LDFLAGS)" \
 	  "YFLAGS           : $(YFLAGS)" \
