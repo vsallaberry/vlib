@@ -953,7 +953,7 @@ $(CLASSES): $(CONFIG_OBJDEPS)
 # -----------
 # generates .ads files importing c symbols from a h header file.
 .h_h.ads .hh_hh.ads:
-	$(CC) -fdump-ada-spec -o $@ $<
+	if $(TEST) -x "$(GNAT)"; then $(CC) -fdump-ada-spec -o $@ $< ; fi
 # -----------
 # _ada-stub_
 # -----------
