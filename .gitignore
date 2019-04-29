@@ -1,3 +1,4 @@
+*.ali
 *.class
 *.d
 *.o
@@ -16,3 +17,4 @@
 /src/_src_.c
 /src/_src_.z.c
 /valgrind_*.log
+src/_ada-stub_.ad[bs]
