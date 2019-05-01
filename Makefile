@@ -71,7 +71,7 @@ JAR		=
 # When FOREIGN_MAIN is not empty, the MACRO BUILD_FOREIGN_MAIN is ON in build.h.
 #FOREIGN_MAIN	= adamain.adb
 #FOREIGN_MAIN	= JMain.java
-FOREIGN_MAIN	=
+FOREIGN_MAIN	?=
 
 # DISTDIR: where the dist packages zip/tar.xz are saved
 DISTDIR		= ../../dist
@@ -557,7 +557,7 @@ sys_DEBUG	= $(DEBUG_$(SYSDEP_SUF))
 cmd_CPPFLAGS	= srcpref=; srcdirs=; $(cmd_TESTBSDOBJ) && srcpref="$(.CURDIR:Q)/" && srcdirs="$${srcpref} $${srcpref}$(SRCDIR)"; \
 		  sep=; incpref=; incs=; for dir in . $(SRCDIR) $(BUILDDIR) $${srcdirs} : $(INCDIRS); do \
                       test -z "$${sep}" -a -n "$${incs}" && sep=" " || true; \
-		      test "$${dir}" = ":" && incpref=$${srcpref} && continue || true; \
+		      test "$${dir}" = ":" && incpref="$${srcpref}" && continue || true; \
 		      case " $${incs} " in *" -I$${incpref}$${dir} "*) ;; *) incs="$${incs}$${sep}-I$${incpref}$${dir}";; esac; \
 		  done; echo "$${incs}"
 tmp_CPPFLAGS	!= $(cmd_CPPFLAGS)
@@ -573,7 +573,9 @@ JFLAGS		= $(FLAGS_GCJ) $(FLAGS_COMMON) -I$(BUILDDIR)
 JHFLAGS		= -I$(BUILDDIR)
 ADAFLAGS	= -MMD $(FLAGS_ADA) $(FLAGS_COMMON)
 LIBFORGCJ$(GCJ)	= -lstdc++
-MAINFORGCJ$(GCJ)$(FOREIGN_MAIN:.java=).java	= --main=$(FOREIGN_MAIN:.java=)
+FOREIGNMAINNOJAVAEXT	:= $(FOREIGN_MAIN:.java=)
+FOREIGNMAINJAVAEXT	:= $(FOREIGNMAINNOJAVAEXT).java
+MAINFORGCJ$(GCJ)$(FOREIGNMAINJAVAEXT)	:= --main=$(FOREIGNMAINNOJAVAEXT)
 LDFLAGS		= $(ARCH) $(OPTI) $(LIBS) $(LIBFORGCJ$(CCLD)) $(MAINFORGCJ$(CCLD)$(FOREIGN_MAIN))
 ARFLAGS		= r
 LFLAGS		=
