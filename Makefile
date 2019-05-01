@@ -428,7 +428,7 @@ JCNISRC		:= $(JAVASRC:.java=.cc)
 GENINC		:= $(GENINC) $(JCNIINC)
 CLASSES		:= $(JAVASRC:.java=.class)
 # JABAOBJ the .o file containing Java code
-JAVAOBJNAME	:= Java.o
+JAVAOBJNAME	:= _Java_.o
 JAVAOBJ$(BUILDDIR) := $(BUILDDIR)/$(JAVAOBJNAME)
 JAVAOBJ.	:= $(JAVAOBJNAME)
 JAVAOBJ		:= $(JAVAOBJ$(BUILDDIR))
@@ -494,7 +494,7 @@ tmp_SRC		:= $(tmp_SRC) $(ADASRC)
 SRC		:= $(tmp_SRC) $(GENSRC)
 
 # OBJ variable computed from SRC, replacing SRCDIR by BUILDDIR and extension by .o
-# Add Java.o if BIN, GCJ and JAVASRC are defined.
+# Add _Java_.o if BIN, GCJ and JAVASRC are defined.
 # Add _ada-stub_.o if GNAT is defined, and if there are ada sources.
 tmp_OBJ1	:= $(SRC:.m=.o)
 tmp_OBJ2	:= $(tmp_OBJ1:.mm=.o)
@@ -528,7 +528,7 @@ tmp_GCJH	!= $(cmd_GCJH)
 tmp_GCJH	?= $(shell $(cmd_GCJH))
 GCJH		:= $(tmp_GCJH)
 
-# CCLD: use $(GCJ) if Java.o, use $(CXX) if .cc,.cpp,.mm files, otherwise use $(CC).
+# CCLD: use $(GCJ) if _Java_.o, use $(CXX) if .cc,.cpp,.mm files, otherwise use $(CC).
 cmd_CCLD	= case " $(OBJ) $(SRC) " in *" $(JAVAOBJ) "*) echo "$(GCJ)";; \
 		                            *" "*".cpp "*|*" "*".cc "*|*" "*".mm "*) echo $(CXX);; *) echo $(CC) ;; esac
 tmp_CCLD	!= $(cmd_CCLD)
@@ -847,7 +847,7 @@ $(LIB): $(OBJ) $(SUBLIBS) $(JCNIINC)
 	$(RANLIB) $@
 	@$(PRINTF) "$@: build done.\n"
 
-# Build Java.o : $(JAVAOBJ)
+# Build _Java_.o : $(JAVAOBJ)
 $(CLASSES): $(JAVAOBJ)
 	@true # Used to override implicit rule .java.class:
 $(JAVAOBJ): $(JAVASRC)
