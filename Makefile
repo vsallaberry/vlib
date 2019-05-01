@@ -934,13 +934,19 @@ $(CLASSES): $(CONFIG_OBJDEPS)
 # -----------
 # EXT: .adb
 # -----------
-# TODO, temporary workaround: on first build, 'gnatmake -M' (generates ada dependency files)
+# TODO, temporary workaround: on first build, 'gnatmake -M' (generation of ada dependency files)
 #       might not work, then, if the .d file is empty, restore default dependencies (headers, ...).
-.adb.o .ads.o:
-	$(GNATC) $(ADAFLAGS) $(FLAGS_ADA_$<) $(CPPFLAGS) -c -o $@ $<
-	@$(GNATMAKE) -c -gnats -M $(ADAFLAGS) $(FLAGS_ADA_$<) $(CPPFLAGS) -o $@ $< > $(@:.o=.d).tmp; \
-	 $(TEST) -s "$(@:.o=.d).tmp" && $(MV) "$(@:.o=.d).tmp" "$(@:.o=.d)" || $(RM) -f "$(@:.o=.d).tmp"
-
+# TODO, temporary workaround 2: implicit rule .ads.o must not be used if there is corresponding .adb file.
+#                               That's why adb file is temporarily forced in .ads.o rule (maybe there is other way).
+GNATC_CMD	= $(GNATC) $(ADAFLAGS) $(FLAGS_ADA_$${input}) $(CPPFLAGS) -c -o $@ "$${input}"
+GNATC_DEP_CMD	= $(GNATMAKE) -c -gnats -M $(ADAFLAGS) $(FLAGS_ADA_$${input}) $(CPPFLAGS) -o $@ "$${input}" > $(@:.o=.d).tmp; \
+	 	  $(TEST) -s "$(@:.o=.d).tmp" && $(MV) "$(@:.o=.d).tmp" "$(@:.o=.d)" || $(RM) -f "$(@:.o=.d).tmp"
+.adb.o:
+	@input="$<"; $(PRINTF) "$(GNATC_CMD)\n"; $(GNATC_CMD) && \
+	$(GNATC_DEP_CMD)
+.ads.o:
+	@$(TEST) -e $(<:.ads=.adb) && input="$(<:.ads=.adb)" || input="$<"; $(PRINTF) "$(GNATC_CMD)\n"; \
+	 $(GNATC_CMD) && $(GNATC_DEP_CMD)
 #$(BUILDDIR)/%.o: $(SRCDIR)/%.adb
 #	$(GNATC) $(ADAFLAGS) $(FLAGS_ADA_$<) $(CPPFLAGS) -c -o $@ $<
 .o.ali:
@@ -949,7 +955,7 @@ $(CLASSES): $(CONFIG_OBJDEPS)
 	@true
 # -----------
 # EXT: .ads  TODO, .h.ads files not part of INCLUDES or OBJ then .h.ads generation is never done.
-#            TODO: gc- fdump-ada-spec changes '-' into '_' and puts all in lower case.
+#            TODO: gcc fdump-ada-spec changes '-' into '_' and puts all in lower case.
 # -----------
 # generates .ads files importing c symbols from a h header file.
 .h_h.ads .hh_hh.ads:
