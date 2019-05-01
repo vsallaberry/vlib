@@ -1671,8 +1671,9 @@ info: $(CONFIGMAKE)
 	  "GCJ              : $(GCJ)  [`$(GCJ) --version $(NO_STDERR) | $(HEADN1) || true`]" \
 	  "GCJH             : $(GCJH)" \
 	  "GNAT             : $(GNAT)  [`$(GNAT) --version $(NO_STDERR) | $(HEADN1) || true`]" \
-	  "GNATC            : $(GNAT)  [`$(GNATC) --version $(NO_STDERR) | $(HEADN1) || true`]" \
-	  "GNATBIND         : $(GNAT)  [`$(GNATBIND) --version $(NO_STDERR) | $(HEADN1) || true`]" \
+	  "GNATC            : $(GNATC)  [`$(GNATC) --version $(NO_STDERR) | $(HEADN1) || true`]" \
+	  "GNATBIND         : $(GNATBIND)  [`$(GNATBIND) --version $(NO_STDERR) | $(HEADN1) || true`]" \
+	  "GNATMAKE         : $(GNATMAKE)  [`$(GNATMAKE) --version $(NO_STDERR) | $(HEADN1) || true`]" \
 	  "CPP              : $(CPP)" \
 	  "CCLD             : $(CCLD)" \
 	  "YACC             : $(YACC)  [`$(YACC) --version $(NO_STDERR) | $(HEADN1) || $(YACC) -V $(NO_STDERR) | $(HEADN1)`]" \
