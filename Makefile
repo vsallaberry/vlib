@@ -314,8 +314,9 @@ cmd_LEX		= lex=`$(WHICH) $(LEX) flex lex $(NO_STDERR) | $(HEADN1)`; \
 		  && $(TEST) -e "$${flexinc}" \
 		  || { $(TEST) "$(UNAME_SYS)" = "darwin" \
 		       && otool -L "$${lex}" | $(GREP) -Eq 'libxcselect[^ ]*dylib' $(NO_STDERR) \
-		       && flexinc="`xcode-select -p $(NO_STDERR)`/Toolchains/Xcodedefault.xctoolchain/usr/include/$(FLEXLEXER_INC)" \
-		       && $(TEST) -e "$${flexinc}"; } \
+		       && xcodepath="`xcode-select -p $(NO_STDERR)`" \
+		       && for flexinc in "$${xcodepath}/usr/include/$(FLEXLEXER_INC)" "$${xcodepath}/Toolchains/Xcodedefault.xctoolchain/usr/include/$(FLEXLEXER_INC)"; do \
+		           $(TEST) -e "$${flexinc}" && break; done; } \
 		  && ! $(TEST) "$(FLEXLEXER_LNK)" -ef "$${flexinc}" \
 		       && $(PRINTF) -- "$(NAME): create link $(FLEXLEXER_LNK) -> $${flexinc}\n" $(STDOUT_TO_ERR) \
 		  && ln -sf "$${flexinc}" "$(FLEXLEXER_LNK)" $(NO_STDERR) && $(TEST) -e $(BUILDINC) && $(TOUCH) $(BUILDINC); \
