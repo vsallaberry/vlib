@@ -1189,7 +1189,7 @@ update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 	       "#define BUILD_MAKE \"\"" "#define BUILD_CC_CMD \"\"" "#define BUILD_CXX_CMD \"\"" "#define BUILD_OBJC_CMD \"\"" \
 	       "#define BUILD_GCJ_CMD \"\"" '#define BUILD_GNATC_CMD ""' "#define BUILD_CCLD_CMD \"\"" "#define BUILD_SRCPATH \"\"" \
 	       "#define BUILD_JAVAOBJ 0" '#define BUILD_GNAT 0' "#define BUILD_JAR 0" "#define BUILD_BIN 0" "#define BUILD_LIB 0" \
-	       "#define BUILD_YACC 0" "#define BUILD_LEX 0" "#define BUILD_BISON3 0" "#define BUILD_CONFIG_CHECK \"\"" \
+	       "#define BUILD_YACC 0" "#define BUILD_LEX 0" "#define BUILD_BISON3 0" "#define BUILD_VLIB 0" "#define BUILD_CONFIG_CHECK \"\"" \
 	       "#include \"$(CONFIGINC)\"" "#include <stdio.h>" "#ifdef __cplusplus" "extern \"C\" " "#endif" \
 	       "int $(NAME)_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx);" >> $(BUILDINC); \
 	 fi; \
