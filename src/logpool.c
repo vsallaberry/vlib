@@ -270,7 +270,7 @@ logpool_t *         logpool_create_from_cmdline(
             token[len] = 0;
             log.prefix = token;
         } else {
-            log.prefix = "*";
+            log.prefix = NULL;
         }
         LOG_DEBUG_BUF(g_vlib_log, token, len, "mod_name ");
 
