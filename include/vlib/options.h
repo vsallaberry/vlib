@@ -247,7 +247,7 @@ int vlib_get_source(FILE * out, char * buffer, unsigned int buffer_size, void **
  * Default version string, and copyright notice.
  */
 #define OPT_VERSION_STRING(app_name, app_version, revision) \
-    app_name " v" app_version " " BUILD_APPRELEASE " (build:" \
+    app_name " " app_version " " BUILD_APPRELEASE " (build:" \
     __DATE__ ", " __TIME__ " " revision ")"
 
 #define OPT_LICENSE_GPL(author, copyright, gplver_s, gplver_l ) \
