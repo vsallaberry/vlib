@@ -36,6 +36,7 @@
 #include "vlib/options.h"
 #include "vlib/util.h"
 #include "vlib/log.h"
+#include "vlib/thread.h"
 
 #include "version.h"
 #include "vlib_private.h"
@@ -611,6 +612,9 @@ int opt_parse_options(opt_config_t * opt_config) {
         return opt_error(OPT_ERROR(OPT_EFAULT), opt_config, 0,
                          "%s/%s(): opt_config or opt_desc or argv is NULL!\n", __FILE__, __func__);
     }
+
+    /* initialize valgrind detection */
+    vlib_thread_valgrind(opt_config->argc, argv);
 
     /* Analysing each argument of commandline. */
     for(int i_argv = 1, stop_options = 0; i_argv < opt_config->argc; i_argv++) {
