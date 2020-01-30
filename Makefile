@@ -250,6 +250,7 @@ ALLMAKEFILES	:= Makefile $(CONFIGMAKE)
 SRCINCDIR	= $(BUILDDIR)
 SRCINC_STR	= $(SRCINCDIR)/_src_.c
 SRCINC_Z	= $(SRCINCDIR)/_src_.z.c
+cmd_NAME_FIXED	= echo "$(NAME)" | $(SED) -e "s|[$(DASH)\"%+*/:=;,.'[:space:]-]|_|g"
 
 # Get Debug/Test mode in build.h
 WARN_TEST	= $(WARN_RELEASE)
@@ -1102,9 +1103,10 @@ $(SRCINC_STR): $(SRCINC_CONTENT)
 		       printblk(); print "NULL };\n" \
 	           }' $${input} >> '$@'; \
 	     print_getsrc_fun() { \
+	         name_fixed=`$(cmd_NAME_FIXED)`; \
 	         $(PRINTF) "%s\n" \
 	            '# ifndef BUILD_VLIB' '#  define BUILD_VLIB 0' ' #endif' '# if BUILD_VLIB' '#  include "vlib/util.h"' '# endif' \
-	            'int $(NAME)_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx) {' \
+	            'int $${name_fixed}_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx) {' \
 	            '# if defined(BUILD_VLIB) && BUILD_VLIB' \
 	            '    return vdecode_buffer(out, buffer, buffer_size, ctx, (const char *)s_program_source, sizeof(s_program_source));' \
 	            '# else' \
@@ -1138,8 +1140,9 @@ $(SRCINC_Z): $(SRCINC_CONTENT)
 	     cat "$${f}"; \
 	     done; }; dumpsrc | $(GZIP) -c | $(OD) -An -tuC | $(SED) -e 's/[[:space:]][[:space:]]*0*\([0-9][0-9]*\)/\1,/g' >> '$@'; \
 	 sha=`$(WHICH) shasum sha256 sha256sum $(NO_STDERR) | $(HEADN1)`; case "$${sha}" in */shasum) sha="$${sha} -a256";; esac; \
+	 name_fixed=`$(cmd_NAME_FIXED)`; \
 	 $(PRINTF) "%s\n" "};" "static const char * s_program_hash = \"`dumpsrc | $${sha} | $(AWK) '{ print $$1; }'`\";" \
-	     "int $(NAME)_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx) {" \
+	     "int $${name_fixed}_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx) {" \
 	     "    (void) s_program_hash;" \
 	     "    return vdecode_buffer(out, buffer, buffer_size, ctx, (const char *) s_program_source, sizeof(s_program_source));" \
 	     "} /* ##ZSRC_END */" \
@@ -1178,10 +1181,11 @@ update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 	@if ! $(cmd_CONFIGMAKE_INCLUDED); then true; else \
 	 if $(cmd_TESTBSDOBJ); then ln -sf "$(.OBJDIR)/$(BUILDINC)" "$(.CURDIR)"; ln -sf "$(.OBJDIR)/$(BUILDINCJAVA)" "$(.CURDIR)"; \
 	 else $(TEST) -L $(BUILDINC) && $(RM) $(BUILDINC); $(TEST) -L $(BUILDINCJAVA) && $(RM) $(BUILDINCJAVA) || true; fi; \
+	 name_fixed=`$(cmd_NAME_FIXED)`; \
 	 if ! $(TEST) -e $(BUILDINC); then \
 	     echo "$(NAME): create $(BUILDINC)"; \
 	     $(cmd_TESTBSDOBJ) && ! $(TEST) -e "$(VERSIONINC)" && ln -sf "$(.CURDIR)/$(VERSIONINC)" .; \
-	     build=`$(SED) -n -e 's/^[[:space:]]*#define[[:space:]]APP_BUILD_NUMBER[[:space:]][[:space:]]*\([0-9][0-9]*\).*/\1/p' $(VERSIONINC)`; \
+	     build=`$(SED) -n -e 's/^[[:space:]]*#[[:space:]]*define[[:space:]]APP_BUILD_NUMBER[[:space:]][[:space:]]*\([0-9][0-9]*\).*/\1/p' $(VERSIONINC)`; \
 	     $(PRINTF) "%s\n" "#define BUILD_APPNAME \"\"" "#define BUILD_NUMBER $${build}" "#define BUILD_PREFIX \"\"" \
 	       "#define BUILD_GITREV \"\"" "#define BUILD_GITREVFULL \"\"" "#define BUILD_GITREMOTE \"\"" \
 	       "#define BUILD_APPRELEASE \"\"" "#define BUILD_SYSNAME \"\"" "#define BUILD_SYS_unknown" \
@@ -1191,7 +1195,7 @@ update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 	       "#define BUILD_JAVAOBJ 0" '#define BUILD_GNAT 0' "#define BUILD_JAR 0" "#define BUILD_BIN 0" "#define BUILD_LIB 0" \
 	       "#define BUILD_YACC 0" "#define BUILD_LEX 0" "#define BUILD_BISON3 0" "#define BUILD_VLIB 0" "#define BUILD_CONFIG_CHECK \"\"" \
 	       "#include \"$(CONFIGINC)\"" "#include <stdio.h>" "#ifdef __cplusplus" "extern \"C\" " "#endif" \
-	       "int $(NAME)_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx);" >> $(BUILDINC); \
+	       "int $${name_fixed}_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx);" >> $(BUILDINC); \
 	 fi; \
 	 if gitstatus=`$(GIT) status --untracked-files=no --ignore-submodules=untracked --short --porcelain $(NO_STDERR)`; then \
 	     i=0; for rev in `$(GIT) show --quiet --ignore-submodules=untracked --format="%h %H" HEAD $(NO_STDERR)`; do \
@@ -1243,6 +1247,7 @@ update-$(BUILDINC): $(CONFIGMAKE) $(VERSIONINC) .EXEC
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_BISON3[[:space:]]\).*|\1$${bison3}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_VLIB[[:space:]]\).*|\1$${vlib}|" \
 	        -e "s|^\([[:space:]]*#define[[:space:]][[:space:]]*BUILD_CONFIG_CHECK[[:space:]]\).*|\1\"$(CONFIG_CHECK)\"|" \
+	        -e "s|^\(.*[[:space:]]\)[[:space:]]*.*\(_get_source[[:space:]]*(.*\)|\1$${name_fixed}\2|" \
 	        $(BUILDINC) > $(BUILDINC).tmp \
 	 ; then \
 	    if $(DIFF) -q $(BUILDINC) $(BUILDINC).tmp $(NO_STDOUT); then $(RM) $(BUILDINC).tmp; \
@@ -1479,7 +1484,8 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile
 	$${ret}; fi
 
 .gitignore:
-	@$(cmd_TESTBSDOBJ) && cd $(.CURDIR) && build=`echo $(.OBJDIR) | $(SED) -e 's|^$(.CURDIR)||'`/ || build=; \
+	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
+	 $(cmd_TESTBSDOBJ) && cd $(.CURDIR) && build=`echo $(.OBJDIR) | $(SED) -e 's|^$(.CURDIR)||'`/ || build=; \
 	 { cat .gitignore $(NO_STDERR); \
 	   for f in $(LIB) $(JAR) $(GENSRC) $(GENJAVA) $(GENINC) $(SRCINC_Z) $(SRCINC_STR) $(CONFIGMAKE_REC_FILE) \
 	            $(BUILDINC) $(BUILDINCJAVA) $(CLANGCOMPLETE) $(CONFIGLOG) $(CONFIGMAKE) $(CONFIGINC) obj/ \
@@ -1487,7 +1493,7 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile
 	            `echo "$(FLEXLEXER_LNK)" | $(SED) -e 's|^\./||' || true`; do \
 	       $(TEST) -n "$${f}" && $(PRINTF) "/$${f}\n" | $(SED) -e 's|^/\./|/|' || true; done; \
 	       for f in $${build} '*.o' '*.d' '*.class' '*~' '.*.sw?' '/valgrind_*.log' '*.ali' '$(ADAOBJ:.o=).ad[bs]'; do $(PRINTF) "$${f}\n"; done; \
-	 } | $(SORT) | $(UNIQ) > .gitignore
+	 } | $(SORT) | $(UNIQ) > .gitignore; fi
 
 gentags: $(CLANGCOMPLETE)
 # CLANGCOMPLETE rule: !FIXME to be cleaned
@@ -1698,6 +1704,7 @@ info: $(CONFIGMAKE)
 	  "BUILDDIR         : $(BUILDDIR)" \
 	  "PREFIX           : $(PREFIX)" \
 	  "CONFIG_CHECK     : $(CONFIG_CHECK)" \
+	  "SUBMODROOTDIR    : $(SUBMODROOTDIR)" \
 	  "BIN              : $(BIN)" \
 	  "LIB              : $(LIB)" \
 	  "METASRC          : $(METASRC)" \
