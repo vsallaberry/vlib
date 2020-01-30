@@ -1106,7 +1106,7 @@ $(SRCINC_STR): $(SRCINC_CONTENT)
 	         name_fixed=`$(cmd_NAME_FIXED)`; \
 	         $(PRINTF) "%s\n" \
 	            '# ifndef BUILD_VLIB' '#  define BUILD_VLIB 0' ' #endif' '# if BUILD_VLIB' '#  include "vlib/util.h"' '# endif' \
-	            'int $${name_fixed}_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx) {' \
+	            "int $${name_fixed}_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx) {" \
 	            '# if defined(BUILD_VLIB) && BUILD_VLIB' \
 	            '    return vdecode_buffer(out, buffer, buffer_size, ctx, (const char *)s_program_source, sizeof(s_program_source));' \
 	            '# else' \
