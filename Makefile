@@ -1483,7 +1483,7 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile
 	$(cmd_TESTBSDOBJ) && cd $(.OBJDIR) || true; $(TOUCH) '$(CONFIGMAKE_REC_FILE)'; \
 	$${ret}; fi
 
-.gitignore:
+.gitignore: $(CONFIGMAKE)
 	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
 	 $(cmd_TESTBSDOBJ) && cd $(.CURDIR) && build=`echo $(.OBJDIR) | $(SED) -e 's|^$(.CURDIR)||'`/ || build=; \
 	 { cat .gitignore $(NO_STDERR); \
