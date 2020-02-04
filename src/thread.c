@@ -375,8 +375,6 @@ ssize_t                 vlib_thread_pipe_write(
                             void *                      data,
                             size_t                      size) {
     vlib_thread_priv_t *    priv = vthread ? vthread->priv : NULL;
-    int                     locked = 0;
-    ssize_t                 ret;
 
     /* sanity checks */
     if (priv == NULL) {
@@ -384,15 +382,16 @@ ssize_t                 vlib_thread_pipe_write(
         return -1;
     }
     /* checks whether the size exceeds PIPE_BUF */
-    if (size > PIPE_BUF) {
+    if (size <= PIPE_BUF) {
+        return write(pipe_fdout, data, size);
+    } else {
+        ssize_t                 ret;
+
         pthread_mutex_lock(&priv->mutex);
-        locked = 1;
-    }
-    ret = write(pipe_fdout, data, size);
-    if (locked) {
+        ret = write(pipe_fdout, data, size);
         pthread_mutex_unlock(&priv->mutex);
+        return ret;
     }
-    return ret;
 }
 
 /*****************************************************************************/
