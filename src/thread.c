@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Vincent Sallaberry
+ * Copyright (C) 2018-2020 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -668,7 +668,8 @@ static void vlib_thread_ctx_destroy(vlib_thread_t * vthread) {
 }
 
 /*****************************************************************************/
-/** signal the running thread about configuration change */
+/** signal the running thread about configuration change
+ * must be called under lock */
 static int vlib_thread_notify(vlib_thread_t * vthread) {
     vlib_thread_priv_t * priv = vthread->priv;
 
