@@ -652,15 +652,16 @@ MANIFEST$(CONFIG_OBJDEPS):=
 
 ############################################################################################
 # SRCINC containing source code is included if APP_INCLUDE_SOURCE is defined in VERSIONINC.
-# SRCINC_Z (compressed) is used if zlib.h,vlib,gzip,od are present, otherwise SRCINC_STR is used.
+# SRCINC_Z (compressed) is used if libz,zlib.h,gzip,od are present, otherwise SRCINC_STR is used.
 # TODO: removing heading './' (| $(SED) -e 's|^\./||') causes issues with bsd make
 cmd_HAVEVLIB	= case " $(INCLUDES) " in *"include/vlib/avltree.h "*) true ;; *) false ;; esac
-cmd_HAVEZLIB	= $(TEST) -n '$(CONFIG_ZLIB)'
+cmd_HAVEZLIBH	= $(TEST) '$(CONFIG_ZLIB_H_FOUND)' = "1"
+cmd_HAVEZLIB	= $(TEST) '$(CONFIG_ZLIB_FOUND)' = "1"
 cmd_SRCINC	= $(cmd_FINDBSDOBJ); if $(TEST) "$(SINCLUDEDEPS)" != "$(VERSIONINC)"; then \
 		    { ! $(TEST) -e $(VERSIONINC) \
 		      || $(GREP) -Eq '^[[:space:]]*\#[[:space:]]*define[[:space:]][[:space:]]*APP_INCLUDE_SOURCE([[:space:]]|$$)' \
 		               $(VERSIONINC) $(NO_STDERR); } \
-		    && { $(cmd_HAVEVLIB) && $(cmd_HAVEZLIB) \
+		    && { $(cmd_HAVEZLIBH) && $(cmd_HAVEZLIB) \
 		              && $(TEST) -x "`$(WHICH) \"$(OD)\" | $(HEADN1) $(NO_STDERR)`" \
 		                      -a -x "`$(WHICH) \"$(GZIP)\" | $(HEADN1) $(NO_STDERR)`" \
 		              && echo $(SRCINC_Z) || echo $(SRCINC_STR); } || true; fi
@@ -1121,19 +1122,54 @@ $(SRCINC_STR): $(SRCINC_CONTENT)
 				     '    "cannot include source. check awk version or antivirus or bug\n", NULL' \
 				     '};' > '$@'; print_getsrc_fun; }
 
+VDECODEBUFFER_SOURCE= \
+	"typedef struct { z_stream z; size_t off; } decodebuf_t; /* $(DASH)$(DASH)ZSRC_BEGIN */" \
+	"ssize_t vdecode_buffer(FILE * out, char * outbuf, size_t outbufsz, void ** ctx, const char * inbuf, size_t inbufsz) {" \
+	"    int             internalbuf = 0, ret = Z_DATA_ERROR;" \
+	"    ssize_t         n = 0;" \
+	"    decodebuf_t *   pctx = ctx ? *ctx : NULL;" \
+	"    if (outbuf == NULL) {" \
+	"       if (out == NULL || (outbuf = malloc((internalbuf = outbufsz = 4096))) == NULL) return -1; /* cannot use internal if no file given */" \
+	"    } else if (ctx == NULL || outbufsz == 0) return -1; /* fail if giving a buf with size 0 or without ctx */" \
+	"    if (pctx == NULL) { /* init inflate stream */" \
+	"        if ((pctx = malloc(sizeof(decodebuf_t))) == NULL) { if (internalbuf) free(outbuf); return -1; }" \
+	"        pctx->z.next_in = Z_NULL; pctx->z.zalloc = Z_NULL; pctx->z.zfree = Z_NULL; pctx->z.opaque = Z_NULL;" \
+	"        pctx->z.avail_in = 0; pctx->off = 0;" \
+	"        if ((ret = inflateInit2(&pctx->z, 31/*15(max_window)+16(gzip)*/)) != Z_OK) { if(pctx) free(pctx);if(internalbuf) free(outbuf); return -1; }" \
+	"        if (ctx != NULL) *ctx = pctx;" \
+	"    }" \
+	"    do { /* decompress buffer */" \
+	"        if (pctx->z.avail_in == 0 && pctx->off < inbufsz) {" \
+	"            pctx->z.avail_in = pctx->off + outbufsz > inbufsz ? inbufsz - pctx->off : outbufsz;" \
+	"            pctx->z.next_in = (Bytef*) inbuf + pctx->off; pctx->off += outbufsz;" \
+	"        }" \
+	"        pctx->z.avail_out = outbufsz; pctx->z.next_out = (Bytef*) outbuf;" \
+	"        if ((ret = inflate(&pctx->z, Z_NO_FLUSH)) != Z_OK && ret != Z_STREAM_END) break ;" \
+	"        n = outbufsz - pctx->z.avail_out;" \
+	"        if (n > 0 && out && (fwrite(outbuf, 1, n, out) != (size_t)n || ferror(out)) && ((ret = Z_STREAM_ERROR) || 1)) break ;" \
+	"    } while (ret != Z_STREAM_END && (internalbuf || (ret == Z_OK && n == 0)));" \
+	"    if (internalbuf) { free(outbuf); n = 0; }" \
+	"    if (n <= 0 || (ret != Z_OK && ret != Z_STREAM_END)) { /* last call */" \
+	"        inflateEnd(&pctx->z); free(pctx);" \
+	"        if (ctx) *ctx = NULL;" \
+	"    }" \
+	"    return ret == Z_OK || ret == Z_STREAM_END ? n : -1;" \
+	"} /* $(DASH)$(DASH)ZSRC_END */"
+
 $(SRCINC_Z): $(SRCINC_CONTENT)
 	@# Generate $(SRCINC) containing all sources.
 	@$(PRINTF) "$(NAME): generate $@\n"
 	@$(MKDIR) -p "$(@D)"
 	@$(cmd_TESTBSDOBJ) && input="$>" || input="$(SRCINC_CONTENT)"; \
 	 $(PRINTF) "%s\n" "/* generated content */" \
-	                  "#include <stdlib.h>" \
-	                  "#include <stdio.h>" \
-	                  "#include <vlib/util.h>" \
-	                  "#include \"$(VERSIONINC)\"" \
+	                  "#ifdef HAVE_VERSION_H" "# include \"$(VERSIONINC)\"" "#endif" \
 	                  "#ifdef APP_INCLUDE_SOURCE" \
+	                  "# include <stdlib.h>" "# include <stdio.h>" \
+	                  "# ifndef BUILD_VLIB" "#  define BUILD_VLIB 0" "# endif" \
+	                  "# if BUILD_VLIB" "#  include <vlib/util.h>" \
+	                  "# else" "#  include <zlib.h>" "# endif" \
 	                  "static const unsigned char s_program_source[] = {" \
-	    > $@ ; \
+	    > '$@' ; \
 	 dumpsrc() { for f in $${input}; do \
 	     $(cmd_TESTBSDOBJ) && fname=`echo "$${f}" | sed -e 's|^$(.CURDIR)/||' -e 's|^$(.OBJDIR)/||'` || fname=$${f}; \
 	     $(PRINTF) "\n/* #@@# FILE #@@# $(NAME)/$${fname} */\n"; \
@@ -1141,12 +1177,14 @@ $(SRCINC_Z): $(SRCINC_CONTENT)
 	     done; }; dumpsrc | $(GZIP) -c | $(OD) -An -tuC | $(SED) -e 's/[[:space:]][[:space:]]*0*\([0-9][0-9]*\)/\1,/g' >> '$@'; \
 	 sha=`$(WHICH) shasum sha256 sha256sum $(NO_STDERR) | $(HEADN1)`; case "$${sha}" in */shasum) sha="$${sha} -a256";; esac; \
 	 name_fixed=`$(cmd_NAME_FIXED)`; \
-	 $(PRINTF) "%s\n" "};" "static const char * s_program_hash = \"`dumpsrc | $${sha} | $(AWK) '{ print $$1; }'`\";" \
+	 { $(PRINTF) '%s\n' "};" "static const char * s_program_hash = \"`dumpsrc | $${sha} | $(AWK) '{ print $$1; }'`\";"; \
+	 $(cmd_HAVEVLIB) || $(PRINTF) '%s\n' $(VDECODEBUFFER_SOURCE); \
+	 $(PRINTF) '%s\n' \
 	     "int $${name_fixed}_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx) {" \
 	     "    (void) s_program_hash;" \
 	     "    return vdecode_buffer(out, buffer, buffer_size, ctx, (const char *) s_program_source, sizeof(s_program_source));" \
 	     "} /* ##ZSRC_END */" \
-	     "#endif" >> '$@'
+	     "#endif /* ! APP_INCLUDE_SOURCE */"; } >> '$@'
 
 $(LICENSE):
 	@$(cmd_TESTBSDOBJ) && $(TEST) -e "$(.CURDIR)/$@" || echo "$(NAME): create $@"
@@ -1384,13 +1422,13 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile
 	        if $(TEST) -n "$${conf}"; then \
 	            $(GREP) -Ev '^[[:space:]]*$(DASH)[[:space:]]*define[[:space:]][[:space:]]*'"$${conf}"'[[:space:]]' \
 	                $(CONFIGINC) > "$${mytmpfile}"; $(MV) "$${mytmpfile}" "$(CONFIGINC)"; \
-	            $(GREP) -Ev '^[[:space:]]*'"$${conf}"'[[:space:]]*=' $(CONFIGMAKE) > "$${mytmpfile}"; \
+	            $(GREP) -Ev '^[[:space:]]*'"$${conf}"'(_FOUND)?[[:space:]]*=' $(CONFIGMAKE) > "$${mytmpfile}"; \
 	            $(MV) "$${mytmpfile}" "$(CONFIGMAKE)"; \
 	        fi; done; \
 	    $(TEST) -n "$${incconf}" && { $(PRINTF) "$(DASH)define $${incconf} $${support}\n" >> $(CONFIGINC); \
-	                                  $(PRINTF) "$${incconf}=$${incval}\n" >> $(CONFIGMAKE); }; \
+	                                  $(PRINTF) '%s\n' "$${incconf}_FOUND=$${support}" "$${incconf}=$${incval}" >> $(CONFIGMAKE); }; \
 	    $(TEST) -n "$${libconf}" && { $(PRINTF) "$(DASH)define $${libconf} $${support}\n" >> $(CONFIGINC); \
-	                                  $(PRINTF) "$${libconf}=$${libval}\n" >> $(CONFIGMAKE); }; \
+	                                  $(PRINTF) '%s\n' "$${libconf}_FOUND=$${support}" "$${libconf}=$${libval}" >> $(CONFIGMAKE); }; \
 	    return $${ret}; \
 	}; \
 	getldpaths() { \
