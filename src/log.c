@@ -89,6 +89,7 @@ static struct { log_flag_t flag; const char * name; } s_log_flag_str[] = {
     { LOG_FLAG_LOC_TAIL,    "LocTail" },
     { LOG_FLAG_LOC_ERR,     "LocErr" },
     { LOG_FLAG_ABS_TIME,    "AbsTime" },
+    { LOG_FLAG_COLOR,       "Color" },
 };
 #define LOG_FLAG_STR_NB (sizeof(s_log_flag_str) / sizeof(*s_log_flag_str))
 
