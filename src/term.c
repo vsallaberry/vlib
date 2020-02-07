@@ -37,6 +37,19 @@
 # define CONFIG_CURSES_H 0
 #endif
 #if CONFIG_CURSES
+# if ! CONFIG_CURSES_H || defined(VLIB_CURSESDL)
+/* link to libncurses but no header found. define symbols */
+#define bool char
+#  ifndef OK
+#   define OK 0
+#  endif
+#  ifndef TRUE
+#   define TRUE 1
+#  endif
+#  ifndef FALSE
+#   define FALSE 0
+#  endif
+# endif
 # ifdef VLIB_CURSESDL
    /* call ncurses via dlopen/dlsym */
 #  include <dlfcn.h>
@@ -50,18 +63,6 @@ int             tigetnum(char *);
 int             del_curterm(void *);
 extern void *   cur_term;
 bool            has_colors();
-# endif
-# if ! defined(CONFIG_CURSES_H) || defined(VLIB_CURSESDL)
-/* link to libncurses but no header found. define symbols */
-#  ifndef OK
-#   define OK 0
-#  endif
-#  ifndef TRUE
-#   define TRUE 1
-#  endif
-#  ifndef FALSE
-#   define FALSE 0
-#  endif
 # endif
 #endif
 /* END NCURSES includes */
