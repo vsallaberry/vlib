@@ -35,6 +35,7 @@
 #include "vlib/util.h"
 #include "vlib/hash.h"
 #include "vlib/options.h"
+#include "vlib/term.h"
 
 /** internal vlib log instance */
 static log_t s_vlib_log_default = {
@@ -55,16 +56,23 @@ static struct {
     char            datetime[LOG_DATETIME_SZ];
 } g_vlib_log_global_ctx = { .mutex = PTHREAD_MUTEX_INITIALIZER, .last_timet = 0 };
 
-/** internal log level strings (IN SAME ORDER as log_level_t) */
-static const char * s_log_levels_str[] = {
-    "---",
-    "ERR",
-    "WRN",
-    "INF",
-    "VER",
-    "DBG",
-    "SCR",
-    "+++"
+/** internal log level strings and colors (IN SAME ORDER as log_level_t) */
+static struct loglevel_info_s {
+    const char *    str;
+    vterm_color_t   colorfg;
+    vterm_color_t   colorbg; /* Not Supported : RFU */
+    vterm_color_t   style;
+    vterm_color_t   reset;
+    int             colorlen;
+} s_log_levels_info[] = {
+    { "---", VCOLOR_EMPTY,  VCOLOR_EMPTY, VCOLOR_EMPTY, VCOLOR_EMPTY, INT_MAX },
+    { "ERR", VCOLOR_RED,    VCOLOR_EMPTY, VCOLOR_BOLD,  VCOLOR_RESET, INT_MAX },
+    { "WRN", VCOLOR_YELLOW, VCOLOR_EMPTY, VCOLOR_EMPTY, VCOLOR_RESET, INT_MAX },
+    { "INF", VCOLOR_BLUE,   VCOLOR_EMPTY, VCOLOR_EMPTY, VCOLOR_RESET, INT_MAX },
+    { "VER", VCOLOR_EMPTY,  VCOLOR_EMPTY, VCOLOR_EMPTY, VCOLOR_EMPTY, INT_MAX },
+    { "DBG", VCOLOR_EMPTY,  VCOLOR_EMPTY, VCOLOR_EMPTY, VCOLOR_EMPTY, INT_MAX },
+    { "SCR", VCOLOR_EMPTY,  VCOLOR_EMPTY, VCOLOR_EMPTY, VCOLOR_EMPTY, INT_MAX },
+    { "+++", VCOLOR_EMPTY,  VCOLOR_EMPTY, VCOLOR_EMPTY, VCOLOR_EMPTY, INT_MAX }
 };
 
 /** internal log flags strings */
@@ -85,12 +93,12 @@ static struct { log_flag_t flag; const char * name; } s_log_flag_str[] = {
 #define LOG_FLAG_STR_NB (sizeof(s_log_flag_str) / sizeof(*s_log_flag_str))
 
 const char * log_level_name(log_level_t level) {
-    return s_log_levels_str[level > LOG_LVL_NB ? LOG_LVL_NB : level];
+    return s_log_levels_info[level > LOG_LVL_NB ? LOG_LVL_NB : level].str;
 }
 
 log_level_t log_level_from_name(const char * name) {
     for (int i = 0; i < LOG_LVL_NB; ++i) {
-        if (!strcasecmp(name, s_log_levels_str[i]))
+        if (!strcasecmp(name, s_log_levels_info[i].str))
             return i;
     }
     return LOG_LVL_NB;
@@ -128,7 +136,7 @@ int log_describe_option(char * buffer, int * size, const char *const* modules,
     n += (ret = snprintf(buffer + n, *size - n, "\nlevels : '")) > 0 ? ret : 0;
     for (int lvl = LOG_LVL_NONE; lvl < LOG_LVL_NB; ++lvl, *sep = ',') {
         n += (ret = snprintf(buffer + n, *size - n, "%s%d|%s",
-                    sep, lvl, s_log_levels_str[lvl])) > 0 ? ret : 0;
+                    sep, lvl, s_log_levels_info[lvl].str)) > 0 ? ret : 0;
     }
     n += (ret = snprintf((buffer) + n, *size - n, "'")) > 0 ? ret : 0;
 
@@ -334,9 +342,31 @@ int log_header(log_level_t level, log_t * log,
                 n += ret;
         }
     }
-    if ((flags & LOG_FLAG_LEVEL) != 0
-    && (ret = fprintf(out, "%s ", s_log_levels_str[level > LOG_LVL_NB ? LOG_LVL_NB : level])) > 0)
-        n += ret;
+    if ((flags & LOG_FLAG_LEVEL) != 0) {
+        int             fd;
+        if ((flags & LOG_FLAG_COLOR) != 0 && vterm_has_colors(fd = fileno(out))) {
+            struct loglevel_info_s *
+                lvlinfo = &s_log_levels_info[level > LOG_LVL_NB ? LOG_LVL_NB : level];
+
+            if (lvlinfo->colorlen == INT_MAX) {
+                pthread_mutex_lock(&g_vlib_log_global_ctx.mutex);
+            }
+            ret = fprintf(out, "%s%s%s%s ", vterm_color(fd, lvlinfo->colorfg),
+                          vterm_color(fd, lvlinfo->style), lvlinfo->str,
+                          vterm_color(fd, lvlinfo->reset));
+            if (lvlinfo->colorlen == INT_MAX) {
+                int slen = strlen(lvlinfo->str);
+                if (ret >= slen + 1)
+                    lvlinfo->colorlen = ret - slen - 1;
+                pthread_mutex_unlock(&g_vlib_log_global_ctx.mutex);
+            }
+            if (ret > lvlinfo->colorlen) {
+                n += ret - lvlinfo->colorlen;
+            }
+        } else if ((ret = fprintf(out, "%s ", s_log_levels_info[level > LOG_LVL_NB
+                                                                ? LOG_LVL_NB : level].str)) > 0)
+            n += ret;
+    }
     if ((flags & (LOG_FLAG_MODULE | LOG_FLAG_PID | LOG_FLAG_TID)) != 0) {
         const char * space = "";
         if (fputc('[', out) != EOF)

@@ -162,7 +162,7 @@ static void logpool_entry_free(void * ventry) {
 /* ************************************************************************ */
 logpool_t *         logpool_create() {
     logpool_t * pool    = malloc(sizeof(logpool_t));
-    log_t       log     = { LOG_LVL_INFO, stderr, LOG_FLAG_DEFAULT, NULL };
+    log_t       log     = { LOG_LVL_INFO, LOG_FLAG_DEFAULT, stderr, NULL };
 
     if (pool == NULL) {
         return NULL;
