@@ -37,6 +37,7 @@
 #include "vlib/util.h"
 #include "vlib/log.h"
 #include "vlib/thread.h"
+#include "vlib/term.h"
 
 #include "version.h"
 #include "vlib_private.h"
@@ -443,6 +444,8 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
     } else {
         max_columns = i_opt;
     }
+    vterm_free();
+
     /* if options are displayed through log, get header size, and reduce max_columns */
     if (opt_config->log != NULL && opt_config->log->level >= OPT_USAGE_LOGLEVEL) {
         i_opt = log_header(OPT_USAGE_LOGLEVEL, opt_config->log, NULL, NULL, 0);

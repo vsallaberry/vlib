@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Vincent Sallaberry
+ * Copyright (C) 2017-2020 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -108,12 +108,6 @@ ssize_t     vdecode_buffer(
                 void **         ctx,
                 const char *    inbuf,
                 size_t          inbufsz);
-
-/** get number of columns of terminal.
- * @return columns
- *         or 0 if fd is not a terminal
- *         or -1 on error */
-int         vterm_get_columns(int fd);
 
 #ifdef __cplusplus
 }
