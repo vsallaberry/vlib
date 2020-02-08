@@ -142,9 +142,10 @@ typedef enum {
     OPT_FLAG_SIMPLEUSAGE    = 1 << 2,   /* print simple usage summury */
     OPT_FLAG_NOUSAGE        = 1 << 3,   /* don't print usage summary */
     OPT_FLAG_MIN_DESC_ALIGN = 1 << 4,   /* reduce alignment of options descriptions */
+    OPT_FLAG_COLOR          = 1 << 5,   /* enable colors if terminal supports it */
     /* end */
     OPT_FLAG_MACROINIT      = 1 << 30,  /* internal: detect if macro was used */
-    OPT_FLAG_DEFAULT = OPT_FLAG_NONE | OPT_FLAG_MIN_DESC_ALIGN
+    OPT_FLAG_DEFAULT = OPT_FLAG_NONE | OPT_FLAG_MIN_DESC_ALIGN | OPT_FLAG_COLOR
 } opt_config_flag_t;
 
 /** Option configuration with argc,argv,callback,desc,user_data,...

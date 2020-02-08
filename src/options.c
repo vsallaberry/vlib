@@ -46,6 +46,15 @@
 #define OPT_USAGE_SUMUP_END_DESC    " [--<long-option>[=value]] [--]"
 #define OPT_USAGE_LOGLEVEL          LOG_LVL_INFO
 
+#define OPT_COLOR_SHORTOPT  VCOLOR_GREEN
+#define OPT_STYLE_SHORTOPT  VCOLOR_BOLD
+#define OPT_COLOR_LONGOPT   VCOLOR_CYAN
+#define OPT_STYLE_LONGOPT   VCOLOR_EMPTY
+#define OPT_COLOR_ARG       VCOLOR_YELLOW
+#define OPT_STYLE_ARG       VCOLOR_EMPTY
+#define OPT_COLOR_ERROR     VCOLOR_RED
+#define OPT_STYLE_ERROR     VCOLOR_BOLD
+
 inline static int is_opt_end(const opt_options_desc_t * opt) {
     return opt == NULL || opt->short_opt == OPT_ID_END;
 }
@@ -349,7 +358,7 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
     char            desc_buffer[4096];
     FILE *          out = NULL;
     unsigned int    max_columns;
-    int             i_opt, i_current_section = -1, filter_matched = 0;
+    int             fd, i_opt, i_current_section = -1, filter_matched = 0;
     unsigned int    desc_headsz, opt_headsz;
     unsigned int    max_optlen;
 
@@ -395,6 +404,9 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
         out = stdout;
         flockfile(out);
     }
+
+    /* set fd to non-tty if FLAG_COLOR is OFF */
+    fd = (opt_config->flags & OPT_FLAG_COLOR) != 0 ? fileno(out) : -1;
 
     /* get estimation maximum length of options (without description)
      * it is not 100% accurate, but not critical as this is used to
@@ -510,14 +522,25 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
             /* short options */
             n_printed += fwrite(opt_config->opt_head, sizeof(char), opt_headsz, out);
             if (is_valid_short_opt(opt->short_opt)) {
-                n_printed += fprintf(out, "-%c", opt->short_opt);
+                if (fputc('-', out) != EOF)
+                    n_printed++;
+                fputs(vterm_color(fd, OPT_COLOR_SHORTOPT), out);
+                fputs(vterm_color(fd, OPT_STYLE_SHORTOPT), out);
+                if (fputc(opt->short_opt, out) != EOF)
+                    n_printed++;
+                fputs(vterm_color(fd, VCOLOR_RESET), out);
             }
             /* long option */
             if (opt->long_opt != NULL) {
                 if (n_printed > opt_headsz) {
                     n_printed += fwrite(", ", sizeof(char), 2, out);
                 }
-                n_printed += fprintf(out, "--%s", opt->long_opt);
+                if (fputs("--", out) != EOF)
+                    n_printed += 2;
+                fputs(vterm_color(fd, OPT_COLOR_LONGOPT), out);
+                fputs(vterm_color(fd, OPT_STYLE_LONGOPT), out);
+                n_printed += fprintf(out, "%s", opt->long_opt);
+                fputs(vterm_color(fd, VCOLOR_RESET), out);
             }
             /* look for long option aliases */
             for (const opt_options_desc_t *opt2 = opt + 1; !is_opt_end(opt2); ++opt2) {
@@ -533,14 +556,20 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
                             fputc(' ', out);
                     }
                     n_printed += fwrite("--", sizeof(char), 2, out);
+                    fputs(vterm_color(fd, OPT_COLOR_LONGOPT), out);
+                    fputs(vterm_color(fd, OPT_STYLE_LONGOPT), out);
                     n_printed += fwrite(opt2->long_opt, sizeof(char), len, out);
+                    fputs(vterm_color(fd, VCOLOR_RESET), out);
                 }
             }
             /* option argument name */
             if (opt->arg) {
                 if (n_printed > opt_headsz && fputc(' ', out) != EOF)
                     n_printed++;
+                fputs(vterm_color(fd, OPT_COLOR_ARG), out);
+                fputs(vterm_color(fd, OPT_STYLE_ARG), out);
                 n_printed += fprintf(out, "%s", opt->arg);
+                fputs(vterm_color(fd, VCOLOR_RESET), out);
             }
         }
         /* getting dynamic option description */
