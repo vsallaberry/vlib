@@ -126,10 +126,12 @@ static int opt_alias(int i_opt, const opt_config_t * opt_config) {
 static int opt_error(int exit_code, opt_config_t * opt_config, int show_usage,
                      const char * fmt, ...) {
     if (opt_config && (opt_config->flags & OPT_FLAG_SILENT) == 0) {
-        FILE * out = stderr;
+        FILE *  out = stderr;
+        int     ret;
         if (opt_config->log != NULL) {
-            if (opt_config->log->level < LOG_LVL_ERROR)
+            if (opt_config->log->level < LOG_LVL_ERROR) {
                 return exit_code;
+            }
             if (opt_config->log->out != NULL) {
                 out = opt_config->log->out;
             }
@@ -146,7 +148,8 @@ static int opt_error(int exit_code, opt_config_t * opt_config, int show_usage,
         }
         funlockfile(out);
         if (show_usage) {
-            return opt_usage(exit_code, opt_config, NULL);
+            ret = opt_usage(exit_code, opt_config, NULL);
+            return ret;
         }
     }
     return exit_code;
@@ -444,7 +447,6 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
     } else {
         max_columns = i_opt;
     }
-    vterm_free();
 
     /* if options are displayed through log, get header size, and reduce max_columns */
     if (opt_config->log != NULL && opt_config->log->level >= OPT_USAGE_LOGLEVEL) {

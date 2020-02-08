@@ -282,7 +282,7 @@ int log_header(log_level_t level, log_t * log,
     FILE *          out = NULL;
     const char *    prefix = NULL;
     log_flag_t      flags = LOG_FLAG_DEFAULT;
-    int             n = 0, ret;
+    int             n = 0, ret, log_colors, fd;
 
     if (log) {
         out = log->out;
@@ -293,6 +293,8 @@ int log_header(log_level_t level, log_t * log,
         out = stderr;
     if (prefix == NULL)
         prefix = "*";
+
+    log_colors = (flags & LOG_FLAG_COLOR) != 0 && vterm_has_colors(fd = fileno(out));
 
     if ((flags & LOG_FLAG_DATETIME) != 0) {
         //static time_t * const plast_timet = NULL;
@@ -344,8 +346,7 @@ int log_header(log_level_t level, log_t * log,
         }
     }
     if ((flags & LOG_FLAG_LEVEL) != 0) {
-        int             fd;
-        if ((flags & LOG_FLAG_COLOR) != 0 && vterm_has_colors(fd = fileno(out))) {
+        if (log_colors) {
             struct loglevel_info_s *
                 lvlinfo = &s_log_levels_info[level > LOG_LVL_NB ? LOG_LVL_NB : level];
 

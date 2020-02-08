@@ -36,8 +36,8 @@ extern "C" {
 
 /** flags for vterm_init() */
 typedef enum {
-    VTF_NONE = 0,
-    /*VTF_1 = 1 << 0, */
+    VTF_NONE            = 0,
+    VTF_FORCE_COLORS    = 1 << 0,
     /*VTF_2 = 1 << 1, */
     VTF_NB, /* must be last (except for VTF_DEFAULT) */
     VTF_DEFAULT = VTF_NONE
