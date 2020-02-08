@@ -1320,8 +1320,13 @@ CONFIG_CHECK_PREFIXES	= '' '/opt/local' '/usr/local'
 # + quotes must be in variable content.
 # + '#' should be escaped.
 # + printf sequences like '%' or '\\' should be escaped as printf will get those strings.
-CONFTEST_NCURSES	= '\#include <unistd.h>\n\#include <curses.h>\n\#include <term.h>\n\
-			  int main() { if (isatty(STDOUT_FILENO)) { setupterm(0, STDOUT_FILENO, 0); tigetnum("cols"); } return 0; }\n'
+CONFTEST_NCURSES	= '\#include <unistd.h>\n\#include <curses.h>\n\#include <term.h>\n\#include <stdio.h>\n\
+			  int main() {\n\t if (isatty(STDOUT_FILENO) && setupterm(0, STDOUT_FILENO, 0) == OK) {\n\
+			  \t\t           fprintf(stderr, "cols %%d\\n", tigetnum("cols"));\n\
+			  \t\t           if (has_colors()) {\n\t\t\t start_color();\n\
+			  \t\t\t           if (set_foreground || set_a_foreground) fprintf(stderr, "foreground\\n");\n\
+			  \t\t\t           if (set_background || set_a_background) fprintf(stderr, "background\\n"); }\n\
+			  \t} return 0;\n}\n'
 
 CONFTEST_NCURSES_NOINC	= '\#include <unistd.h>\nint main() {\n\
 			  if (isatty(STDOUT_FILENO)) { setupterm(0, STDOUT_FILENO, 0); tigetnum("cols"); } return 0; }\n'
