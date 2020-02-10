@@ -110,38 +110,51 @@ typedef enum {
  *         VTERM_OK if terminal already initialized
  *         VTERM_NOTTY if terminal is not a TTY
  *         VTERM_ERROR on error
- * vterm_free() must be called when this routine returns success.
+ * vterm_free() or vterm_enable(0) must be called when this routine
+ *   returns success.
  */
 int             vterm_init(int fd, unsigned int flags);
 
-/** clean the terminal allocated resources.
+/** Enable terminal or disable and free terminal resources.
+ * @param enable,
+ *  * if 0, the terminal is freed (vterm_free), and further
+ *    reinitializations are blocked.
+ *  * if not 0, the terminal is unblocked and further vterm_init()
+ *    will succeed.
  * @return VTERM_OK on success, VTERM_ERROR on error. */
+int             vterm_enable(int enable);
+
+/** clean the terminal allocated resources.
+ * @return VTERM_OK on success, VTERM_ERROR on error.
+ * @WARNING: LOG_* or other calls could reinitialize terminal implicitly,
+ *           call vterm_enable(0) instead to avoid implicit initialization. */
 int             vterm_free();
 
 /** get number of columns of terminal attached to <fd>.
  * @return columns
  *         or 0 if fd is not a terminal
  *         or VTERM_ERROR on error
- * @notes implicit call to cterm_init() is done, vterm_free() needed. */
+ * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
 int             vterm_get_columns(int fd);
 
 /** get color capability of terminal attached to <fd>.
  * @return 1 if terminal with color capability.
  *         or 0 if terminal does not support colors
- * @notes implicit call to cterm_init() is done, vterm_free() needed. */
+ * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
 int             vterm_has_colors(int fd);
 
 /** get color string for terminal attached to <fd>.
  * vterm_color is reentrant and can be used several times in *printf().
  * @param color a simple color for foreground or background or style
- * @return the color string, or empty ("") on error */
+ * @return the color string, or empty ("") on error.
+ * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
 const char *    vterm_color(int fd, vterm_color_t color);
 
 /** setup the given color combination (fore, back, style) on the terminal
  * @param fd the file descriptor of the terminal
  * @param colors the result of VCOLOR_BUILD(fore, back, style)
  * @return amount of written characters or 0 on error.
- * @notes implicit call to cterm_init() is done, vterm_free() needed. */
+ * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
 ssize_t         vterm_putcolor(FILE *out, unsigned int colors);
 
 /** setup the given color combination (fore, back, style) on the terminal
@@ -151,7 +164,7 @@ ssize_t         vterm_putcolor(FILE *out, unsigned int colors);
  * @param buffer the buffer storing the color string of max size *psize
  * @param psize the maxsize of buffer and the output amount of written characters, or NULL
  * @return input buffer containing color string or empty string on error.
- * @notes implicit call to cterm_init() is done, vterm_free() needed. */
+ * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
 char *          vterm_buildcolor(int fd, unsigned int colors, char * buffer, size_t * psize);
 
 #ifdef __cplusplus

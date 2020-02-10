@@ -158,6 +158,19 @@ static struct { char str[24]; int libcolor; } s_vterm_colors[VCOLOR_EMPTY+1] = {
     { { 0, }, 0 }                                           /* empty */
 };
 
+int vterm_enable(int enable) {
+    if (enable) {
+        if (s_vterm_info.fd < 0)
+            s_vterm_info.fd = VTERM_FD_FREE;
+    } else {
+        if (s_vterm_info.fd >= 0)
+            vterm_free();
+        s_vterm_info.fd = VTERM_FD_BUSY;
+    }
+    LOG_VERBOSE(g_vlib_log, "vterm: changed enable state to %d", enable);
+    return VTERM_OK;
+}
+
 int vterm_has_colors(int fd) {
     if (vterm_init(fd, s_vterm_info.flags) != VTERM_OK) {
        return 0;
@@ -268,14 +281,20 @@ int vterm_init(int fd, unsigned int flags) {
 
     s_vterm_info.has_colors = (flags & VTF_FORCE_COLORS) != 0;
     s_vterm_info.flags = flags;
-    s_vterm_info.fd = fd;
+    s_vterm_info.fd = fd; /* must be last */
+
+    LOG_VERBOSE(g_vlib_log, "vterm: initialized (flags:%u has_colors:%d)",
+                flags, s_vterm_info.has_colors);
+
     return VTERM_OK;
 }
 
 int vterm_free() {
     LOG_DEBUG(g_vlib_log, "vterm: cleaning...", flags);
 
-    s_vterm_info.fd = VTERM_FD_FREE;
+    LOG_VERBOSE(g_vlib_log, "%s(): done.", __func__);
+    s_vterm_info.fd = VTERM_FD_FREE; /*must be last or LOG_* or other calls could redo vterm_init*/
+
     return VTERM_OK;
 }
 
@@ -328,7 +347,7 @@ static void vterm_init_colors(int flags) {
         } else if ((flags & VTF_FORCE_COLORS) == 0) {
             *s_vterm_colors[i].str = 0;
         }
-        LOG_BUFFER(LOG_LVL_DEBUG, g_vlib_log,
+        LOG_DEBUG_BUF(g_vlib_log,
                    &(s_vterm_colors[i].str[0]), strlen(&s_vterm_colors[i].str[0]),
                    "colorfg[%02d] ", i);
     }
@@ -347,12 +366,12 @@ static void vterm_init_colors(int flags) {
         } else if ((flags & VTF_FORCE_COLORS) == 0) {
             *s_vterm_colors[i].str = 0;
         }
-        LOG_BUFFER(LOG_LVL_DEBUG, g_vlib_log,
+        LOG_DEBUG_BUF(g_vlib_log,
                    s_vterm_colors[i].str, strlen(s_vterm_colors[i].str),
                    "colorbg[%02d] ", i);
     }
 
-    static const struct cap_check_s { const char * name; int idx; } caps_check[] = {
+    static const struct cap_check_s { char * name; int idx; } caps_check[] = {
         { "sgr0",   VCOLOR_NORMAL },
         { "sgr0",   VCOLOR_RESET },
         { "blink",  VCOLOR_BLINK },
@@ -412,9 +431,9 @@ int vterm_free() {
         }
 #      endif
     }
-    s_vterm_info.fd = VTERM_FD_FREE;
-
     LOG_VERBOSE(g_vlib_log, "%s(): done.", __func__);
+    s_vterm_info.fd = VTERM_FD_FREE;/* must be last or vterm could be reinit by log */
+
     return VTERM_OK;
 }
 
@@ -480,6 +499,7 @@ int vterm_init(int fd, unsigned int flags) {
     if (((setf = tigetstr("setaf")) == NULL || setf == (char*) -1)
     &&  (setf = tigetstr("setf")) == (char*)-1)
         setf = NULL;
+    LOG_DEBUG(g_vlib_log, "vterm: setf:%lx max_colors:%d", (unsigned long) setf, ret);
 
     //if ((s_vterm_info.has_colors = has_colors()) == TRUE) { /*not always ok wihtout initscr()*/
     if ((s_vterm_info.has_colors = (setf != NULL && ret > 0)) != 0) {
@@ -504,7 +524,7 @@ int vterm_init(int fd, unsigned int flags) {
     s_vterm_info.flags = flags;
     s_vterm_info.fd = fd; /* last thing to be done here */
 
-    LOG_VERBOSE(g_vlib_log, "vterm: initialized (flags:%u colors:%d)",
+    LOG_VERBOSE(g_vlib_log, "vterm: initialized (flags:%u has_colors:%d)",
                 flags, s_vterm_info.has_colors);
 
     return VTERM_OK;
