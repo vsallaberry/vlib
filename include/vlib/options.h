@@ -22,10 +22,24 @@
 #ifndef VLIB_OPTIONS_H
 #define VLIB_OPTIONS_H
 
+#ifdef __cplusplus
+# include <climits>
+# include <cstdint>
+# include <cinttypes>
+#else
+# include <limits.h>
+# include <stdint.h>
+# include <inttypes.h>
+#endif
+
 #include "vlib/log.h"
 
 #ifdef __cplusplus
 extern "C" {
+#endif
+
+#if INT_MAX < ((1 << 31) - 1)
+# error "sizeof(int) < 4 "
 #endif
 
 #define OPT_DESCRIBE_OPTION     0x40000000              /* mask for option dynamic description */
@@ -51,8 +65,8 @@ extern "C" {
 
 # define OPT_USAGE_DESC_ALIGNMENT   30
 # define OPT_USAGE_DESC_MINLEN      (80 - OPT_USAGE_DESC_ALIGNMENT)
-#define OPT_USAGE_DESC_HEAD         " "
-#define OPT_USAGE_OPT_HEAD          "  "
+# define OPT_USAGE_DESC_HEAD        " "
+# define OPT_USAGE_OPT_HEAD         "  "
 
 /** options error codes, compare OPT_EXIT_CODE(status) with following values: */
 enum {
