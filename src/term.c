@@ -310,7 +310,7 @@ int vterm_get_columns(int fd) {
 
 # if ! defined(VLIB_CURSESDL)
 
-static void vterm_init_colors() {
+static void vterm_init_colors(int flags) {
     int     i;
     char *  capstr;
     char *  str;
@@ -319,45 +319,50 @@ static void vterm_init_colors() {
     if (((capstr = tigetstr("setaf")) == NULL || capstr == (char*) -1)
     &&  (capstr = tigetstr("setf")) == (char*)-1)
         capstr = NULL;
-    if (capstr != NULL) {
-        for (i = VCOLOR_FG; i < VCOLOR_BG; i++) {
-            if ((str = tparm (capstr, s_vterm_colors[i].libcolor)) != NULL) {
-                str0cpy(s_vterm_colors[i].str, str, sizeof((*s_vterm_colors).str)
-                                                    /sizeof(*(*s_vterm_colors).str));
-            }
-            LOG_BUFFER(LOG_LVL_DEBUG, g_vlib_log,
-                       &(s_vterm_colors[i].str[0]), strlen(&s_vterm_colors[i].str[0]),
-                       "colorfg[%02d] ", i);
+
+    for (i = VCOLOR_FG; i < VCOLOR_BG; i++) {
+        if (capstr != NULL
+        &&  (str = tparm (capstr, s_vterm_colors[i].libcolor)) != NULL) {
+            str0cpy(s_vterm_colors[i].str, str, sizeof((*s_vterm_colors).str)
+                    /sizeof(*(*s_vterm_colors).str));
+        } else if ((flags & VTF_FORCE_COLORS) == 0) {
+            *s_vterm_colors[i].str = 0;
         }
+        LOG_BUFFER(LOG_LVL_DEBUG, g_vlib_log,
+                   &(s_vterm_colors[i].str[0]), strlen(&s_vterm_colors[i].str[0]),
+                   "colorfg[%02d] ", i);
     }
+
 
     //capstr = set_a_background ? set_a_background : set_background;
     if (((capstr = tigetstr("setab")) == NULL || capstr == (char*) -1)
     &&  (capstr = tigetstr("setb")) == (char*)-1)
         capstr = NULL;
-    if (capstr != NULL) {
-        for (i = VCOLOR_BG; i < VCOLOR_STYLE; i++) {
-            if ((str = tparm (capstr, s_vterm_colors[i].libcolor)) != NULL) {
-                str0cpy(s_vterm_colors[i].str, str, sizeof((*s_vterm_colors).str)
-                                                    /sizeof(*(*s_vterm_colors).str));
-            }
-            LOG_BUFFER(LOG_LVL_DEBUG, g_vlib_log,
-                       s_vterm_colors[i].str, strlen(s_vterm_colors[i].str),
-                       "colorbg[%02d] ", i);
+
+    for (i = VCOLOR_BG; i < VCOLOR_STYLE; i++) {
+        if (capstr != NULL
+        &&  (str = tparm (capstr, s_vterm_colors[i].libcolor)) != NULL) {
+            str0cpy(s_vterm_colors[i].str, str, sizeof((*s_vterm_colors).str)
+                    /sizeof(*(*s_vterm_colors).str));
+        } else if ((flags & VTF_FORCE_COLORS) == 0) {
+            *s_vterm_colors[i].str = 0;
         }
+        LOG_BUFFER(LOG_LVL_DEBUG, g_vlib_log,
+                   s_vterm_colors[i].str, strlen(s_vterm_colors[i].str),
+                   "colorbg[%02d] ", i);
     }
 
-    static const struct cap_check_s { char * name; int idx; } caps_check[] = {
-        { "sgr0", VCOLOR_NORMAL },
-        { "sgr0", VCOLOR_RESET },
-        { "blink", VCOLOR_BLINK },
-        { "bold", VCOLOR_BOLD },
-        { "sitm", VCOLOR_ITALIC },
-        { "smul", VCOLOR_UNDERLINED },
-        { "sshm", VCOLOR_DARK },
-        { "dim", VCOLOR_DARK },
-        { "smso", VCOLOR_STANDOUT },
-        { NULL, 0 }
+    static const struct cap_check_s { const char * name; int idx; } caps_check[] = {
+        { "sgr0",   VCOLOR_NORMAL },
+        { "sgr0",   VCOLOR_RESET },
+        { "blink",  VCOLOR_BLINK },
+        { "bold",   VCOLOR_BOLD },
+        { "sitm",   VCOLOR_ITALIC },
+        { "smul",   VCOLOR_UNDERLINED },
+        { "sshm",   VCOLOR_DARK },
+        { "dim",    VCOLOR_DARK },
+        { "smso",   VCOLOR_STANDOUT },
+        { NULL,     0 }
     };
     for (const struct cap_check_s * cap = caps_check; cap->name != NULL; ++cap) {
         if ((capstr = tigetstr(cap->name)) != NULL && capstr != (char*)-1) {
@@ -366,7 +371,8 @@ static void vterm_init_colors() {
         } else {
             LOG_DEBUG(g_vlib_log, "vterm: cap '%s' not found for vcolor index %d",
                       cap->name, cap->idx);
-            *s_vterm_colors[cap->idx].str = 0;
+            if ((flags & VTF_FORCE_COLORS) == 0)
+                *s_vterm_colors[cap->idx].str = 0;
         }
     }
 
@@ -482,7 +488,7 @@ int vterm_init(int fd, unsigned int flags) {
         s_vterm_info.has_colors = 1;
     }
     if (s_vterm_info.has_colors)
-        vterm_init_colors();
+        vterm_init_colors(flags);
 
 #ifdef VTERM_INITSCR
     tcsetattr(fd, TCSANOW, &term_conf_bak);
