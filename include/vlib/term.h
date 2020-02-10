@@ -25,9 +25,13 @@
 #ifdef __cplusplus
 # include <cstring>
 # include <cstdio>
+# include <climits>
+# include <cstdint>
 #else
 # include <string.h>
 # include <stdio.h>
+# include <limits.h>
+# include <stdint.h>
 #endif
 
 #ifdef __cplusplus
@@ -73,11 +77,26 @@ typedef enum {
     VCOLOR_ITALIC,
     VCOLOR_UNDERLINED,
     VCOLOR_BLINK,
+    VCOLOR_STANDOUT,
     /* Reserved */
     VCOLOR_RESERVED,
     VCOLOR_RESET = VCOLOR_RESERVED,
     VCOLOR_EMPTY
 } vterm_color_t;
+
+#if INT_MAX < ((1 << 31) - 1)
+# error "sizeof(int) < 4 "
+#endif
+
+#define         VCOLOR_BUILD(fore, back, style) \
+                    (fore | (back << VCOLOR_BG) | (style << VCOLOR_STYLE))
+
+#define         VCOLOR_GET_FORE(colors) \
+                    (colors & ((1 << VCOLOR_BG) - 1))
+#define         VCOLOR_GET_BACK(colors) \
+                    ((colors & ((1 << VCOLOR_STYLE) - 1)) >> VCOLOR_BG)
+#define         VCOLOR_GET_STYLE(colors) \
+                    ((colors & ((1 << VCOLOR_RESERVED) - 1)) >> VCOLOR_STYLE)
 
 /* return values for vterm_*() functions */
 #define         VTERM_OK        (0)
@@ -113,8 +132,27 @@ int             vterm_get_columns(int fd);
 int             vterm_has_colors(int fd);
 
 /** get color string for terminal attached to <fd>.
+ * vterm_color is reentrant and can be used several times in *printf().
+ * @param color a simple color for foreground or background or style
  * @return the color string, or empty ("") on error */
 const char *    vterm_color(int fd, vterm_color_t color);
+
+/** setup the given color combination (fore, back, style) on the terminal
+ * @param fd the file descriptor of the terminal
+ * @param colors the result of VCOLOR_BUILD(fore, back, style)
+ * @return amount of written characters or 0 on error.
+ * @notes implicit call to cterm_init() is done, vterm_free() needed. */
+ssize_t         vterm_putcolor(FILE *out, unsigned int colors);
+
+/** setup the given color combination (fore, back, style) on the terminal
+ * reentrancy of vtermbuild_color depend on reentrancy of buffer and psize.
+ * @param fd the file descriptor of the terminal
+ * @param colors the result of VCOLOR_BUILD(fore, back, style)
+ * @param buffer the buffer storing the color string of max size *psize
+ * @param psize the maxsize of buffer and the output amount of written characters, or NULL
+ * @return input buffer containing color string or empty string on error.
+ * @notes implicit call to cterm_init() is done, vterm_free() needed. */
+char *          vterm_buildcolor(int fd, unsigned int colors, char * buffer, size_t * psize);
 
 #ifdef __cplusplus
 }
