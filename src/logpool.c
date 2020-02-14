@@ -209,6 +209,56 @@ void                logpool_free(
 }
 
 /* ************************************************************************ */
+static avltree_visit_status_t   logpool_enable_visit(
+                                    avltree_t *                         tree,
+                                    avltree_node_t *                    node,
+                                    const avltree_visit_context_t *     context,
+                                    void *                              user_data) {
+    logpool_entry_t *   entry   = (logpool_entry_t *) node->data;
+    int                 enable  = (int)((unsigned long)user_data);
+    (void) tree;
+    (void) context;
+
+    if (entry != NULL) {
+        if (entry->log.out != NULL)
+            flockfile(entry->log.out);
+
+        if (enable == 0) {
+            entry->log.flags |= LOG_FLAG_SILENT;
+        } else if (&entry->log != g_vlib_log) {
+            entry->log.flags &= ~LOG_FLAG_SILENT;
+        }
+
+        if (entry->log.out != NULL)
+            funlockfile(entry->log.out);
+    }
+    return AVS_CONTINUE;
+}
+/* ************************************************************************ */
+int                 logpool_enable(
+                        logpool_t *         pool,
+                        log_t *             log,
+                        int                 enable) {
+    (void) log;
+
+    if (pool != NULL) {
+        pthread_rwlock_wrlock(&pool->rwlock);
+
+        /* special case for vlib log to avoid avltree logging while disabling */
+        if (enable == 0 && g_vlib_log != NULL)
+            g_vlib_log->flags |= LOG_FLAG_SILENT;
+
+        avltree_visit(pool->logs, logpool_enable_visit, (void*)((unsigned long)enable), AVH_PREFIX);
+
+        if (enable == 1 && g_vlib_log != NULL)
+            g_vlib_log->flags &= ~LOG_FLAG_SILENT;
+
+        pthread_rwlock_unlock(&pool->rwlock);
+    }
+    return 0;
+}
+
+/* ************************************************************************ */
 logpool_t *         logpool_create_from_cmdline(
                         logpool_t *         pool,
                         const char *        log_levels,

@@ -55,9 +55,16 @@ logpool_t *         logpool_create_from_cmdline(
                         const char *        log_levels,
                         const char *const*  modules);
 
-/** logpool_free() */
-void                logpool_free(
-                        logpool_t *         pool);
+/** logpool_enable()
+ * Enable/Disable logs in the pool.
+ * Currently only NULL value for log parameter is supported.
+ * @param pool the logpool
+ * @param log a particular log to enable/disable or NULL for all
+ * @param enable 0 to disable, others to enable */
+int                 logpool_enable(
+                        logpool_t *         pool,
+                        log_t *             log,
+                        int                 enable);
 
 /** logpool_add()
  * Add a copy of log to the pool.

@@ -70,6 +70,7 @@ typedef enum {
     LOG_FLAG_CLOSEFILE  = 1 << 14,  /* the file will be closed by destroy/close if not std* */
     LOG_FLAG_FREEPREFIX = 1 << 15,  /* log_t.prefix is considered allocated and freed on destroy */
     LOG_FLAG_FREELOG    = 1 << 16,  /* the log will be freed on log_destroy() */
+    LOG_FLAG_SILENT     = 1 << 17,  /* the log will be disabled() */
     LOG_FLAG_CUSTOM     = 1 << 20,  /* first bit available for log custom flags */
     LOG_FLAG_DEFAULT    = LOG_FLAG_DATETIME | LOG_FLAG_MODULE | LOG_FLAG_LEVEL
                         | LOG_FLAG_LOC_ERR | LOG_FLAG_LOC_TAIL | LOG_FLAG_COLOR
@@ -91,16 +92,21 @@ typedef struct {
  * The are the MACROS to use for logging.
  * See vlog() doc below for details, parameters, return value.
  */
+# define    LOG_CAN_LOG(log, lvl)                                                   \
+                ((void*)(log) == NULL                                               \
+                  || ((int)((log_t*)(log))->level >= (lvl)                          \
+                      && (((log_t *)log)->flags & LOG_FLAG_SILENT) == 0))
+
 # ifdef LOG_USE_VA_ARGS
 #  ifdef LOG_CHECK_LVL_BEFORE_CALL
     /* check if level is OK before to make the call
      * the cast ((void*)(log) avoids &log==NULL warning on gcc */
 #   define   LOG_CHECK_LOG(log, lvl, ...)                                           \
-                ( ((void*)(log) == NULL || (int)((log_t*)(log))->level >= (lvl))    \
+                ( LOG_CAN_LOG(log, lvl)                                             \
                   ? vlog((lvl), (log), __FILE__, __func__, __LINE__, __VA_ARGS__)   \
                   : 0)
 #   define   LOG_CHECK_LOGBUF(log, lvl, buf, sz, ...)                               \
-                ( ((void*)(log) == NULL || (int)((log_t*)(log))->level >= (lvl))    \
+                ( LOG_CAN_LOG(log, lvl)                                             \
                   ? log_buffer((lvl),(log),(buf),(sz),__FILE__,__func__,__LINE__,__VA_ARGS__) \
                   : 0)
 #  else
@@ -208,6 +214,8 @@ int         log_describe_option(char * buffer, int * size, const char *const* mo
                                 slist_t * modules_list, const char *(module_get)(const void *));
 
 log_t *     log_create(log_t * from);
+
+/** Warning the log level is not checked inside, use before LOG_CAN_LOG(log, lvl) */
 int         log_header(log_level_t level, log_t * log,
                        const char * file, const char * func, int line);
 void        log_close(log_t * log);

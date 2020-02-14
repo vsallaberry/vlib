@@ -148,7 +148,7 @@ static int opt_error(int exit_code, opt_config_t * opt_config, int flags,
         FILE *  out = stderr;
         int     ret;
         if (opt_config->log != NULL) {
-            if (opt_config->log->level < LOG_LVL_ERROR) {
+            if ( ! LOG_CAN_LOG(opt_config->log, LOG_LVL_ERROR)) {
                 return exit_code;
             }
             if (opt_config->log->out != NULL) {
@@ -241,7 +241,7 @@ static int opt_usage_filter(const char * filter, int i_opt, int i_section,
 }
 
 static size_t opt_newline(FILE * out, const opt_config_t * opt_config, int print_header) {
-    if (opt_config->log != NULL && opt_config->log->level < OPT_USAGE_LOGLEVEL)
+    if (opt_config->log != NULL && ! LOG_CAN_LOG(opt_config->log, OPT_USAGE_LOGLEVEL))
         return 0;
     fputc('\n', out);
     if (print_header && opt_config->log != NULL)
@@ -261,7 +261,7 @@ static void opt_print_usage_summary(
 
     /* don't print anything if requested */
     if ((opt_config->flags & OPT_FLAG_NOUSAGE) != 0
-    ||  (opt_config->log != NULL && opt_config->log->level < OPT_USAGE_LOGLEVEL))
+    ||  (opt_config->log != NULL && ! LOG_CAN_LOG(opt_config->log, OPT_USAGE_LOGLEVEL)))
         return ;
 
     /* print program name, version and usage summary */
@@ -500,7 +500,7 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
     }
 
     /* if options are displayed through log, get header size, and reduce max_columns */
-    if (opt_config->log != NULL && opt_config->log->level >= OPT_USAGE_LOGLEVEL) {
+    if (opt_config->log != NULL && LOG_CAN_LOG(opt_config->log, OPT_USAGE_LOGLEVEL)) {
         i_opt = log_header(OPT_USAGE_LOGLEVEL, opt_config->log, NULL, NULL, 0);
         if (isatty(fileno(out))) {
             max_columns -= i_opt;
@@ -551,7 +551,7 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
             continue ;
         }
         ++filter_matched;
-        if (opt_config->log != NULL && opt_config->log->level < OPT_USAGE_LOGLEVEL) {
+        if (opt_config->log != NULL && ! LOG_CAN_LOG(opt_config->log, OPT_USAGE_LOGLEVEL)) {
             continue ;
         }
         if (!is_section) {

@@ -214,7 +214,7 @@ static int log_location(FILE * out, log_flag_t flags, log_level_t level,
 static int xvlog(log_level_t level, log_t * log,
                  const char *fmt, va_list arg) {
     int n = 0;
-	if (log == NULL || log->level >= level)
+	if (LOG_CAN_LOG(log, level))
 	{
         FILE *          out = log && log->out ? log->out : stderr;
         log_flag_t      flags = log ? log->flags : LOG_FLAG_DEFAULT;
@@ -400,7 +400,7 @@ int	vlog(log_level_t level, log_t * log,
 {
     int total = 0;
 
-	if (log == NULL || log->level >= level)
+	if (LOG_CAN_LOG(log, level))
 	{
         FILE *      out = log && log->out ? log->out : stderr;
         log_flag_t  flags = log ? log->flags : LOG_FLAG_DEFAULT;
@@ -440,7 +440,7 @@ int	log_buffer(log_level_t level, log_t * log,
 {
     int total = 0;
 
-	if (log == NULL || log->level >= level)
+	if (LOG_CAN_LOG(log, level))
 	{
         FILE *          out = log && log->out ? log->out : stderr;
     	va_list         arg;
