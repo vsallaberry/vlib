@@ -33,11 +33,18 @@
 
 /* ************************************************************************ */
 
+/** internal logpool flags */
+typedef enum {
+    LPP_NONE            = 0,
+    LPP_SILENT          = 1 << 0
+} logpool_priv_flag_t;
+
 /** internal log_pool structure */
 struct logpool_s {
     avltree_t *         logs;
     avltree_t *         files;
     pthread_rwlock_t    rwlock;
+    unsigned int        flags;
 };
 
 /** internal file structure (data of logpool->files) */
@@ -185,6 +192,8 @@ logpool_t *         logpool_create() {
         free(pool);
         return NULL;
     }
+    pool->flags = LPP_NONE;
+
     /* use the same stack for logs and files */
     pool->files->stack = pool->logs->stack;
 
@@ -244,14 +253,21 @@ int                 logpool_enable(
     if (pool != NULL) {
         pthread_rwlock_wrlock(&pool->rwlock);
 
-        /* special case for vlib log to avoid avltree logging while disabling */
-        if (enable == 0 && g_vlib_log != NULL)
-            g_vlib_log->flags |= LOG_FLAG_SILENT;
+        if (enable == 0) {
+            /* special case for vlib log to avoid avltree logging while disabling */
+            if (g_vlib_log != NULL)
+                g_vlib_log->flags |= LOG_FLAG_SILENT;
+            /* set SILENT flag to logpool to create new logs as SILENT */
+            pool->flags |= LPP_SILENT;
+        }
 
         avltree_visit(pool->logs, logpool_enable_visit, (void*)((unsigned long)enable), AVH_PREFIX);
 
-        if (enable == 1 && g_vlib_log != NULL)
-            g_vlib_log->flags &= ~LOG_FLAG_SILENT;
+        if (enable == 1) {
+            if (g_vlib_log != NULL)
+                g_vlib_log->flags &= ~LOG_FLAG_SILENT;
+            pool->flags &= ~LPP_SILENT;
+        }
 
         pthread_rwlock_unlock(&pool->rwlock);
     }
@@ -452,6 +468,8 @@ static log_t *      logpool_add_unlocked(
     if (log->prefix != NULL) {
         logentry->log.prefix = strdup(log->prefix);
     }
+    if ((pool->flags & LPP_SILENT) != 0)
+        logentry->log.flags |= LOG_FLAG_SILENT;
     logentry->file = NULL;
 
     /* insert logentry and get previous one if any */
