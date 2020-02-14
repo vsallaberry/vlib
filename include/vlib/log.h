@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Vincent Sallaberry
+ * Copyright (C) 2017-2020 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -89,7 +89,7 @@ typedef struct {
 # define    LOG_USE_VA_ARGS
 # define    LOG_CHECK_LVL_BEFORE_CALL
 /**
- * The are the MACROS to use for logging.
+ * Theses are the MACROS to use for logging.
  * See vlog() doc below for details, parameters, return value.
  */
 # define    LOG_CAN_LOG(log, lvl)                                                   \
