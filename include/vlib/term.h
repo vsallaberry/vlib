@@ -42,7 +42,8 @@ extern "C" {
 typedef enum {
     VTF_NONE            = 0,
     VTF_FORCE_COLORS    = 1 << 0,
-    /*VTF_2 = 1 << 1, */
+    VTF_NO_COLORS       = 1 << 1,
+    VTF_INITSCR         = 1 << 2, /* dedicate term screen to application, with cursor move */
     VTF_NB, /* must be last (except for VTF_DEFAULT) */
     VTF_DEFAULT = VTF_NONE
 } vterm_flag_t;
@@ -137,6 +138,13 @@ int             vterm_free();
  * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
 int             vterm_get_columns(int fd);
 
+/** get number of lines of terminal attached to <fd>.
+ * @return lines
+ *         or 0 if fd is not a terminal
+ *         or VTERM_ERROR on error
+ * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
+int             vterm_get_lines(int fd);
+
 /** get color capability of terminal attached to <fd>.
  * @return 1 if terminal with color capability.
  *         or 0 if terminal does not support colors
@@ -166,6 +174,58 @@ ssize_t         vterm_putcolor(FILE *out, unsigned int colors);
  * @return input buffer containing color string or empty string on error.
  * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
 char *          vterm_buildcolor(int fd, unsigned int colors, char * buffer, size_t * psize);
+
+/**
+ * @return the size of given color string, or 0 if not found. */
+unsigned int    vterm_color_size(int fd, vterm_color_t color);
+
+/** enable goto mode, clear the screen
+ * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed.
+ * @return VTERM_SUCCESS if success or already enabled,
+ *         VTERM_ERROR on error
+ *         VTERM_NOTTY if terminal is not a tty */
+int             vterm_goto_enable(int fd, int enable);
+
+/** put the cursor at given position
+ * @return positive or null value on success
+ *         VTERM_NOTTY if terminal is not a tty
+ *         VTERM_ERROR on error or if vterm_goto_enable() has not been called before
+ * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
+int             vterm_goto(FILE *out, int r, int c);
+
+/** Events values for vterm_screen_loop() */
+typedef enum {
+    VTERM_SCREEN_START = 0, /* after vterm_goto_enable(), before loop */
+    VTERM_SCREEN_LOOP,      /* at each loop or event */
+    VTERM_SCREEN_TIMER,     /* when the timer (timer_ms) expires */
+    VTERM_SCREEN_INPUT,     /* when STDIN_FILENO or file in fduserset_in is
+                               ready for read. Callback uses FD_ISSET(fd, fdset_in)*/
+    VTERM_SCREEN_END        /* when loop stops, before vterm_goto_enable(0)
+                               Callback can return this at any moment to end the loop*/
+} vterm_screen_event_t;
+
+/** callback for vterm_screen_loop() */
+typedef int     (*vterm_screen_callback_t)(
+                    vterm_screen_event_t    event,
+                    FILE *                  out,
+                    struct timeval *        now,
+                    fd_set *                fdset_in,
+                    void *                  data);
+
+/** run a screen loop on FILE out and call display_callback when events
+ * of type vterm_screen_event_t occur. Usually the callback returns the given
+ * event, or VTERM_SCREEN_END to end the screen loop.
+ *  It is recommanded to call logpool_enable(0) on VTERM_SCREEN_START,
+ * and logpool_enable(1) on VTERM_SCREEN_END to avoid logs disturbing display.
+ *  Callback has to call fflush(out) to update terminal display.
+ * @return VTERM_OK on success, VTERM_ERROR otherwise.
+ * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
+int             vterm_screen_loop(
+                    FILE *                  out,
+                    unsigned int            timer_ms,
+                    fd_set *                fduserset_in,
+                    vterm_screen_callback_t display_callback,
+                    void *                  callback_data);
 
 #ifdef __cplusplus
 }

@@ -10,7 +10,7 @@
 * [License](#license)
 
 ## Overview
-**vlib** is a simple C library for simple programs including log, command-line, hash, list, avltree.
+**vlib** is a simple C library for simple programs including log, command-line, hash, list, avltree, terminal.  
 
 ## System requirements
 - A somewhat capable compiler (gcc/clang), 
@@ -23,6 +23,10 @@ This is not an exhaustive list but the list of systems on which it has been buil
 - OSX 10.11.6
 - OpenBSD 5.5
 - FreeBSD 11.1
+  
+**vlib** can use following libraies, if present:  
+* zlib
+* terminfo, ncurses
 
 ## Compilation
 
@@ -113,6 +117,6 @@ WORK-IN-PROGRESS...
 
 ## License
 GPLv3 or later. See LICENSE file.
-Copyright: Copyright (C) 2017-2019 Vincent Sallaberry
+Copyright: Copyright (C) 2017-2020 Vincent Sallaberry
 **vlib** was first created and first published in 2017 by Vincent Sallaberry.
 
