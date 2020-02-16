@@ -439,7 +439,7 @@ static void vterm_init_colors(int flags) {
         }
         LOG_DEBUG_BUF(g_vlib_log,
                    &(s_vterm_colors[i].str[0]), strlen(&s_vterm_colors[i].str[0]),
-                   "colorfg[%02d] ", i);
+                   "vterm: colorfg[%02d] ", i);
     }
 
     //capstr = set_a_background ? set_a_background : set_background;
@@ -461,7 +461,7 @@ static void vterm_init_colors(int flags) {
         }
         LOG_DEBUG_BUF(g_vlib_log,
                    s_vterm_colors[i].str, strlen(s_vterm_colors[i].str),
-                   "colorbg[%02d] ", i);
+                   "vterm: colorbg[%02d] ", i);
     }
 
     static struct cap_check_s { char * names[5]; int idx; } caps_check[] = {
@@ -498,7 +498,7 @@ static void vterm_init_colors(int flags) {
     for (i = VCOLOR_STYLE; i < VCOLOR_RESERVED; i++) {
         LOG_BUFFER(LOG_LVL_DEBUG, g_vlib_log,
                        s_vterm_colors[i].str, strlen(s_vterm_colors[i].str),
-                       "style[%02d] ", i);
+                       "vterm: style[%02d] ", i);
     }
 #   endif
 }
