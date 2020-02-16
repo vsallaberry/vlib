@@ -180,6 +180,7 @@ static int opt_error(int exit_code, opt_config_t * opt_config, int flags,
 
 static int opt_usage_filter(const char * filter, int i_opt, int i_section,
                             opt_config_t * opt_config) {
+    char short_str[2] = { 0, 0 };
     const opt_options_desc_t * opt = &opt_config->opt_desc[i_opt];
     const char * next = filter, * token, * longopt;
     const char * section = i_section >= 0 ? opt_config->opt_desc[i_section].arg : NULL;
@@ -190,6 +191,7 @@ static int opt_usage_filter(const char * filter, int i_opt, int i_section,
         return 1;
 
     longopt = is_opt_section(opt->short_opt) ? NULL : opt->long_opt;
+    *short_str = opt->short_opt;
 
     while ((len = strtok_ro_r(&token, ",|;&", &next, NULL, 0)) > 0 || *next) {
         if (!len)
@@ -229,8 +231,10 @@ static int opt_usage_filter(const char * filter, int i_opt, int i_section,
         }
 
         /* there is a match if short_opt, or long_opt, or 'all' or current section is given */
-        if ((len == 1 && *token == opt->short_opt)
-        ||  (len == 3 && !strncasecmp(token, "all", 3))
+        if (len == 3 && !strncasecmp(token, "all", 3)) {
+            return INT_MAX;
+        }
+        if ((is_valid_short_opt(opt->short_opt) && !fnmatch(token0, short_str, 0))
         ||  (longopt && !fnmatch(token0, longopt, FNM_CASEFOLD))
         ||  (section && !fnmatch(token0, section, FNM_CASEFOLD))) {
             return 1;
