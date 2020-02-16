@@ -235,9 +235,9 @@ unsigned int vterm_color_size(int fd, vterm_color_t color) {
     return s_vterm_colors[vterm_color_index(fd, color)].size;
 }
 
-ssize_t vterm_putcolor(FILE * out, unsigned int colors) {
-    ssize_t n;
-    unsigned int     fg, bg, s;
+ssize_t vterm_putcolor(FILE * out, vterm_colorset_t colors) {
+    ssize_t             n;
+    vterm_colorset_t    fg, bg, s; /* could be vterm_color_t, no pb as bounds are checked */
 
     if ( out == NULL || ! vterm_has_colors(fileno(out))) {
         return 0;
@@ -264,9 +264,9 @@ ssize_t vterm_putcolor(FILE * out, unsigned int colors) {
     return 0;
 }
 
-char * vterm_buildcolor(int fd, unsigned int colors, char * buffer, size_t * psize) {
-    ssize_t         n;
-    unsigned int    fg, bg, s;
+char * vterm_buildcolor(int fd, vterm_colorset_t colors, char * buffer, size_t * psize) {
+    ssize_t             n;
+    vterm_colorset_t    fg, bg, s; /* could be vterm_color_t, no pb as bounds are checked */
 
     if (buffer == NULL || ! vterm_has_colors(fd)) {
         if (psize)

@@ -89,6 +89,9 @@ typedef enum {
 # error "sizeof(int) < 4 "
 #endif
 
+/** vterm_colorset_t, a bit combination of vterm_color_t */
+typedef unsigned int    vterm_colorset_t;
+
 #define         VCOLOR_BUILD(fore, back, style) \
                     (fore | (back << VCOLOR_BG) | (style << VCOLOR_STYLE))
 
@@ -163,7 +166,7 @@ const char *    vterm_color(int fd, vterm_color_t color);
  * @param colors the result of VCOLOR_BUILD(fore, back, style)
  * @return amount of written characters or 0 on error.
  * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
-ssize_t         vterm_putcolor(FILE *out, unsigned int colors);
+ssize_t         vterm_putcolor(FILE *out, vterm_colorset_t colors);
 
 /** setup the given color combination (fore, back, style) on the terminal
  * reentrancy of vtermbuild_color depend on reentrancy of buffer and psize.
@@ -173,7 +176,7 @@ ssize_t         vterm_putcolor(FILE *out, unsigned int colors);
  * @param psize the maxsize of buffer and the output amount of written characters, or NULL
  * @return input buffer containing color string or empty string on error.
  * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
-char *          vterm_buildcolor(int fd, unsigned int colors, char * buffer, size_t * psize);
+char *          vterm_buildcolor(int fd, vterm_colorset_t colors, char * buffer, size_t * psize);
 
 /**
  * @return the size of given color string, or 0 if not found. */
