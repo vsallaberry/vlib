@@ -172,7 +172,7 @@ static const vterm_colors_t s_vterm_colors_default[VCOLOR_EMPTY+1] = {
     { "\x1b[00m", VCOLOR_STATIC, 0 }, /* Reset */
     { "",         VCOLOR_STATIC, 0 }  /* empty */
 };
-static vterm_colors_t s_vterm_colors[VCOLOR_EMPTY+1] = { { "", 0, 0 }, };
+static vterm_colors_t s_vterm_colors[VCOLOR_EMPTY+1] = { { NULL, 0, 0 }, };
 
 static int vterm_init_default_colors(int set_static) {
     memcpy(s_vterm_colors, s_vterm_colors_default, sizeof(s_vterm_colors_default));
@@ -221,6 +221,8 @@ static inline unsigned int vterm_color_index(int fd, vterm_color_t color) {
         } else {
             return color;
         }
+    } else if (s_vterm_colors[0].str == NULL) {
+        vterm_init_default_colors(0);
     }
     return VCOLOR_EMPTY;
 }
