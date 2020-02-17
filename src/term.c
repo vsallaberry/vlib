@@ -235,6 +235,16 @@ unsigned int vterm_color_size(int fd, vterm_color_t color) {
     return s_vterm_colors[vterm_color_index(fd, color)].size;
 }
 
+unsigned int vterm_color_maxsize(int fd) {
+    unsigned int i, size, max = 0;
+
+    for (i = 0; i <= VCOLOR_EMPTY; ++i) {
+        if ((size = s_vterm_colors[vterm_color_index(fd, i)].size) > max)
+            max = size;
+    }
+    return max;
+}
+
 ssize_t vterm_putcolor(FILE * out, vterm_colorset_t colors) {
     ssize_t             n;
     vterm_colorset_t    fg, bg, s; /* could be vterm_color_t, no pb as bounds are checked */

@@ -182,6 +182,10 @@ char *          vterm_buildcolor(int fd, vterm_colorset_t colors, char * buffer,
  * @return the size of given color string, or 0 if not found. */
 unsigned int    vterm_color_size(int fd, vterm_color_t color);
 
+/**
+ * @return the maximum size of a color string on given terminal. */
+unsigned int    vterm_color_maxsize(int fd);
+
 /** enable goto mode, clear the screen
  * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed.
  * @return VTERM_SUCCESS if success or already enabled,
