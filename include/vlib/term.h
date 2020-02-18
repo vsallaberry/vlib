@@ -93,14 +93,14 @@ typedef enum {
 typedef unsigned int    vterm_colorset_t;
 
 #define         VCOLOR_BUILD(fore, back, style) \
-                    (fore | (back << VCOLOR_BG) | (style << VCOLOR_STYLE))
+                    ((fore) | ((back) << VCOLOR_BG) | ((style) << VCOLOR_STYLE))
 
 #define         VCOLOR_GET_FORE(colors) \
-                    (colors & ((1 << VCOLOR_BG) - 1))
+                    ((colors) & ((1 << VCOLOR_BG) - 1))
 #define         VCOLOR_GET_BACK(colors) \
-                    ((colors & ((1 << VCOLOR_STYLE) - 1)) >> VCOLOR_BG)
+                    (((colors) & ((1 << VCOLOR_STYLE) - 1)) >> VCOLOR_BG)
 #define         VCOLOR_GET_STYLE(colors) \
-                    ((colors & ((1 << VCOLOR_RESERVED) - 1)) >> VCOLOR_STYLE)
+                    (((colors) & ((1 << VCOLOR_RESERVED) - 1)) >> VCOLOR_STYLE)
 
 /* return values for vterm_*() functions */
 #define         VTERM_OK        (0)
@@ -162,7 +162,7 @@ int             vterm_has_colors(int fd);
 const char *    vterm_color(int fd, vterm_color_t color);
 
 /** setup the given color combination (fore, back, style) on the terminal
- * @param fd the file descriptor of the terminal
+ * @param file the FILE* attached to the terminal
  * @param colors the result of VCOLOR_BUILD(fore, back, style)
  * @return amount of written characters or 0 on error.
  * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
