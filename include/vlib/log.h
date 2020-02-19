@@ -94,7 +94,7 @@ typedef struct {
  */
 # define    LOG_CAN_LOG(log, lvl)                                                   \
                 ((void*)(log) == NULL                                               \
-                  || (((log_t*)(log))->level >= (log_level_t)(lvl)                  \
+                  || ((int)(((log_t*)(log))->level) >= (int)(lvl)                   \
                       && (((log_t *)log)->flags & LOG_FLAG_SILENT) == 0))
 
 # ifdef LOG_USE_VA_ARGS
