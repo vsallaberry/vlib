@@ -231,8 +231,11 @@ int             opt_parse_options_2pass(
 
 /** opt_describe_filter() : default function describing the filter of --help command-line
  * option to be called from opt_callback_t option handler - see OPT_DESCRIBE_OPTION */
-int             opt_describe_filter(int short_opt, const char * arg, int * i_argv,
-                                    const opt_config_t * opt_config);
+int             opt_describe_filter(
+                        int                     short_opt,
+                        const char *            arg,
+                        int *                   i_argv,
+                        const opt_config_t *    opt_config);
 
 /**
  * Get vlib version
