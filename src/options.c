@@ -1025,7 +1025,7 @@ int opt_describe_filter(int short_opt, const char * arg, int * i_argv,
     if (opt_config == NULL || i_argv == NULL || arg == NULL) {
         return OPT_ERROR(OPT_EFAULT);
     }
-    n += (ret = snprintf((char *)arg, *i_argv - n, "filter:'all")) > 0 ? ret : 0;
+    n += (ret = snprintf((char *)arg, *i_argv - n, "- filter: 'all")) > 0 ? ret : 0;
     for (const opt_options_desc_t * opt = opt_config->opt_desc; opt->short_opt || opt->desc; ++opt) {
         if (is_opt_section(opt->short_opt)) {
             n += (ret = snprintf((char *)arg + n, *i_argv - n, ",%s", opt->arg)) > 0 ? ret : 0;

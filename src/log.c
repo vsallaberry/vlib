@@ -127,7 +127,7 @@ log_flag_t log_flag_from_name(const char * name) {
 int log_describe_option(char * buffer, int * size, const char *const* modules,
                         slist_t * modules_list, const char *(module_get)(const void *)) {
     int     n = 0, ret;
-    char    sep[3] = { 0, ' ' , 0 };
+    char    sep[3] = { 0, ' ', 0 };
 
     /* sanity checks */
     if (buffer == NULL || size == NULL) {
@@ -135,7 +135,7 @@ int log_describe_option(char * buffer, int * size, const char *const* modules,
     }
 
     /* describe log levels */
-    n += (ret = snprintf(buffer + n, *size - n, "\nlevels : '")) > 0 ? ret : 0;
+    n += (ret = snprintf(buffer + n, *size - n, "- levels: '")) > 0 ? ret : 0;
     for (int lvl = LOG_LVL_NONE; lvl < LOG_LVL_NB; ++lvl, *sep = ',') {
         n += (ret = snprintf(buffer + n, *size - n, "%s%d|%s",
                     sep, lvl, s_log_levels_info[lvl].str)) > 0 ? ret : 0;
@@ -144,7 +144,7 @@ int log_describe_option(char * buffer, int * size, const char *const* modules,
 
     /* describe log flags */
     *sep = 0; sep[1] = 0;
-    n += (ret = snprintf(buffer + n, *size - n, "\nflags  : '")) > 0 ? ret : 0;
+    n += (ret = snprintf(buffer + n, *size - n, "\r- flags: '")) > 0 ? ret : 0;
     for (unsigned int i = 0; i < LOG_FLAG_STR_NB; ++i, *sep = '|') {
         n += (ret = snprintf(buffer + n, *size - n, "%s%s",
                     sep, s_log_flag_str[i].name)) > 0 ? ret : 0;
@@ -152,7 +152,7 @@ int log_describe_option(char * buffer, int * size, const char *const* modules,
     n += (ret = snprintf((buffer) + n, *size - n, "'")) > 0 ? ret : 0;
 
     /* describe modules */
-    n += (ret = snprintf(buffer + n, *size - n, "\nmodules: '")) > 0 ? ret : 0;
+    n += (ret = snprintf(buffer + n, *size - n, "\r- modules: '")) > 0 ? ret : 0;
     *sep = 0; sep[1] = 0;
     if (modules != NULL) { /* modules array */
         for (const char *const* mod = modules; *mod; mod++, *sep = ',') {
