@@ -268,21 +268,31 @@ int vlib_get_source(FILE * out, char * buffer, unsigned int buffer_size, void **
     app_name " " app_version " " BUILD_APPRELEASE " (build:" \
     __DATE__ ", " __TIME__ " " revision ")"
 
-#define OPT_LICENSE_GPL(author, copyright, gplver_s, gplver_l ) \
+#define OPT_LICENSE_GPL(author, copyright, gplver_s, gplver_l) \
+    "Copyright (C) " copyright " " author " under license GNU GPLv" gplver_s
+
+#define OPT_LICENSE_GPL_L(author, copyright, gplver_s, gplver_l ) \
     "Copyright (C) " copyright " " author ".\n" \
     "License GPLv" gplver_s ": GNU GPL version " gplver_l " <http://gnu.org/licenses/gpl.html>.\n" \
     "This is free software: you are free to change and redistribute it.\n" \
     "There is NO WARRANTY, to the extent permitted by law."
 
-#define OPT_LICENSE_GPL3PLUS(author, copyright) \
-    OPT_LICENSE_GPL(author, copyright, "3+", "3 or later")
+#define OPT_LICENSE_GPL3PLUS(author, copyright, opt_license_gpl) \
+    opt_license_gpl(author, copyright, "3+", "3 or later")
 
 #define OPT_VERSION_STRING_LIC(app_name, app_version, revision, license) \
+            OPT_VERSION_STRING(app_name, app_version, revision) "\n" license
+
+#define OPT_VERSION_STRING_LIC_L(app_name, app_version, revision, license) \
             OPT_VERSION_STRING(app_name, app_version, revision) "\n\n" license
+
+#define OPT_VERSION_STRING_GPL3PLUS_L(app_name, app_version, revision, author, copyright) \
+            OPT_VERSION_STRING_LIC_L(app_name, app_version, revision, \
+                                   OPT_LICENSE_GPL3PLUS(author, copyright, OPT_LICENSE_GPL_L))
 
 #define OPT_VERSION_STRING_GPL3PLUS(app_name, app_version, revision, author, copyright) \
             OPT_VERSION_STRING_LIC(app_name, app_version, revision, \
-                                   OPT_LICENSE_GPL3PLUS(author, copyright))
+                                   OPT_LICENSE_GPL3PLUS(author, copyright, OPT_LICENSE_GPL))
 
 #ifdef __cplusplus
 }
