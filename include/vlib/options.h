@@ -33,6 +33,7 @@
 #endif
 
 #include "vlib/log.h"
+#include "vlib/term.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -102,7 +103,12 @@ enum {
  *   NULL if no argument, '[name]' if optional, 'name' if mandatory.
  *   for a section (OPT_ID_SECTION*), it is the section filter string (--help=<filter>)
  * desc:
- *   the description of option, argument, or the title of section
+ *   the description of option, argument, or the title of section.
+ *   It can contain EOL (\n).
+ *   CR (\r) has a special meaning: \r will be replaced by a space when opt_usage is not
+ *   filtered and by \n when opt_usage is filtered. Combined with OPT_FLAG_TRUNC_COLS,
+ *   this allows to have structured detailed description when filtering (--help=<...>) and
+ *   as much as information one line can have when not filtered (--help).
  */
 typedef struct {
     int             short_opt;
@@ -157,9 +163,14 @@ typedef enum {
     OPT_FLAG_NOUSAGE        = 1 << 3,   /* don't print usage summary */
     OPT_FLAG_MIN_DESC_ALIGN = 1 << 4,   /* reduce alignment of options descriptions */
     OPT_FLAG_COLOR          = 1 << 5,   /* enable colors if terminal supports it */
+    OPT_FLAG_TRUNC_EOL      = 1 << 6,   /* trunc description after \n if not filtered -h=..
+                                           then user volontary allows tuncating description
+                                           as soon as he appends a '\n'  */
+    OPT_FLAG_TRUNC_COLS     = 1 << 7,   /* trunc desc. to fit columns if not filtered -h=..*/
     /* end */
     OPT_FLAG_MACROINIT      = 1 << 30,  /* internal: detect if macro was used */
-    OPT_FLAG_DEFAULT = OPT_FLAG_NONE | OPT_FLAG_MIN_DESC_ALIGN | OPT_FLAG_COLOR
+    OPT_FLAG_DEFAULT        = OPT_FLAG_MIN_DESC_ALIGN | OPT_FLAG_COLOR
+                              | OPT_FLAG_TRUNC_EOL | OPT_FLAG_TRUNC_COLS
 } opt_config_flag_t;
 
 /** Option configuration with argc,argv,callback,desc,user_data,...
@@ -177,17 +188,35 @@ struct opt_config_s {
     unsigned int                desc_minlen;    /* minimum length for descriptions */
     const char *                desc_head;      /* header for 1st line of opts. descs. */
     const char *                opt_head;       /* header for 1st line of options list */
+    size_t                      opt_structsz;   /* internal */
+    const char *                opt_help_name;  /* name of help option, default='help' */
+    vterm_colorset_t            color_short;    /* colorset for usage short options */
+    vterm_colorset_t            color_useshort; /* colorset for short-usage short options */
+    vterm_colorset_t            color_long;     /* colorset for usage long options */
+    vterm_colorset_t            color_uselong;  /* colorset for short-usage long options */
+    vterm_colorset_t            color_arg;      /* colorset for usage arguments */
+    vterm_colorset_t            color_usearg;   /* colorset for short-usage arguments */
+    vterm_colorset_t            color_sect;     /* colorset for usage sections */
+    vterm_colorset_t            color_err;      /* colorset for options error keyword */
+    vterm_colorset_t            color_trunc;    /* colorset for truncation string '**' */
 };
 /** OPT_INITILIZER(), a R-value for opt_config_t, initializing an opt_config_t
  * structure with defaults values (eg: opt_config_t opt = OPT_INITIALIZER(...)). */
 # define OPT_INITIALIZER(argc, argv, callb, desc, ver, data) \
     { argc, argv, callb, desc, OPT_FLAG_DEFAULT | OPT_FLAG_MACROINIT, \
       ver, data, NULL, OPT_USAGE_DESC_ALIGNMENT, OPT_USAGE_DESC_MINLEN, \
-      OPT_USAGE_DESC_HEAD, OPT_USAGE_OPT_HEAD }
+      OPT_USAGE_DESC_HEAD, OPT_USAGE_OPT_HEAD, \
+      (sizeof(opt_config_t) << 16 | sizeof(opt_options_desc_t)), "help", UINT_MAX, \
+      UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX }
 
 /**
  * print program usage.
  * The user can print additionnal information after calling this function.
+ * @param exit_status what will return the function
+ * @param opt_config the options configuration
+ * @param filter what to filter (options,descritions,sections,'all')
+ *               use NULL for default behavior, use 'all' to display everything
+ * @return exit_status or OPT_ERROR(OPT_EBADFLT) if there is an error with filter.
  */
 int             opt_usage(
                     int             exit_status,

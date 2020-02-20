@@ -20,9 +20,7 @@
  * Simple command line options management.
  *
  * TODO
- *   * FIXME the usage of vterm_buildcolor breaks the check of isatty and
- *     OPT_FLAG_COLOR, then colors are added to log files.
- *   * --help=unknown_filter should give an error
+ *   * cleaning
  *   * optimization of long option aliases management in opt_usage() ?
  */
 #include <stdio.h>
@@ -53,13 +51,20 @@
 
 #define OPT_USAGE_LOGLEVEL          LOG_LVL_INFO
 
+/* default values for options colors, can be overriden in opt_config_t */
 #define OPT_COLOR_SHORTOPT          VCOLOR_BUILD(VCOLOR_GREEN, VCOLOR_EMPTY, VCOLOR_BOLD)
 #define OPT_COLOR_USE_SHORTOPT      OPT_COLOR_SHORTOPT
 #define OPT_COLOR_LONGOPT           VCOLOR_BUILD(VCOLOR_CYAN, VCOLOR_EMPTY, VCOLOR_EMPTY)
 #define OPT_COLOR_USE_LONGOPT       OPT_COLOR_LONGOPT
 #define OPT_COLOR_ARG               VCOLOR_BUILD(VCOLOR_YELLOW, VCOLOR_EMPTY, VCOLOR_EMPTY)
+#define OPT_COLOR_USE_ARG           VCOLOR_BUILD(VCOLOR_EMPTY, VCOLOR_EMPTY, VCOLOR_EMPTY)
 #define OPT_COLOR_ERROR             VCOLOR_BUILD(VCOLOR_RED, VCOLOR_EMPTY, VCOLOR_BOLD)
 #define OPT_COLOR_SECTION           VCOLOR_BUILD(VCOLOR_EMPTY, VCOLOR_EMPTY, VCOLOR_BOLD)
+#define OPT_COLOR_DESC_TRUNC        OPT_COLOR_SECTION
+
+#define OPT_COLOR_3ARGS(fd, colors) vterm_color(fd, VCOLOR_GET_FORE(colors)), \
+                                    vterm_color(fd, VCOLOR_GET_BACK(colors)), \
+                                    vterm_color(fd, VCOLOR_GET_STYLE(colors))
 
 inline static int is_opt_end(const opt_options_desc_t * opt) {
     return opt == NULL || opt->short_opt == OPT_ID_END;
@@ -138,12 +143,53 @@ static int opt_alias(int i_opt, const opt_config_t * opt_config) {
     return -1;
 }
 
+static int opt_check_opt_config(opt_config_t * opt_config) {
+    if (opt_config == NULL)
+        return -1;
+    /* detect if macro was used to initialize opt_config, use defaults if not */
+    if ((opt_config->flags & OPT_FLAG_MACROINIT) == 0
+    || opt_config->opt_structsz != (sizeof(opt_config_t) << 16 | sizeof(opt_options_desc_t))) {
+        LOG_WARN(g_vlib_log, "OPT_INITIALIZER() not used, or version mismatch, "
+                             "disabling dynamic alignement, log, colors");
+        opt_config->desc_align = OPT_USAGE_DESC_ALIGNMENT;
+        opt_config->desc_minlen = OPT_USAGE_DESC_MINLEN;
+        opt_config->desc_head = OPT_USAGE_DESC_HEAD;
+        opt_config->opt_head = OPT_USAGE_OPT_HEAD;
+        opt_config->flags &= ~OPT_FLAG_COLOR;
+        opt_config->opt_help_name = "help";
+        opt_config->log = NULL;
+        return -1;
+    } else {
+        const struct { vterm_colorset_t * ptr; vterm_colorset_t val; } colors[] = {
+            { &opt_config->color_short, OPT_COLOR_SHORTOPT },
+            { &opt_config->color_useshort, OPT_COLOR_USE_SHORTOPT },
+            { &opt_config->color_long, OPT_COLOR_LONGOPT },
+            { &opt_config->color_uselong, OPT_COLOR_USE_LONGOPT },
+            { &opt_config->color_arg, OPT_COLOR_ARG },
+            { &opt_config->color_usearg, OPT_COLOR_USE_ARG },
+            { &opt_config->color_sect, OPT_COLOR_SECTION },
+            { &opt_config->color_trunc, OPT_COLOR_DESC_TRUNC },
+            { &opt_config->color_err, OPT_COLOR_ERROR }
+        };
+        unsigned int i;
+        for (i = 0; i < sizeof(colors) / sizeof(*colors); ++i) {
+            if (*(colors[i].ptr) == UINT_MAX)
+                *(colors[i].ptr) = colors[i].val;
+        }
+        return 0;
+    }
+}
+
 #define OPTERR_NONE         (0)
 #define OPTERR_SHOW_USAGE   (1 << 0) /* show opt_usage() after error display */
 #define OPTERR_PRINT_ERR    (1 << 1) /* prefix error message with "error: " */
 
 static int opt_error(int exit_code, opt_config_t * opt_config, int flags,
-                     const char * fmt, ...) {
+                     const char * filter, const char * fmt, ...)
+                    __attribute__((format(printf, 5, 6)));
+
+static int opt_error(int exit_code, opt_config_t * opt_config, int flags,
+                     const char * filter, const char * fmt, ...) {
     if (opt_config && (opt_config->flags & OPT_FLAG_SILENT) == 0) {
         FILE *  out = stderr;
         int     ret;
@@ -162,7 +208,8 @@ static int opt_error(int exit_code, opt_config_t * opt_config, int flags,
         if (fmt != NULL) {
             va_list arg;
             if ((flags & OPTERR_PRINT_ERR) != 0) {
-                vterm_putcolor(out, OPT_COLOR_ERROR);
+                vterm_putcolor((opt_config->flags & OPT_FLAG_COLOR) == 0
+                               ? NULL : out, opt_config->color_err);
                 fprintf(out, "error%s: ", vterm_color(fileno(out), VCOLOR_RESET));
             }
             va_start(arg, fmt);
@@ -171,7 +218,7 @@ static int opt_error(int exit_code, opt_config_t * opt_config, int flags,
         }
         funlockfile(out);
         if ((flags & OPTERR_SHOW_USAGE) != 0) {
-            ret = opt_usage(exit_code, opt_config, NULL);
+            ret = opt_usage(exit_code, opt_config, filter);
             return ret;
         }
     }
@@ -284,7 +331,7 @@ static void opt_print_usage_summary(
         opt_newline(out, opt_config, 1);
     }
 
-    vterm_putcolor(out, OPT_COLOR_SECTION);
+    vterm_putcolor(fd < 0 ? NULL : out, opt_config->color_sect);
     n_printed = fprintf(out, "Usage:");
     fputs(vterm_color(fd, VCOLOR_RESET), out);
     n_printed += fprintf(out, " %s ", start_name);
@@ -321,7 +368,7 @@ static void opt_print_usage_summary(
             }
             if (n_printed == pad)
                 n_printed += fprintf(out, "[-");
-            vterm_putcolor(out, OPT_COLOR_USE_SHORTOPT);
+            vterm_putcolor(fd < 0 ? NULL : out, opt_config->color_short);
             if (fputc(opt->short_opt, out) != EOF)
                 n_printed++;
             fputs(vterm_color(fd, VCOLOR_RESET), out);
@@ -349,7 +396,7 @@ static void opt_print_usage_summary(
                         fputc(' ', out);
                 }
                 n_printed += fprintf(out, OPT_USAGE_SUMUP_END_DESC1);
-                vterm_putcolor(out, OPT_COLOR_USE_LONGOPT);
+                vterm_putcolor(fd < 0 ? NULL : out, opt_config->color_uselong);
                 n_printed += fprintf(out, OPT_USAGE_SUMUP_END_DESC2);
                 fputs(vterm_color(fd, VCOLOR_RESET), out);
                 n_printed += fprintf(out, OPT_USAGE_SUMUP_END_DESC3);
@@ -366,14 +413,14 @@ static void opt_print_usage_summary(
                 n_printed += fprintf(out, " %s", opt->arg);
             } else if (*opt->arg != '[') {
                 n_printed += fprintf(out, " [-");
-                vterm_putcolor(out, OPT_COLOR_USE_SHORTOPT);
+                vterm_putcolor(fd < 0 ? NULL : out, opt_config->color_useshort);
                 if (fputc(opt->short_opt, out) != EOF)
                     n_printed++;
                 fputs(vterm_color(fd, VCOLOR_RESET), out);
                 n_printed += fprintf(out, "<%s>]", opt->arg);
             } else {
                 n_printed += fprintf(out, " [-");
-                vterm_putcolor(out, OPT_COLOR_USE_SHORTOPT);
+                vterm_putcolor(fd < 0 ? NULL : out, opt_config->color_useshort);
                 if (fputc(opt->short_opt, out) != EOF)
                     n_printed++;
                 fputs(vterm_color(fd, VCOLOR_RESET), out);
@@ -389,13 +436,16 @@ static void opt_print_usage_summary(
                 fputc(' ', out);
         }
         n_printed += fprintf(out, OPT_USAGE_SUMUP_END_DESC1);
-        vterm_putcolor(out, OPT_COLOR_USE_LONGOPT);
+        vterm_putcolor(fd < 0 ? NULL : out, opt_config->color_uselong);
         n_printed += fprintf(out, OPT_USAGE_SUMUP_END_DESC2);
         fputs(vterm_color(fd, VCOLOR_RESET), out);
         n_printed += fprintf(out, OPT_USAGE_SUMUP_END_DESC3);
     }
     opt_newline(out, opt_config, 1);
 }
+
+#define OPT_IS_EOL(ch) ((ch) == '\n' \
+                        || ((ch) == '\r' && filter != NULL))
 
 int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
     char            desc_buffer[4096];
@@ -404,36 +454,32 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
     int             fd, i_opt, i_current_section = -1, filter_matched = 0;
     unsigned int    desc_headsz, opt_headsz;
     unsigned int    max_optlen;
+    int             desc_truncated = 0;
 
     /* sanity checks */
+    LOG_DEBUG(g_vlib_log, "%s(): entering", __func__);
     fflush(NULL);
     if (opt_config == NULL || opt_config->argv == NULL || opt_config->opt_desc == NULL) {
-        return opt_error(OPT_ERROR(OPT_EFAULT), opt_config, OPTERR_PRINT_ERR,
+        return opt_error(OPT_ERROR(OPT_EFAULT), opt_config, OPTERR_PRINT_ERR, NULL,
                          "%s(): opt_config or opt_desc or argv is NULL!\n", __func__);
     }
 
     /* exit if OPT_FLAG_SILENT */
     if ((opt_config->flags & OPT_FLAG_SILENT) != 0) {
+        LOG_DEBUG(g_vlib_log, "%s(silent): leaving with status %d", __func__, exit_status);
         return exit_status;
     }
 
     /* detect if macro was used to initialize opt_config, use defaults if not */
-    if ((opt_config->flags & OPT_FLAG_MACROINIT) == 0) {
-        opt_config->desc_align = OPT_USAGE_DESC_ALIGNMENT;
-        opt_config->desc_minlen = OPT_USAGE_DESC_MINLEN;
-        opt_config->desc_head = OPT_USAGE_DESC_HEAD;
-        desc_headsz = sizeof(OPT_USAGE_DESC_HEAD) - 1;
-        opt_config->opt_head = OPT_USAGE_OPT_HEAD;
-        opt_headsz = sizeof(OPT_USAGE_OPT_HEAD) - 1;
-        opt_config->log = NULL;
-    } else {
-        desc_headsz = strlen(opt_config->desc_head);
-        opt_headsz = strlen(opt_config->opt_head);
-        /* choose the FILE* to be used as output */
-        if (opt_config->log != NULL && opt_config->log->out != NULL) {
-            out = opt_config->log->out;
-            flockfile(out);
-        }
+    opt_check_opt_config(opt_config);
+
+    desc_headsz = strlen(opt_config->desc_head);
+    opt_headsz = strlen(opt_config->opt_head);
+
+    /* choose the FILE* to be used as output */
+    if (opt_config->log != NULL && opt_config->log->out != NULL) {
+        out = opt_config->log->out;
+        flockfile(out);
     }
 
     /* if this is an error: use stderr and put a blank between error message and usage */
@@ -448,8 +494,18 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
         flockfile(out);
     }
 
-    /* set fd to non-tty if FLAG_COLOR is OFF */
+    /* set fd to non-tty if OPT_FLAG_COLOR is OFF */
     fd = (opt_config->flags & OPT_FLAG_COLOR) != 0 ? fileno(out) : -1;
+
+    /* get max columns usable for display */
+    if ((i_opt = vterm_get_columns(fileno(out))) <= 0) {
+        max_columns = 80; /* not a tty or error retrieving columns */
+    } else {
+        max_columns = i_opt;
+    }
+    if (opt_config->desc_minlen <= 3) {
+        opt_config->desc_minlen = 4;
+    }
 
     /* get estimation maximum length of options (without description)
      * it is not 100% accurate, but not critical as this is used to
@@ -471,8 +527,8 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
                 for (const opt_options_desc_t * opt2 = opt + 1; !is_opt_end(opt2); ++opt2) {
                     if (opt->short_opt == opt2->short_opt && opt2->long_opt != NULL) {
                         size_t opt2len = strlen (opt2->long_opt);
-                        if (curlen + 2 /* ', ' */ + opt2len + 1 > 1 + opt_config->desc_align
-                                                                    - desc_headsz)
+                        if (curlen + 2 /* ', ' */ + opt2len + 1
+                            > 1 + (opt_config->desc_align))
                             curlen = opt_headsz;
                         else
                             curlen += 2; /* ', ' */
@@ -483,7 +539,8 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
                     if (curlen > opt_headsz) ++curlen; /* ' ' */
                     curlen += strlen(opt->arg); /* '<arg> ' */
                 }
-                if (curlen > max_optlen && curlen < 1 + opt_config->desc_align - desc_headsz)
+                if (curlen > max_optlen
+                && curlen < 1 + (opt_config->desc_align))
                     max_optlen = curlen;
             } else {
                 i_current_section = i_opt;
@@ -492,41 +549,18 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
                     break ;
             }
         }
+        LOG_DEBUG(g_vlib_log, "opt_usage: MAX_OPTLEN:%d", max_optlen);
+        if (max_optlen == 0)
+            max_optlen = opt_config->desc_align;
+
     } else
-        max_optlen = opt_config->desc_align >= desc_headsz
-                     ? opt_config->desc_align - desc_headsz : opt_headsz;
-
-    /* get max columns usable for display */
-    if ((i_opt = vterm_get_columns(fileno(out))) <= 0) {
-        max_columns = 80; /* not a tty or error retrieving columns */
-    } else {
-        max_columns = i_opt;
-    }
-
-    /* if options are displayed through log, get header size, and reduce max_columns */
-    if (opt_config->log != NULL && LOG_CAN_LOG(opt_config->log, OPT_USAGE_LOGLEVEL)) {
-        i_opt = log_header(OPT_USAGE_LOGLEVEL, opt_config->log, NULL, NULL, 0);
-        if (isatty(fileno(out))) {
-            max_columns -= i_opt;
-        }
-    }
-    /* Check if requested min size of opts. descs. fits in max_columns. */
-    if (max_columns < opt_headsz + opt_config->desc_minlen + desc_headsz) {
-        /* columns below minimum: use minimum description alignment */
-        max_optlen = opt_headsz;
-    } else if (max_columns < max_optlen + opt_config->desc_minlen + desc_headsz) {
-        /* columns below minimum: use minimum description alignment */
-        max_optlen = max_columns - desc_headsz - opt_config->desc_minlen;
-    }
-
-    /* print program name, version and usage summary */
-    opt_print_usage_summary(opt_config, out, max_columns, max_optlen);
+        max_optlen = opt_config->desc_align;
 
     /* print list of options with their descrption */
     i_opt = 0;
     i_current_section = -1;
     for (const opt_options_desc_t * opt = opt_config->opt_desc;
-            (filter_matched == 0 && filter != NULL) || !is_opt_end(opt); ++opt, ++i_opt) {
+                                    !is_opt_end(opt); ++opt, ++i_opt) {
         unsigned int    n_printed = 0;
         size_t          len;
         size_t          desc_size = 0, * psize = NULL;
@@ -536,13 +570,6 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
         int             is_section;
         int             colors = 0;
 
-        /* restart loop if bad usage filter was given */
-        if (is_opt_end(opt)) {
-            opt = opt_config->opt_desc;
-            i_opt = 0;
-            exit_status = OPT_ERROR(OPT_EBADFLT);
-            filter = NULL;
-        }
         /* keep current section index, and stop if we should only print main section */
         if ((is_section = is_opt_section(opt->short_opt))) {
             if (filter == NULL && (i_current_section >= 0 || opt != opt_config->opt_desc)
@@ -555,9 +582,48 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
             continue ;
         }
         ++filter_matched;
+
+        if (filter_matched == 1) {
+            /* ON FIRST MATCH, initialize log header, adjust sizing parameters, print summary */
+            /* if options are displayed through log, get header size, and reduce max_columns */
+            if (opt_config->log != NULL && LOG_CAN_LOG(opt_config->log, OPT_USAGE_LOGLEVEL)) {
+                len = log_header(OPT_USAGE_LOGLEVEL, opt_config->log, NULL, NULL, 0);
+                if (isatty(fileno(out))) {
+                    max_columns -= len;
+                }
+            }
+            /* print program name, version and usage summary */
+            opt_print_usage_summary(opt_config, out, max_columns, max_optlen);
+
+            /* Check if requested min size of opts. descs. fits in max_columns. */
+            if (max_columns < opt_headsz + 3 + opt_config->desc_minlen + desc_headsz) {
+                /* columns below minimum: use minimum description alignment */
+                max_optlen = opt_headsz + 3 /* '-C ' */ ;
+            } else if (max_columns < max_optlen + opt_config->desc_minlen + desc_headsz) {
+                /* columns above minimum: increase description alignment */
+                max_optlen = max_columns - desc_headsz - opt_config->desc_minlen;
+                //max_optlen = opt_headsz + 3 /* '-C ' */ ;
+            }
+        }
+
         if (opt_config->log != NULL && ! LOG_CAN_LOG(opt_config->log, OPT_USAGE_LOGLEVEL)) {
             continue ;
         }
+        if (filter != NULL && filter_matched == 1) {
+            /* add title "Filtered options", with \n if current section starts with \n */
+            if (i_current_section != -1
+            &&  *(opt_config->opt_desc[i_current_section].desc) == '\n') {
+                opt_newline(out, opt_config, 1);
+            }
+            vterm_putcolor(fd < 0 ? NULL : out, opt_config->color_sect);
+            fprintf(out, "Filtered options:%s", vterm_color(fd, VCOLOR_RESET));
+            /* add newline unless current desc is a section starting with \n */
+            if (is_section == 0
+            ||  *(opt_config->opt_desc[i_opt].desc) != '\n') {
+                opt_newline(out, opt_config, 1);
+            }
+        }
+
         if (!is_section) {
             /* skip option if this is an alias */
             if (opt_alias(i_opt, opt_config) >= 0)
@@ -568,7 +634,7 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
             if (is_valid_short_opt(opt->short_opt)) {
                 if (fputc('-', out) != EOF)
                     n_printed++;
-                vterm_putcolor(out, OPT_COLOR_SHORTOPT);
+                vterm_putcolor(fd < 0 ? NULL : out, opt_config->color_short);
                 if (fputc(opt->short_opt, out) != EOF)
                     n_printed++;
                 fputs(vterm_color(fd, VCOLOR_RESET), out);
@@ -580,7 +646,7 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
                 }
                 if (fputs("--", out) != EOF)
                     n_printed += 2;
-                vterm_putcolor(out, OPT_COLOR_LONGOPT);
+                vterm_putcolor(fd < 0 ? NULL : out, opt_config->color_long);
                 n_printed += fprintf(out, "%s", opt->long_opt);
                 fputs(vterm_color(fd, VCOLOR_RESET), out);
             }
@@ -598,7 +664,7 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
                             fputc(' ', out);
                     }
                     n_printed += fwrite("--", sizeof(char), 2, out);
-                    vterm_putcolor(out, OPT_COLOR_LONGOPT);
+                    vterm_putcolor(fd < 0 ? NULL : out, opt_config->color_long);
                     n_printed += fwrite(opt2->long_opt, sizeof(char), len, out);
                     fputs(vterm_color(fd, VCOLOR_RESET), out);
                 }
@@ -607,7 +673,7 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
             if (opt->arg) {
                 if (n_printed > opt_headsz && fputc(' ', out) != EOF)
                     n_printed++;
-                vterm_putcolor(out, OPT_COLOR_ARG);
+                vterm_putcolor(fd < 0 ? NULL : out, opt_config->color_arg);
                 n_printed += fprintf(out, "%s", opt->arg);
                 fputs(vterm_color(fd, VCOLOR_RESET), out);
             }
@@ -633,10 +699,12 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
             n_printed = opt_newline(out, opt_config, 1);
         }
         /* color flag to colorize sections */
-        colors = is_section && (opt_config->flags & OPT_FLAG_COLOR) != 0;
+        colors = is_section && fd >= 0;
         /* parsing option descriptions, splitting them into words and fix alignment */
+        int tmp_desc_truncated;
         while (1) {
-            if ((len = strtok_ro_r(&token, " \n-,;:/?=+*&|\\", &next, psize,
+            tmp_desc_truncated = 0;
+            if ((len = strtok_ro_r(&token, " \n\r-,;:/?=+*&|\\", &next, psize,
                                    VLIB_STRTOK_INCLUDE_SEP)) <= 0) {
                 if (desc_size > 0 && psize == NULL) {
                     /* switch to dynamic buffer if static buffer is finished */
@@ -647,9 +715,13 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
                 break ;
             }
             /* insert EOL if it does not fit in max_columns */
-            if (*token != '\n' && len + n_printed > max_columns) {
-                n_printed = opt_newline(out, opt_config, 1);
-                eol_shift = desc_headsz;
+            if ( ! OPT_IS_EOL(*token) && len + n_printed > max_columns) {
+                if ((opt_config->flags & OPT_FLAG_TRUNC_COLS) != 0 && filter == NULL) {
+                    tmp_desc_truncated = desc_truncated = 1;
+                } else {
+                    n_printed = opt_newline(out, opt_config, 1);
+                    eol_shift = desc_headsz;
+                }
             }
             /* Align description if needed */
             if (!is_section) {
@@ -660,61 +732,124 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
                 if (!eol_shift && fputs(opt_config->desc_head, out) != EOF)
                     n_printed += desc_headsz;
             }
-            else if (colors && (*token != '\n')) {
-                vterm_putcolor(out, OPT_COLOR_SECTION);
+            else if (colors && ( ! OPT_IS_EOL(*token))) {
+                vterm_putcolor(fd < 0 ? NULL : out, opt_config->color_sect);
                 colors = 0xffff;
             }
 
             eol_shift = desc_headsz;
-            /* print description */
+            if (tmp_desc_truncated
+            || (OPT_IS_EOL(token[len-1]) && !is_section
+                    && (opt_config->flags & OPT_FLAG_TRUNC_EOL) != 0 && filter == NULL)
+            || ((opt_config->flags & OPT_FLAG_TRUNC_COLS) != 0 && filter == NULL
+                && ( ((desc_size > 0) || (next && *next) ? 3 + 1 : 0)
+                     + len + n_printed > max_columns ))) {
+                while (len > 0 && --len + 3 /* ' **' */ + n_printed > max_columns)
+                    ; /* loop */
+                desc_truncated = tmp_desc_truncated = 1;
+            }
+
+            /* print description, replace '\r' by ' ' (summary mode) or '\n' (filter mode) */
+            int cr;
+            if ((cr = (token[len-1]) == '\r') && len > 0)
+                --len;
             n_printed += fwrite(token, 1, len, out);
-            if (colors == 0xffff && (*token == '\n' || token[len-1] == '\n')) {
+            if (cr) {
+                n_printed += fputc(filter != NULL ? '\n' : ' ', out) != EOF ? 1 : 0;
+            }
+
+            /* reset color of section if set previously */
+            if (colors == 0xffff && (OPT_IS_EOL(*token) || OPT_IS_EOL(token[len-1]))) {
                 colors = 0;
                 fputs(vterm_color(fd, VCOLOR_RESET), out);
             }
-            if (token[len-1] == '\n') {
+
+            if (tmp_desc_truncated) {
+                break ;
+            }
+
+            if (OPT_IS_EOL(token[len-1]) || (cr && filter != NULL)) {
                 n_printed = 0;
                 if (opt_config->log != NULL)
                     log_header(OPT_USAGE_LOGLEVEL, opt_config->log, NULL, NULL, 0);
             }
+        } /* ! while(1) -> split and print current option description */
+        if (tmp_desc_truncated) {
+            vterm_putcolor(fd < 0 ? NULL : out, opt_config->color_trunc);
+            fputs(" **", out);
         }
         /* reset colors */
-        if (colors) {
+        if (fd >= 0) {
             fputs(vterm_color(fd, VCOLOR_RESET), out);
         }
         /* EOL before processing next option */
         opt_newline(out, opt_config, 1);
+    } /* ! for (opt=...; !is_opt_end(); ...) */
+    if (desc_truncated && opt_config->opt_help_name != NULL) {
+        /* notice about description truncation and how to get full info */
+        int is_long = *opt_config->opt_help_name && opt_config->opt_help_name[1];
+        opt_newline(out, opt_config, 1);
+        fprintf(out,
+            "%s%s%s" "**%s" " use %s%s%s" "%s" "%s" "%s" "%s" "%s%s%s" "all%s "
+            "or %s%s%s" "%s" "%s" "%s" "%s" "%s%s%s" "%s" "%s to see full usage description",
+            OPT_COLOR_3ARGS(fd, opt_config->color_trunc), vterm_color(fd, VCOLOR_RESET),
+            OPT_COLOR_3ARGS(fd, opt_config->color_long), is_long ? "--" : "-",
+            opt_config->opt_help_name, is_long ? "=" : "",
+            vterm_color(fd, VCOLOR_RESET),
+            OPT_COLOR_3ARGS(fd, opt_config->color_arg), vterm_color(fd, VCOLOR_RESET),
+            OPT_COLOR_3ARGS(fd, opt_config->color_long), is_long ? "--" : "-",
+            opt_config->opt_help_name, is_long ? "=" : "",
+            vterm_color(fd, VCOLOR_RESET),
+            OPT_COLOR_3ARGS(fd, opt_config->color_arg),
+            opt_config->opt_help_name, vterm_color(fd, VCOLOR_RESET));
     }
-    opt_newline(out, opt_config, 0);
+    /* display error if bad usage filter was given */
+    if (filter != NULL && filter_matched == 0) {
+        exit_status = OPT_ERROR(OPT_EBADFLT);
+        opt_error(exit_status, opt_config,
+            OPTERR_PRINT_ERR, NULL, "bad filter '%s%s%s%s%s'\n",
+            OPT_COLOR_3ARGS(fd, opt_config->color_arg), filter, vterm_color(fd, VCOLOR_RESET));
+    } else {
+        opt_newline(out, opt_config, 0);
+    }
     fflush(out);
     funlockfile(out);
+    LOG_DEBUG(g_vlib_log, "%s(): leaving with status %d", __func__, exit_status);
     return exit_status;
 }
 
 int opt_parse_options(opt_config_t * opt_config) {
     const char *const*          argv;
     const opt_options_desc_t *  desc;
-    char                        color[48], color2[48];
-    size_t                      color_sz  = sizeof(color) / sizeof(*color);
-    size_t                      color2_sz = sizeof(color2) / sizeof(*color2);
-    int                         fd = fileno(stderr); // TODO
+    int                         fd; /* fd for vterm_color() */
 
     /* sanity checks */
+    LOG_DEBUG(g_vlib_log, "%s(): entering", __func__);
     if (opt_config == NULL || (desc = opt_config->opt_desc) == NULL
     ||  (argv = opt_config->argv) == NULL) {
-        return opt_error(OPT_ERROR(OPT_EFAULT), opt_config, OPTERR_PRINT_ERR,
+        return opt_error(OPT_ERROR(OPT_EFAULT), opt_config, OPTERR_PRINT_ERR, NULL,
                          "%s(): opt_config or opt_desc or argv is NULL!\n", __func__);
     }
 
     /* initialize valgrind detection */
     vlib_thread_valgrind(opt_config->argc, argv);
 
+    /* check opt_config and init it if needed */
+    opt_check_opt_config(opt_config);
+
+    if ((opt_config->flags & OPT_FLAG_COLOR) == 0
+    ||  (opt_config->flags & OPT_FLAG_SILENT) != 0
+    || ! LOG_CAN_LOG(opt_config->log, LOG_LVL_ERROR))
+        fd = -1;
+    else
+        fd = fileno(opt_config->log && opt_config->log->out ? opt_config->log->out : stderr);
+
     /* Analysing each argument of commandline. */
     for(int i_argv = 1, stop_options = 0; i_argv < opt_config->argc; i_argv++) {
         int result;
         /* Check Options (starting with '-') */
         if (!stop_options && *argv[i_argv] == '-' && argv[i_argv][1]) {
-            const char      short_fake[2]   = { 'a', 0 };
+            char            short_str[2]    = { '-', 0 };
             const char *    short_opts      = argv[i_argv] + 1;
             const char *    opt_arg         = NULL;
             const char *    long_opt        = NULL;
@@ -730,9 +865,9 @@ int opt_parse_options(opt_config_t * opt_config) {
                 /* Check if long option is registered (get index) */
                 if ((i_opt = get_registered_long_opt(argv[i_argv] + 2, &opt_arg, opt_config)) < 0) {
                     return opt_error(OPT_ERROR(OPT_ELONG), opt_config,
-                                     OPTERR_SHOW_USAGE | OPTERR_PRINT_ERR,
-                                     "unknown option '--%s%s%s'\n",
-                                     vterm_buildcolor(fd, OPT_COLOR_LONGOPT, color, &color_sz),
+                                     OPTERR_SHOW_USAGE | OPTERR_PRINT_ERR, NULL,
+                                     "unknown option '--" "%s%s%s" "%s" "%s'\n",
+                                     OPT_COLOR_3ARGS(fd, opt_config->color_long),
                                      argv[i_argv]+2, vterm_color(fd, VCOLOR_RESET));
                 }
                 long_opt = desc[i_opt].long_opt;
@@ -744,22 +879,23 @@ int opt_parse_options(opt_config_t * opt_config) {
                  * &&  !is_valid_short_opt(desc[i_opt].short_opt)) { */
                 if (desc[i_opt].short_opt == OPT_ID_END) {
                     return opt_error(OPT_ERROR(OPT_ELONGID), opt_config,
-                                     OPTERR_SHOW_USAGE | OPTERR_PRINT_ERR,
-                                     "bad 'short_opt' value for option '%s%s%s'\n",
-                                     vterm_buildcolor(fd, OPT_COLOR_LONGOPT, color, &color_sz),
+                                     OPTERR_SHOW_USAGE | OPTERR_PRINT_ERR, NULL,
+                                     "bad 'short_opt' value for option '" "%s%s%s" "%s" "%s'\n",
+                                     OPT_COLOR_3ARGS(fd, opt_config->color_long),
                                      long_opt, vterm_color(fd, VCOLOR_RESET));
                 }
-                short_opts = short_fake;
+                short_opts = short_str;
             }
 
             /* Proceed each short option, or the long option once. */
             for (const char * popt = short_opts; *popt; popt++, opt_arg = NULL) {
+                *short_str = *popt;
                 /* Check if short option is reconized */
                 if (long_opt == NULL && (i_opt = get_registered_short_opt(*popt, opt_config)) < 0) {
                     return opt_error(OPT_ERROR(OPT_ESHORT), opt_config,
-                                     OPTERR_SHOW_USAGE | OPTERR_PRINT_ERR,
-                                     "unknown option '-%s%c%s'\n",
-                                     vterm_buildcolor(fd, OPT_COLOR_SHORTOPT, color, &color_sz),
+                                     OPTERR_SHOW_USAGE | OPTERR_PRINT_ERR, NULL,
+                                     "unknown option '-" "%s%s%s" "%c" "%s'\n",
+                                     OPT_COLOR_3ARGS(fd, opt_config->color_short),
                                      *popt, vterm_color(fd, VCOLOR_RESET));
                 }
                 /* Detect option argument */
@@ -786,32 +922,32 @@ int opt_parse_options(opt_config_t * opt_config) {
                 /* Check presence of mandatory option argument */
                 if (desc[i_opt].arg != NULL && *desc[i_opt].arg != '[' && opt_arg == NULL) {
                     return opt_error(OPT_ERROR(OPT_EOPTNOARG), opt_config,
-                                     OPTERR_SHOW_USAGE | OPTERR_PRINT_ERR,
-                                     "missing argument '%s%s%s' for option '-%s%c%s%s%s'\n",
-                                     vterm_buildcolor(fd, OPT_COLOR_ARG, color, &color_sz),
-                                     desc[i_opt].arg, vterm_color(fd, VCOLOR_RESET),
-                                     long_opt != NULL ? ""
-                                       : vterm_buildcolor(fd, OPT_COLOR_SHORTOPT, color2, &color2_sz),
-                                     long_opt != NULL ? '-' : desc[i_opt].short_opt,
-                                     long_opt != NULL ?
-                                      vterm_buildcolor(fd, OPT_COLOR_LONGOPT, color2, &color2_sz):"",
-                                     long_opt != NULL ? long_opt : "",
-                                     vterm_color(fd, VCOLOR_RESET));
+                            OPTERR_SHOW_USAGE | OPTERR_PRINT_ERR,
+                            long_opt != NULL ? long_opt : short_str,
+                            "missing argument '" "%s%s%s" "%s" "%s" "' for option "
+                            "'-" "%s" "%s%s%s" "%s" "%s'\n",
+                            OPT_COLOR_3ARGS(fd, opt_config->color_arg),
+                            desc[i_opt].arg, vterm_color(fd, VCOLOR_RESET),
+                            long_opt != NULL ? "-" : "",
+                            OPT_COLOR_3ARGS(fd, long_opt != NULL
+                                    ? opt_config->color_long : opt_config->color_short),
+                            long_opt != NULL ? long_opt : short_str,
+                            vterm_color(fd, VCOLOR_RESET));
                 }
                 /* Check presence of unexpected option argument */
                 if (opt_arg != NULL && desc[i_opt].arg == NULL) {
                     return opt_error(OPT_ERROR(OPT_EOPTARG), opt_config,
-                                     OPTERR_SHOW_USAGE | OPTERR_PRINT_ERR,
-                                     "unexpected argument '%s%s%s' for option '-%s%c%s%s%s'\n",
-                                     vterm_buildcolor(fd, OPT_COLOR_ARG, color, &color_sz),
-                                     opt_arg, vterm_color(fd, VCOLOR_RESET),
-                                     long_opt != NULL ? ""
-                                       : vterm_buildcolor(fd, OPT_COLOR_SHORTOPT, color2, &color2_sz),
-                                     long_opt != NULL ? '-' : desc[i_opt].short_opt,
-                                     long_opt != NULL ?
-                                      vterm_buildcolor(fd, OPT_COLOR_LONGOPT, color2, &color2_sz):"",
-                                     long_opt != NULL ? long_opt : "",
-                                     vterm_color(fd, VCOLOR_RESET));
+                            OPTERR_SHOW_USAGE | OPTERR_PRINT_ERR,
+                            long_opt != NULL ? long_opt : short_str,
+                            "unexpected argument '" "%s%s%s" "%s" "%s" "' for option "
+                            "'-" "%s" "%s%s%s" "%s" "%s'\n",
+                            OPT_COLOR_3ARGS(fd, opt_config->color_arg),
+                            opt_arg, vterm_color(fd, VCOLOR_RESET),
+                            long_opt != NULL ? "-" : "",
+                            OPT_COLOR_3ARGS(fd, long_opt != NULL
+                                    ? opt_config->color_long : opt_config->color_short),
+                            long_opt != NULL ? long_opt : short_str,
+                            vterm_color(fd, VCOLOR_RESET));
                 }
                 /* Call the callback if any */
                 if (opt_config->callback) {
@@ -819,21 +955,18 @@ int opt_parse_options(opt_config_t * opt_config) {
                                                   opt_arg, &i_argv, opt_config);
                     if (OPT_IS_ERROR(result)) {
                         if (OPT_EXIT_CODE(result) == OPT_EBADFLT)
-                            opt_error(result, opt_config,
-                                      OPTERR_PRINT_ERR, "bad filter '%s%s%s'\n",
-                                      vterm_buildcolor(fd, OPT_COLOR_ARG, color, &color_sz),
-                                      opt_arg, vterm_color(fd, VCOLOR_RESET));
-                        return opt_error(OPT_ERROR(OPT_EBADOPT), opt_config,
-                                         (OPT_EXIT_CODE(result) != OPT_EBADFLT ? OPTERR_SHOW_USAGE
-                                          : 0) | OPTERR_PRINT_ERR,
-                                    "incorrect option '-%s%c%s%s%s'\n",
-                                    long_opt != NULL ? ""
-                                     : vterm_buildcolor(fd, OPT_COLOR_SHORTOPT, color2, &color2_sz),
-                                    long_opt != NULL ? '-' : desc[i_opt].short_opt,
-                                    long_opt != NULL ?
-                                      vterm_buildcolor(fd, OPT_COLOR_LONGOPT, color2, &color2_sz):"",
-                                    long_opt != NULL ? long_opt : "",
-                                    vterm_color(fd, VCOLOR_RESET));
+                            ; /* nothing error message printed in opt_usage() */
+                        else
+                            result = OPT_ERROR(OPT_EBADOPT);
+                        return opt_error(result, opt_config,
+                                OPTERR_SHOW_USAGE | OPTERR_PRINT_ERR,
+                                long_opt != NULL ? long_opt : short_str,
+                                "incorrect option '-" "%s" "%s%s%s" "%s" "%s'\n",
+                                long_opt != NULL ? "-" : "",
+                                OPT_COLOR_3ARGS(fd, long_opt != NULL
+                                    ? opt_config->color_long : opt_config->color_short),
+                                long_opt != NULL ? long_opt : short_str,
+                                vterm_color(fd, VCOLOR_RESET));
                     }
                     if (OPT_IS_EXIT_OK(result)) {
                         return OPT_EXIT_OK(result);
@@ -847,10 +980,10 @@ int opt_parse_options(opt_config_t * opt_config) {
                 result = opt_config->callback(OPT_ID_ARG, arg, &i_argv, opt_config);
                 if (OPT_IS_ERROR(result)) {
                     return opt_error(OPT_ERROR(OPT_EBADARG), opt_config,
-                                     OPTERR_SHOW_USAGE | OPTERR_PRINT_ERR,
-                                     "incorrect argument '%s%s%s'\n",
-                                     vterm_buildcolor(fd, OPT_COLOR_ARG, color, &color_sz),
-                                     arg, vterm_color(fd, VCOLOR_RESET));
+                            OPTERR_SHOW_USAGE | OPTERR_PRINT_ERR, NULL,
+                            "incorrect argument '" "%s%s%s" "%s" "%s'\n",
+                            OPT_COLOR_3ARGS(fd, opt_config->color_arg),
+                            arg, vterm_color(fd, VCOLOR_RESET));
                 }
 	            if (OPT_IS_EXIT_OK(result)) {
 		            return OPT_EXIT_OK(result);
