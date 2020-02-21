@@ -775,11 +775,11 @@ int vterm_goto(FILE * out, int r, int c) {
  ************************************************************/
 
 /** global running state used by signal handler */
-static volatile sig_atomic_t s_vterm_running = 1;
+#define VTERM_SIGNAL_NONE (INT_MAX)
+static volatile sig_atomic_t s_vterm_last_signal = VTERM_SIGNAL_NONE;
 /** signal handler */
 static void vterm_sig_handler(int sig) {
-    if (sig == SIGINT)
-        s_vterm_running = 0;
+    s_vterm_last_signal = sig;
 }
 
 #ifndef FD_COPY
@@ -842,6 +842,7 @@ int vterm_screen_loop(
         sigemptyset(&select_sigset);
 
         /* Setup signals */
+        s_vterm_last_signal = VTERM_SIGNAL_NONE;
         sa.sa_flags = SA_RESTART;
         sa.sa_handler = vterm_sig_handler;
         sigfillset(&sa.sa_mask);
@@ -875,7 +876,6 @@ int vterm_screen_loop(
             break ;
         }
 
-        s_vterm_running = 1;
         while (1) {
 
             if (display_callback(VTERM_SCREEN_LOOP, out, &elapsed, NULL, callback_data)
@@ -901,10 +901,14 @@ int vterm_screen_loop(
             } else if (ret < 0) {
                 if (errno == EINTR) {
                     /* interrupted by signal */
-                    if (s_vterm_running == 0) {
+                    sig_atomic_t last_signal = s_vterm_last_signal;
+                    s_vterm_last_signal = VTERM_SIGNAL_NONE;
+                    if (last_signal == SIGINT || last_signal == SIGTERM) {
                         /* this is sigint */
                         ret = VTERM_OK;
                         break ;
+                    } else if (last_signal != SIGALRM) {
+                        continue ;
                     }
                     /* this is SIGALARM */
                     elapsed.tv_usec += timer_ms * 1000;
@@ -931,7 +935,7 @@ int vterm_screen_loop(
                 break ;
             }
         }
-        /* callback informating termination */
+        /* callback informing termination */
         display_callback(VTERM_SCREEN_END, out, &elapsed, NULL, callback_data);
 
     } while (0);
