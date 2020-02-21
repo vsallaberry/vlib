@@ -36,6 +36,9 @@
 #ifndef CONFIG_CURSES_H
 # define CONFIG_CURSES_H 0
 #endif
+#ifndef CONFIG_CURSES_SCR
+# define CONFIG_CURSES_SCR 0
+#endif
 #if CONFIG_CURSES
 # if ! CONFIG_CURSES_H || defined(VLIB_CURSESDL)
 /* link to libncurses but no header found. define symbols */
@@ -64,8 +67,8 @@ char *          tigetstr(char *);
 char *          tparm(const char *, ...);
 int             del_curterm(void *);
 extern void *   cur_term;
-
-#  define SCREEN void
+#  if CONFIG_CURSES_SCR
+#   define SCREEN void
 bool            has_colors();
 bool            start_color();
 void            filter();
@@ -75,9 +78,10 @@ int             endwin();
 void            delscreen(SCREEN *);
 int             mvprintw(int, int, const char *, ...);
 void            refresh();
+#  endif
 # endif
 #endif /* ! CONFIG_CURSES */
-#if ! CONFIG_CURSSES || ! CONFIG_CURSES_H || defined(VLIB_CURSESDL)
+#if ! CONFIG_CURSES || ! CONFIG_CURSES_H || defined(VLIB_CURSESDL)
 #define COLOR_BLACK     0
 #define COLOR_RED       1
 #define COLOR_GREEN     2
@@ -116,9 +120,11 @@ static struct {
     int             fd;
     int             has_colors;
 #  if CONFIG_CURSES
-    SCREEN * screen;
     char *          ti_col;
     char *          ti_cup;
+#   if CONFIG_CURSES_SCR
+    SCREEN *        screen;
+#   endif
 #   if defined(VLIB_CURSESDL)
     void *          lib;
     int             (*tigetnum)(char*);
@@ -128,7 +134,10 @@ static struct {
 } s_vterm_info = {
     .flags = VTF_DEFAULT, .fd = VTERM_FD_FREE, .has_colors = 0
 #  if CONFIG_CURSES
-    , .screen = NULL, .ti_col = NULL, .ti_cup = NULL
+    , .ti_col = NULL, .ti_cup = NULL
+#   if CONFIG_CURSES_SCR
+    , .screen = NULL
+#   endif
 #   if CONFIG_CURSES && defined(VLIB_CURSESDL)
     , .lib = NULL, .tigetnum = NULL
 #   endif
@@ -548,13 +557,16 @@ int vterm_free() {
         s_vterm_info.ti_col = NULL;
         if (s_vterm_info.has_colors)
             vterm_free_colors();
+#       if CONFIG_CURSES_SCR
         if ((s_vterm_info.flags & VTF_INITSCR) != 0) { //TODO
             if (s_vterm_info.screen != NULL) {
                 delscreen(s_vterm_info.screen);
                 s_vterm_info.screen = NULL;
             }
             endwin();
-        } else {
+        } else
+#       endif
+        {
             if(cur_term != NULL) {
                 del_curterm(cur_term);
                 cur_term=NULL;
@@ -586,21 +598,12 @@ int vterm_init(int fd, unsigned int flags) {
     int             ret;
     char *          ti_col;
     char *          setf;
-    struct termios  term_conf, term_conf_bak;
+
     LOG_DEBUG(g_vlib_log, "vterm: initializing (flags=%u)", flags);
 
-    if ((flags & VTF_INITSCR) == 0) {
-        if (setupterm(NULL, fd, &ret) != OK) {
-            if      (ret == 1)  LOG_ERROR(g_vlib_log, "setupterm(): term is hardcopy.");
-            else if (ret == 0)  LOG_ERROR(g_vlib_log, "setupterm(): term '%s' not found.",
-                    (setf = getenv("TERM")) == NULL ? "" : setf);
-            else if (ret == -1) LOG_ERROR(g_vlib_log, "setupterm(): term db for '%s' not found.",
-                    (setf = getenv("TERM")) == NULL ? "" : setf);
-            else                LOG_ERROR(g_vlib_log, "setupterm(): unknown error.");
-            s_vterm_info.fd = VTERM_FD_BUSY; /* never try again */
-            return VTERM_ERROR;
-        }
-    } else {
+    #if CONFIG_CURSES_SCR
+    struct termios  term_conf, term_conf_bak;
+    if ((flags & VTF_INITSCR) != 0) {
         //filter();
         /*s_vterm_info.screen = newterm(getenv("TERM"), fd == 1?stdout:stderr, stdin);*/
         //tcgetattr(STDOUT_FILENO, &term_conf_bak);
@@ -618,6 +621,19 @@ int vterm_init(int fd, unsigned int flags) {
             tcsetattr(STDERR_FILENO, TCSANOW, &term_conf);
         else if (fd == STDERR_FILENO)
             tcsetattr(STDOUT_FILENO, TCSANOW, &term_conf);
+    } else
+    #endif
+    {
+        if (setupterm(NULL, fd, &ret) != OK) {
+            if      (ret == 1)  LOG_ERROR(g_vlib_log, "setupterm(): term is hardcopy.");
+            else if (ret == 0)  LOG_ERROR(g_vlib_log, "setupterm(): term '%s' not found.",
+                                    (setf = getenv("TERM")) == NULL ? "" : setf);
+            else if (ret == -1) LOG_ERROR(g_vlib_log, "setupterm(): term db for '%s' not found.",
+                                    (setf = getenv("TERM")) == NULL ? "" : setf);
+            else                LOG_ERROR(g_vlib_log, "setupterm(): unknown error.");
+            s_vterm_info.fd = VTERM_FD_BUSY; /* never try again */
+            return VTERM_ERROR;
+        }
     }
 
     if ((ret = tigetnum(ti_col = "cols")) <= 0
@@ -649,6 +665,7 @@ int vterm_init(int fd, unsigned int flags) {
         vterm_init_default_colors(1);
     }
 
+    #if CONFIG_CURSES_SCR
     if ((flags & VTF_INITSCR) != 0) {
         tcsetattr(fd, TCSANOW, &term_conf_bak);
         if (fd == STDOUT_FILENO)
@@ -656,14 +673,18 @@ int vterm_init(int fd, unsigned int flags) {
         else if (fd == STDERR_FILENO)
             tcsetattr(STDOUT_FILENO, TCSANOW, &term_conf_bak);
     }
+    #endif
 
     s_vterm_info.ti_col = ti_col != NULL ? strdup(ti_col) : NULL;
     s_vterm_info.flags = flags;
     s_vterm_info.fd = fd; /* last thing to be done here, but LOG_* can be done after this */
 
+    #if CONFIG_CURSES_SCR
     if ((flags & VTF_INITSCR) != 0) {
         /* don't log after initscr */
-    } else {
+    } else
+    #endif
+    {
         LOG_VERBOSE(g_vlib_log, "vterm: initialized (flags:%u has_colors:%d)",
                     flags, s_vterm_info.has_colors);
     }
