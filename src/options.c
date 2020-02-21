@@ -295,6 +295,7 @@ static size_t opt_newline(FILE * out, const opt_config_t * opt_config, int print
     if (opt_config->log != NULL && ! LOG_CAN_LOG(opt_config->log, OPT_USAGE_LOGLEVEL))
         return 0;
     fputc('\n', out);
+	fflush(out);
     if (print_header && opt_config->log != NULL)
         log_header(OPT_USAGE_LOGLEVEL, opt_config->log, NULL, NULL, 0);
     return 0;
@@ -549,7 +550,8 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
                     break ;
             }
         }
-        LOG_DEBUG(g_vlib_log, "opt_usage: MAX_OPTLEN:%d", max_optlen);
+        LOG_DEBUG(g_vlib_log == NULL || g_vlib_log->out == out ? NULL : g_vlib_log,
+            "opt_usage: MAX_OPTLEN:%d", max_optlen);
         if (max_optlen == 0)
             max_optlen = opt_config->desc_align;
 
@@ -751,15 +753,16 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
 
             /* print description, replace '\r' by ' ' (summary mode) or '\n' (filter mode) */
             int cr;
-            if ((cr = (token[len-1]) == '\r') && len > 0)
+            if ((cr = (len > 0 && token[len-1] == '\r')))
                 --len;
             n_printed += fwrite(token, 1, len, out);
             if (cr) {
                 n_printed += fputc(filter != NULL ? '\n' : ' ', out) != EOF ? 1 : 0;
+                ++len;
             }
 
             /* reset color of section if set previously */
-            if (colors == 0xffff && (OPT_IS_EOL(*token) || OPT_IS_EOL(token[len-1]))) {
+            if (colors == 0xffff && len > 0 && (OPT_IS_EOL(*token) || OPT_IS_EOL(token[len-1]))) {
                 colors = 0;
                 fputs(vterm_color(fd, VCOLOR_RESET), out);
             }
