@@ -540,6 +540,12 @@ int vterm_free() {
 
     if (s_vterm_info.fd >= 0) {
         vterm_goto_enable(s_vterm_info.fd, 0);
+        if (s_vterm_info.ti_cup != NULL)
+            free(s_vterm_info.ti_cup);
+        s_vterm_info.ti_cup = NULL;
+        if (s_vterm_info.ti_col != NULL)
+            free(s_vterm_info.ti_col);
+        s_vterm_info.ti_col = NULL;
         if (s_vterm_info.has_colors)
             vterm_free_colors();
         if ((s_vterm_info.flags & VTF_INITSCR) != 0) { //TODO
@@ -651,7 +657,7 @@ int vterm_init(int fd, unsigned int flags) {
             tcsetattr(STDOUT_FILENO, TCSANOW, &term_conf_bak);
     }
 
-    s_vterm_info.ti_col = ti_col;
+    s_vterm_info.ti_col = ti_col != NULL ? strdup(ti_col) : NULL;
     s_vterm_info.flags = flags;
     s_vterm_info.fd = fd; /* last thing to be done here, but LOG_* can be done after this */
 
@@ -713,36 +719,59 @@ int vterm_goto_enable(int fd, int enable) {
         if (s_vterm_info.ti_cup != NULL) { /* goto already enabled */
             return VTERM_OK;
         }
-        if ((cap = tigetstr("rmcup")) == NULL || cap == (char*) -1)
+        if ((cap = tigetstr("rmcup")) == NULL || cap == (char*) -1) {
+            LOG_WARN(g_vlib_log, "%s(): terminfo cap rmcup unavailable (%d)",
+                      __func__, (int)((unsigned long)cap));
+        }
+        if ((cap = tigetstr("smcup")) == NULL || cap == (char*) -1) {
+            LOG_WARN(g_vlib_log, "%s(): terminfo cap smcup unavailable (%d)",
+                      __func__, (int)((unsigned long)cap));
+        }
+        if ((cupcap = tigetstr("cup")) == NULL || cupcap == (char*) -1
+        ||  (cupcap = strdup(cupcap)) == NULL) {
+            LOG_ERROR(g_vlib_log, "%s(): terminfo cap cup unavailable (%d)",
+                      __func__, (int)((unsigned long)cupcap));
             return VTERM_ERROR;
-        if ((cap = tigetstr("smcup")) == NULL || cap == (char*) -1)
-            return VTERM_ERROR;
-        if ((cupcap = tigetstr("cup")) == NULL || cupcap == (char*) -1)
-            return VTERM_ERROR;
-
+        }
         tcgetattr(fd, &s_vterm_info.termio_bak);
         memcpy(&termio, &s_vterm_info.termio_bak, sizeof(termio));
         cfmakeraw(&termio);
         tcsetattr(fd, TCSANOW, &termio);
 
-        caplen = strlen(cap);
-        vterm_fdwrite(fd, cap, caplen);
-
+        if (cap != NULL && cap != (char *) -1) {
+            /* write smcup to terminal */
+            caplen = strlen(cap);
+            vterm_fdwrite(fd, cap, caplen);
+        } else {
+            if ((cap = tigetstr("clear")) != NULL && cap != (char*) -1) {
+                caplen = strlen(cap);
+                write(fd, cap, caplen);
+            } else {
+                for (int i = 0; i < vterm_get_lines(fd); ++i) {
+                    for (int j = 0; i < vterm_get_columns(fd); ++j)
+                        write(fd, " ", 1);
+                    write(fd, "\r\n", 2);
+                }
+            }
+        }
         s_vterm_info.ti_cup = cupcap;
     } else {
 
         if (s_vterm_info.ti_cup == NULL)
             return VTERM_ERROR;
 
-        FILE* out = stdout;
+        FILE* out = stdout; //TODO FIXME
         vterm_goto(out, vterm_get_lines(fd) - 1, vterm_get_columns(fd) - 1);
-        fputc('\n', out);
+        fputs("\r\n", out);
+
         if ((cap = tigetstr("rmcup")) != NULL && cap != (char*) -1) {
             caplen = strlen(cap);
             vterm_fdwrite(fd, cap, caplen);
         }
-        s_vterm_info.ti_cup = NULL;
+        if (s_vterm_info.ti_cup != NULL)
+            free(s_vterm_info.ti_cup);
         tcsetattr(fd, TCSANOW, &s_vterm_info.termio_bak);
+        s_vterm_info.ti_cup = NULL;
     }
     vterm_fdflush(fd);
 
