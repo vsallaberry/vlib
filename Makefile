@@ -1320,16 +1320,34 @@ CONFIG_CHECK_PREFIXES	= '' '/opt/local' '/usr/local'
 # + quotes must be in variable content.
 # + '#' should be escaped.
 # + printf sequences like '%' or '\\' should be escaped as printf will get those strings.
-CONFTEST_NCURSES	= '\#include <unistd.h>\n\#include <curses.h>\n\#include <term.h>\n\#include <stdio.h>\n\
-			  int main() {\n\t if (isatty(STDOUT_FILENO) && setupterm(0, STDOUT_FILENO, 0) == OK) {\n\
-			  \t\t           fprintf(stderr, "cols %%d\\n", tigetnum("cols"));\n\
-			  \t\t           fprintf(stderr, "cols %%d\\n", tigetstr("setaf"));\n\
-			  \t\t           fprintf(stderr, "cols %%d\\n", tigetstr("setf"));\n\
-			  \t\t           if (has_colors()) {\n\t\t\t start_color(); }\n\
-			  \t} return 0;\n}\n'
+CONFTEST_CURSES_TI_ALL	= int main() {\n\t if (isatty(STDOUT_FILENO) && setupterm(0, STDOUT_FILENO, 0) == OK) {\n\
+			  \t\t  fprintf(stderr, "cols %%d\\n", tigetnum("cols"));\n\
+			  \t\t  fprintf(stderr, "setaf %%d\\n", (int)tigetstr("setaf"));\n\
+			  \t\t  fprintf(stderr, "setbf %%d\\n", (int)tigetstr("setf"));\n\
+			  \t\t  fprintf(stderr, "colors %%d\\n", tigetnum("colors"));\n\
+			  \t\t  char *s; if ((s=tigetstr("setaf")) != NULL && s != (char*)-1)\n\
+			  \t\t\t  fprintf(stderr, "setaf 1 %%s\\n", tparm(s, 1));\n\
+			  \t\t  del_curterm(cur_term);\n\
+			  \t} return 0;\n}\n
 
-CONFTEST_NCURSES_NOINC	= '\#include <unistd.h>\nint main() {\n\
-			  if (isatty(STDOUT_FILENO)) { setupterm(0, STDOUT_FILENO, 0); tigetnum("cols"); } return 0; }\n'
+CONFTEST_CURSES_TI	= '\#include <unistd.h>\n\#include <stdio.h>\n\#include <termios.h>\n\#include <curses.h>\n\#include <term.h>\n\
+			  $(CONFTEST_CURSES_TI_ALL)'
+
+CONFTEST_CURSES_TI_NOINC= '\#include <unistd.h>\n\#include <stdio.h>\n\#include <termios.h>\n\
+			  int setupterm(void*,int,int*);\nextern void * cur_term;\nint del_curterm(void*);\nchar * tparm(const char*, ...);\n\
+			  char * tigetstr(char*);\nint tigetnum(char*);\n\#define OK 0\n $(CONFTEST_CURSES_TI_ALL)'
+
+CONFTEST_NCURSES_SCR_ALL= \#include <unistd.h>\n\#include <curses.h>\n\#include <term.h>\n\#include <stdio.h>\n\#include <termios.h>\n\
+			  int main() {\n\t if (isatty(STDOUT_FILENO)) {\n\
+			  \t\t filter(); if (initscr() != NULL) {\n\
+			  \t\t\t if (has_colors()) {\n\t\t\t start_color(); endwin(); }\n\
+			  \t} } return 0;\n}\n
+
+CONFTEST_NCURSES_SCR	= '\#include <unistd.h>\n\#include <stdio.h>\n\#include <termios.h>\n\#include <curses.h>\n\#include <term.h>\n\
+			  $(CONFTEST_NCURSES_SCR_ALL)'
+
+CONFTEST_NCURSES_SCR_NOINC = '\#include <unistd.h>\n\#include <stdio.h>\n\#include <termios.h>\n\
+			     $(CONFTEST_NCURSES_SCR_ALL)'
 
 CONFTEST_ZLIB		= '\#include <stdio.h>\n\#include <string.h>\n\#include <zlib.h>\n\
 			  unsigned char inbuf[] = { 31,139,8,0,239,31,168,90,0,3,51,228,2,0,83,252,81,103,2,0,0,0 };\n \
@@ -1387,7 +1405,8 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile
 	  $(PRINTF) "$(NAME): generate $(CONFIGMAKE), $(CONFIGINC)\n"; \
 	  log() { $(PRINTF) "$$@"; $(PRINTF) "$$@" >> "$${configlog}"; }; \
 	  checktest() { \
-	      case " $(CONFIG_CHECK) " in *" $$1 "*|*" +$$1 "*|*" all "*) ;; *) return 1;; esac; \
+	      _t="$$1"; _t2="$${_t%:*}"; test -n "$${_t2}" && _t="$${_t2}"; \
+	      case " $(CONFIG_CHECK) " in *" $${_t} "*|*" +$${_t} "*|*" all "*) ;; *) return 1;; esac; \
 	  }; \
 	  cctest() { \
 	    plabel=$$1; shift; lcode=$$@; binout=; binerr=; \
@@ -1462,19 +1481,24 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile
 	flag=; lib="-lz"; cflags="$${flag}" libs="$${lib}" conftest CONFIG_ZLIB_H "$${flag}" CONFIG_ZLIB "$${lib}" \
 	    "zlib" $(CONFTEST_ZLIB) \
 	|| { cflags="" libs="$${lib}" conftest "" "" CONFIG_ZLIB "$${lib}" \
-	    "zlib" $(CONFTEST_ZLIB_NOINC) \
+	    "zlib:noheaders" $(CONFTEST_ZLIB_NOINC) \
 	; } || true; \
 	true "**** NCURSES CHECK *****"; \
 	flag=; for lib in "-lncurses" "-lncurses -ltinfo" '`getlibpath ncurses` `getlibpath tinfo`' \
 			  "-lcurses" "-ltinfo" '`getlibpath ncurses`' '`getlibpath tinfo`'; do \
 	    case "$${lib}" in '`'*|'$$('*) lib=$$(eval echo "$${lib}");; esac; \
 	    cflags="$${flag}" libs="$${lib}" conftest CONFIG_CURSES_H "$${flag}" CONFIG_CURSES "$${lib}" \
-	        "ncurses" $(CONFTEST_NCURSES) \
+	        "ncurses" $(CONFTEST_CURSES_TI) \
 	    && break \
 	    || { cflags="" libs="$${lib}" conftest "" "" CONFIG_CURSES "$${lib}" \
-	         "ncurses" $(CONFTEST_NCURSES_NOINC) \
+	         "ncurses:noheaders" $(CONFTEST_CURSES_TI_NOINC) \
 	    && break; } || true; \
 	done; \
+	cflags="$${flag}" libs="$${lib}" conftest CONFIG_CURSES_SCR "$${flag}" "" "" \
+	    "ncurses:initscr" $(CONFTEST_NCURSES_SCR) \
+	|| cflags="$${flag}" libs="$${lib}" conftest CONFIG_CURSES_SCR "$${flag}" "" "" \
+	    "ncurses:initscr_noheaders" $(CONFTEST_NCURSES_SCR_NOINC) \
+	|| true; \
 	true "**** LIBCRYPTO CHECK *****"; \
 	for lib in "-lcrypto" '`getlibpath crypto`'; do \
 	    case "$${lib}" in '`'*|'$$('*) lib=$$(eval echo "$${lib}");; esac; \
