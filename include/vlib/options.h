@@ -266,6 +266,16 @@ int             opt_describe_filter(
                         int *                   i_argv,
                         const opt_config_t *    opt_config);
 
+/* print on <out> result of 'fnmatch(filter)' on VA_ARGS(...)
+ * of type vdecode_fun_t, VA_ARGS(...) is TERMINATED by NULL
+ * @param out the FILE* where to write
+ * @param filter the fnmatch pattern (supports ** to not check folder
+ *               separators). Everything is printed if filter is NULL.
+ *               If starting with ':', the filter is applied to file content
+ *               and to file names (project/file-path) otherwise.
+ * return OPT_EXIT_OK() on success, OPT_ERROR otherwise. */
+int             opt_filter_source(FILE * out, const char * filter, ...);
+
 /**
  * Get vlib version
  */

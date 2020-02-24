@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Vincent Sallaberry
+ * Copyright (C) 2018-2020 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -94,6 +94,7 @@ typedef struct {
 typedef struct {
     z_stream            z;
     size_t              off;
+    void *              user_data;
     decode_wrapper_t *  lib;
 } decodebuf_t; /* ##ZSRC_BEGIN */
 
@@ -222,6 +223,7 @@ ssize_t             vdecode_buffer(
         pctx->z.opaque = Z_NULL;
         pctx->z.avail_in = 0;
         pctx->off = 0;
+        pctx->user_data = NULL;
 
         if (inbufsz >= 3 && inbuf
         && inbuf[0] == 31 && (unsigned char)(inbuf[1]) == 139 && inbuf[2] == 8) {
@@ -288,5 +290,124 @@ ssize_t             vdecode_buffer(
             *ctx = NULL;
     }
     return ret == Z_OK || ret == Z_STREAM_END ? n : -1;
+}
+
+/* ************************************************************************ */
+static inline ssize_t vdecode_getline(
+                        char **         pline,
+                        size_t *        pline_capacity,
+                        size_t          line_maxsz,
+                        void **         ctx,
+                        vdecode_fun_t   decodefun,
+                        const char *    inbuf,
+                        size_t inbufsz) {
+    char *          eol;
+    decodebuf_t *   pctx;
+    size_t          lineoff;
+
+    if (pline == NULL || pline_capacity == NULL || ctx == NULL
+    ||  (decodefun == NULL && (inbuf == NULL || inbufsz == 0))) {
+        //LOG_ERROR(g_vlib_log, "%s(): pline/pline_capacity/ctx NULL");
+        return -1;
+    }
+    if (*pline == NULL || *ctx == NULL) {
+        /* first call */
+        if (*pline == NULL) {
+            lineoff = line_maxsz == 0 ? 512
+                      : (line_maxsz >= 32 ? line_maxsz / 8 : line_maxsz);
+            *pline = malloc(lineoff * sizeof(char));
+            *pline_capacity = lineoff;
+        }
+        lineoff = 0;
+        **pline = 0;
+    } else {
+        if ((*pline)[*pline_capacity-1] == 0) {
+            /* all data has already been returned */
+            //return 0;
+        }
+        pctx = *ctx;
+        lineoff = (size_t) pctx->user_data;
+        if ((eol = strchr(*pline, '\n')) == NULL) {
+            eol = *pline + strlen(*pline) - 1;
+        }
+        *(eol + 1) = (*pline)[*pline_capacity - 1];
+        memmove(*pline, eol + 1, (lineoff + *pline - eol));
+        lineoff -= eol - *pline + 1;
+        if (**pline == 0) {
+            /* all data has already been returned */
+            //return 0;
+        }
+    }
+    while (1) {
+        ssize_t n;
+
+        eol = strchr(*pline, '\n');
+
+        if (eol == NULL) {
+            /* eol not found, need to get more data */
+            if (lineoff + 2 >= *pline_capacity) {
+                /* buffer need to be increased */
+                if (line_maxsz > 0 && *pline_capacity * 2 > line_maxsz) {
+                    /* buffer cannot be increased */
+                    eol = *pline + lineoff - 1;
+                    //fprintf(stderr, "PFFF n=%zd next=%d\n", n, eol[1]);
+                    break ;
+                }
+                *pline = realloc(*pline, *pline_capacity * 2);
+                if (*pline == NULL) {
+                    //LOG_ERROR(g_vlib_log, "%s(): cannot alloc line above %zu", *pline_capacity);
+                    return -1;
+                }
+                *pline_capacity *= 2;
+            }
+            /* get more data */
+            if (inbuf != NULL)
+                n = vdecode_buffer(NULL, *pline + lineoff, *pline_capacity - lineoff - 2,
+                        ctx, inbuf, inbufsz);
+            else
+                n = decodefun(NULL, *pline + lineoff,
+                              *pline_capacity - lineoff - 2, ctx);
+
+            pctx = *ctx;
+            if (n < 0 || (n > 0 && *ctx == NULL)) {
+                //LOG_ERROR(g_vlib_log, "%s(): vdecode_buffer error");
+                return -1;
+            }
+            (*pline)[lineoff+n] = 0;
+            lineoff += n;
+            if (n > 0) {
+                /* there is more data, loop again to search '\n' */
+                continue ;
+            } else {
+                eol = *pline + lineoff - 1;
+            }
+        }
+        break ;
+    }
+    (*pline)[*pline_capacity - 1] = *(eol + 1);
+    *(eol + 1) = 0;
+    if (pctx != NULL)
+        pctx->user_data = (void *) lineoff;
+
+    return (eol - *pline + 1);
+}
+
+ssize_t vdecode_getline_fun(
+                        char **         pline,
+                        size_t *        pline_capacity,
+                        size_t          line_maxsz,
+                        void **         ctx,
+                        vdecode_fun_t   decodefun) {
+    return vdecode_getline(pline, pline_capacity, line_maxsz, ctx, decodefun, NULL, 0);
+}
+
+ssize_t vdecode_getline_buf(
+                        char **         pline,
+                        size_t *        pline_capacity,
+                        size_t          line_maxsz,
+                        void **         ctx,
+                        const char *    inbuf,
+                        size_t inbufsz) {
+   return vdecode_getline(pline, pline_capacity, line_maxsz, ctx, NULL, inbuf, inbufsz);
 }
 

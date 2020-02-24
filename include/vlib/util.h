@@ -109,6 +109,46 @@ ssize_t     vdecode_buffer(
                 const char *    inbuf,
                 size_t          inbufsz);
 
+typedef int     (*vdecode_fun_t)(FILE *, char *, unsigned, void **);
+
+/** return a 0 terminated line from data returned by vdecode_fun
+ * it contains \n if it is not the last line.
+ * WARNING, the content of pline and pline_capacity MUST NOT BE CHANGED
+ * Caller must free *pline if not NULL after final call
+ * See vdecode_buffer().
+ * @param pline cannot be NULL, *pline can be NULL
+ * @parm pline_capacity cannot be NULL, *pline_capacity can be 0
+ * @param line_maxsz, maximum size of line, infinite if 0
+ * @param ctx cannot be NULL, *ctx must be NULL on first call
+ * @param decodefun, a function similar to vdecode_buffer or vlib_get_source()
+ * @return length of line including \n if any, 0 is empty, -1 on error */
+ssize_t     vdecode_getline_fun(
+                char **         pline,
+                size_t *        pline_capacity,
+                size_t          line_maxsz,
+                void **         ctx,
+                vdecode_fun_t   decodefun);
+
+/** return a 0 terminated line from data returned by vdecode_buffer
+ * it contains \n if it is not the last line.
+ * WARNING, the content of pline and pline_capacity MUST NOT BE CHANGED
+ * Caller must free *pline if not NULL after final call
+ * See vdecode_buffer().
+ * @param pline cannot be NULL, *pline can be NULL
+ * @parm pline_capacity cannot be NULL, *pline_capacity can be 0
+ * @param line_maxsz, maximum size of line, infinite if 0
+ * @param ctx cannot be NULL, *ctx must be NULL on first call
+ * @param inbuf, where are vdecode_buffer input data
+ * @param inbufsz the size of vdecode_buffer input data
+ * @return length of line including \n if any, 0 is empty, -1 on error */
+ssize_t     vdecode_getline_buf(
+                char **         pline,
+                size_t *        pline_capacity,
+                size_t          line_maxsz,
+                void **         ctx,
+                const char *    inbuf,
+                size_t          inbufsz);
+
 #ifdef __cplusplus
 }
 #endif

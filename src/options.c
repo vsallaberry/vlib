@@ -1041,6 +1041,79 @@ int opt_describe_filter(int short_opt, const char * arg, int * i_argv,
     return OPT_CONTINUE(1);
 }
 
+#define FILE_PATTERN        "/* #@@# FILE #@@# "
+#define FILE_PATTERN_END    " \\*/*"
+
+int opt_filter_source(FILE * out, const char * filter, ...) {
+    va_list         valist;
+    vdecode_fun_t getsource;
+
+    va_start(valist, filter);
+    if (filter == NULL) {
+        while ((getsource = va_arg(valist, vdecode_fun_t)) != NULL) {
+            getsource(out, NULL, 0, NULL);
+        }
+        va_end(valist);
+        return OPT_EXIT_OK(0);
+    }
+
+    const char *        search          = FILE_PATTERN;
+    size_t              searchsz        = sizeof(FILE_PATTERN) - 1;
+    char *              line = NULL;
+    void *              ctx = NULL;
+    size_t              line_capacity = 0;
+    ssize_t             n;
+    //const size_t        bufsz           = s_opt_filter_bufsz;
+    char *              pattern;
+    size_t              patlen          = strlen(filter);
+    int                 fnm_flag        = FNM_CASEFOLD;
+
+    if (*filter == ':') {
+        /* handle search in source content rather than on file names */
+        search = "";
+        searchsz = 0;
+        pattern = malloc((patlen + 2) * sizeof(char));
+        strncpy(pattern, filter + 1, patlen - 1);
+        strcpy(pattern + patlen - 1, "");
+    } else {
+        /* build search pattern */
+        if ((pattern = malloc(sizeof(char) * (patlen + sizeof(FILE_PATTERN_END)))) == NULL) {
+            return OPT_ERROR(1);
+        }
+        str0cpy(pattern, filter, patlen + 1);
+        str0cpy(pattern + patlen, FILE_PATTERN_END, sizeof(FILE_PATTERN_END));
+        if (strchr(filter, '/') != NULL && strstr(filter, "**") == NULL) {
+            fnm_flag |= FNM_PATHNAME | FNM_LEADING_DIR;
+        }
+    }
+
+    /* process each getsource function of the '...' va_list */
+    //fputc('\n', out);
+    while ((getsource = va_arg(valist, vdecode_fun_t)) != NULL) {
+        int     found = 0;
+
+        while ((n = vdecode_getline_fun(&line, &line_capacity, 2*PATH_MAX, &ctx, getsource)) > 0) {
+            if ((strncmp(line, search, searchsz)) == 0) {
+                if (*filter == ':') strcpy(pattern + patlen -1, line[n-1] == '\n' ? "\n" : "");
+                if ((size_t) n > searchsz) {
+                    found = (fnmatch(pattern, line + searchsz, fnm_flag) == 0);
+                } else {
+                    found = 0;
+                }
+            }
+            if (found)
+                fprintf(out, "%s", line);
+        }
+    }
+
+    va_end(valist);
+    if (line)
+        free(line);
+    free(pattern);
+
+    return OPT_EXIT_OK(0);
+}
+
 const char * vlib_get_version() {
     return OPT_VERSION_STRING(BUILD_APPNAME, APP_VERSION, "git:" BUILD_GITREV);
 }
