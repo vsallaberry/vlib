@@ -1337,7 +1337,7 @@ CONFTEST_CURSES_TI_NOINC= '\#include <unistd.h>\n\#include <stdio.h>\n\#include 
 			  int setupterm(void*,int,int*);\nextern void * cur_term;\nint del_curterm(void*);\nchar * tparm(const char*, ...);\n\
 			  char * tigetstr(char*);\nint tigetnum(char*);\n\#define OK 0\n $(CONFTEST_CURSES_TI_ALL)'
 
-CONFTEST_NCURSES_SCR_ALL= \#include <unistd.h>\n\#include <curses.h>\n\#include <term.h>\n\#include <stdio.h>\n\#include <termios.h>\n\
+CONFTEST_NCURSES_SCR_ALL= \#include <unistd.h>\n\#include <stdio.h>\n\#include <termios.h>\n\
 			  int main() {\n\t if (isatty(STDOUT_FILENO)) {\n\
 			  \t\t filter(); if (initscr() != NULL) {\n\
 			  \t\t\t if (has_colors()) {\n\t\t\t start_color(); endwin(); }\n\
