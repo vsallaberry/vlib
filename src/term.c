@@ -723,7 +723,7 @@ static int vterm_fdflush(int fd) {
 }
 
 int vterm_goto_enable(int fd, int enable) {
-    char * cap;
+    char * cap, * cupcap;
     size_t caplen;
     int ret;
 
@@ -734,7 +734,6 @@ int vterm_goto_enable(int fd, int enable) {
     }
 
     if (enable) {
-        char *          cupcap;
         struct termios  termio;
 
         if (s_vterm_info.ti_cup != NULL) { /* goto already enabled */
@@ -766,32 +765,35 @@ int vterm_goto_enable(int fd, int enable) {
         } else {
             if ((cap = tigetstr("clear")) != NULL && cap != (char*) -1) {
                 caplen = strlen(cap);
-                write(fd, cap, caplen);
+                while (write(fd, cap, caplen) < 0 && errno == EINTR) ;/* loop */
             } else {
                 for (int i = 0; i < vterm_get_lines(fd); ++i) {
                     for (int j = 0; i < vterm_get_columns(fd); ++j)
-                        write(fd, " ", 1);
-                    write(fd, "\r\n", 2);
+                        while (write(fd, " ", 1) < 0 && errno == EINTR) ;/* loop */
+                    while (write(fd, "\r\n", 2) < 0 && errno == EINTR) ; /*loop */
                 }
             }
         }
         s_vterm_info.ti_cup = cupcap;
     } else {
-
         if (s_vterm_info.ti_cup == NULL)
-            return VTERM_ERROR;
+            return VTERM_OK; /* goto already OFF */
 
-        FILE* out = stdout; //TODO FIXME
-        vterm_goto(out, vterm_get_lines(fd) - 1, vterm_get_columns(fd) - 1);
-        fputs("\r\n", out);
+        vterm_fdflush(fd);
+        cupcap = tparm(s_vterm_info.ti_cup, vterm_get_lines(fd) - 1,
+                                            vterm_get_columns(fd) - 1);
+        if (cupcap) {
+            while (write(fd, cupcap, strlen(cupcap)) < 0 && errno == EINTR) ;/* loop */
+        }
+        while (write(fd, "\r\n", 2) < 0 && errno == EINTR) ;/* loop */
 
         if ((cap = tigetstr("rmcup")) != NULL && cap != (char*) -1) {
             caplen = strlen(cap);
             vterm_fdwrite(fd, cap, caplen);
         }
+        tcsetattr(fd, TCSANOW, &s_vterm_info.termio_bak);
         if (s_vterm_info.ti_cup != NULL)
             free(s_vterm_info.ti_cup);
-        tcsetattr(fd, TCSANOW, &s_vterm_info.termio_bak);
         s_vterm_info.ti_cup = NULL;
     }
     vterm_fdflush(fd);
