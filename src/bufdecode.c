@@ -321,10 +321,6 @@ static inline ssize_t vdecode_getline(
         lineoff = 0;
         **pline = 0;
     } else {
-        if ((*pline)[*pline_capacity-1] == 0) {
-            /* all data has already been returned */
-            //return 0;
-        }
         pctx = *ctx;
         lineoff = (size_t) pctx->user_data;
         if ((eol = strchr(*pline, '\n')) == NULL) {
@@ -333,10 +329,6 @@ static inline ssize_t vdecode_getline(
         *(eol + 1) = (*pline)[*pline_capacity - 1];
         memmove(*pline, eol + 1, (lineoff + *pline - eol));
         lineoff -= eol - *pline + 1;
-        if (**pline == 0) {
-            /* all data has already been returned */
-            //return 0;
-        }
     }
     while (1) {
         ssize_t n;

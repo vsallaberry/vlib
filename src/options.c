@@ -295,7 +295,7 @@ static size_t opt_newline(FILE * out, const opt_config_t * opt_config, int print
     if (opt_config->log != NULL && ! LOG_CAN_LOG(opt_config->log, OPT_USAGE_LOGLEVEL))
         return 0;
     fputc('\n', out);
-	fflush(out);
+    fflush(out);
     if (print_header && opt_config->log != NULL)
         log_header(OPT_USAGE_LOGLEVEL, opt_config->log, NULL, NULL, 0);
     return 0;
@@ -859,12 +859,12 @@ int opt_parse_options(opt_config_t * opt_config) {
             int             i_opt;
 
             /* Check for a second '-' : long option. */
-	        if (*short_opts == '-') {
+            if (*short_opts == '-') {
                 /* The '--' special option will stop taking words starting with '-' as options */
-		        if (!short_opts[1]) {
-		            stop_options = 1;
-		            continue ;
-		        }
+                if (!short_opts[1]) {
+                    stop_options = 1;
+                    continue ;
+                }
                 /* Check if long option is registered (get index) */
                 if ((i_opt = get_registered_long_opt(argv[i_argv] + 2, &opt_arg, opt_config)) < 0) {
                     return opt_error(OPT_ERROR(OPT_ELONG), opt_config,
@@ -988,9 +988,9 @@ int opt_parse_options(opt_config_t * opt_config) {
                             OPT_COLOR_3ARGS(fd, opt_config->color_arg),
                             arg, vterm_color(fd, VCOLOR_RESET));
                 }
-	            if (OPT_IS_EXIT_OK(result)) {
-		            return OPT_EXIT_OK(result);
-	            }
+                if (OPT_IS_EXIT_OK(result)) {
+                    return OPT_EXIT_OK(result);
+                }
             }
         }
     }
@@ -1041,8 +1041,18 @@ int opt_describe_filter(int short_opt, const char * arg, int * i_argv,
     return OPT_CONTINUE(1);
 }
 
-#define FILE_PATTERN        "/* #@@# FILE #@@# "
-#define FILE_PATTERN_END    " \\*/*"
+#define FILE_PATTERN                "/* #@@# FILE #@@# "
+#define FILE_PATTERN_END            " \\*/*"
+#define OPT_FILTER_BUFSZ_DEFAULT    (PATH_MAX * 2)
+
+#ifdef _TEST
+static size_t s_opt_filter_bufsz = OPT_FILTER_BUFSZ_DEFAULT;
+void opt_set_source_filter_bufsz(size_t bufsz) {
+    s_opt_filter_bufsz = bufsz ? bufsz : OPT_FILTER_BUFSZ_DEFAULT;
+}
+#else
+static const size_t s_opt_filter_bufsz = OPT_FILTER_BUFSZ_DEFAULT;
+#endif
 
 int opt_filter_source(FILE * out, const char * filter, ...) {
     va_list         valist;
@@ -1063,7 +1073,6 @@ int opt_filter_source(FILE * out, const char * filter, ...) {
     void *              ctx = NULL;
     size_t              line_capacity = 0;
     ssize_t             n;
-    //const size_t        bufsz           = s_opt_filter_bufsz;
     char *              pattern;
     size_t              patlen          = strlen(filter);
     int                 fnm_flag        = FNM_CASEFOLD;
@@ -1088,11 +1097,11 @@ int opt_filter_source(FILE * out, const char * filter, ...) {
     }
 
     /* process each getsource function of the '...' va_list */
-    //fputc('\n', out);
     while ((getsource = va_arg(valist, vdecode_fun_t)) != NULL) {
         int     found = 0;
 
-        while ((n = vdecode_getline_fun(&line, &line_capacity, 2*PATH_MAX, &ctx, getsource)) > 0) {
+        while ((n = vdecode_getline_fun(&line, &line_capacity,
+                        s_opt_filter_bufsz, &ctx, getsource)) > 0) {
             if ((strncmp(line, search, searchsz)) == 0) {
                 if (*filter == ':') strcpy(pattern + patlen -1, line[n-1] == '\n' ? "\n" : "");
                 if ((size_t) n > searchsz) {
@@ -1126,4 +1135,140 @@ int vlib_get_source(FILE * out, char * buffer, unsigned int buffer_size, void **
                           APP_NO_SOURCE_STRING, sizeof(APP_NO_SOURCE_STRING) - 1);
 }
 #endif
+
+/*************************************************************************/
+
+#if 0
+// BAD OLD version of opt_filter_source()
+
+//typedef int     (*vdecode_fun_t)(FILE *, char *, unsigned, void **);
+
+#include <stdarg.h>
+#include <fnmatch.h>
+
+
+#define FILE_PATTERN_OLD    "\n/* #@@# FILE #@@# "
+#define FILE_PATTERN_OLD_END " \\*/\n*"
+
+#ifdef BUILD_SYS_openbsd
+# pragma message "WARNING: tests fail with PATH_MAX on openbsd, temporarily decrease bufsz"
+# define OPT_FILTER_BUFSZ_DEFAULT (sizeof(FILE_PATTERN_OLD) - 1 + PATH_MAX / 2 + 5)
+#else
+# define OPT_FILTER_BUFSZ_DEFAULT (sizeof(FILE_PATTERN_OLD) - 1 + PATH_MAX + 5)
+#endif
+
+#ifdef _TEST
+static size_t s_opt_filter_bufsz = OPT_FILTER_BUFSZ_DEFAULT;
+void opt_set_source_filter_bufsz(size_t bufsz) {
+    s_opt_filter_bufsz = bufsz ? bufsz : OPT_FILTER_BUFSZ_DEFAULT;
+}
+#else
+static const size_t s_opt_filter_bufsz = OPT_FILTER_BUFSZ_DEFAULT;
+#endif
+
+int opt_filter_source_old(FILE * out, const char * arg, ...) {
+    va_list         valist;
+    vdecode_fun_t getsource;
+
+    va_start(valist, arg);
+    if (arg == NULL) {
+        while ((getsource = va_arg(valist, vdecode_fun_t)) != NULL) {
+            getsource(out, NULL, 0, NULL);
+        }
+        va_end(valist);
+        return OPT_EXIT_OK(0);
+    }
+
+    void *              ctx             = NULL;
+    const char *        search          = FILE_PATTERN_OLD;
+    size_t              filtersz        = sizeof(FILE_PATTERN_OLD) - 1;
+    const size_t        bufsz           = s_opt_filter_bufsz;
+    char                buffer[bufsz];
+    char *              pattern;
+    size_t              patlen          = strlen(arg);
+    int                 fnm_flag        = FNM_CASEFOLD;
+
+    if (*arg == ':') {
+        /* handle search in source content rather than on file names */
+        search = "\n";
+        filtersz = 1;
+        --patlen;
+        pattern = strdup(arg + 1);
+    } else {
+        /* build search pattern */
+        if ((pattern = malloc(sizeof(char) * (patlen + sizeof(FILE_PATTERN_OLD_END)))) == NULL) {
+            return OPT_ERROR(1);
+        }
+        str0cpy(pattern, arg, patlen + 1);
+        str0cpy(pattern + patlen, FILE_PATTERN_OLD_END, sizeof(FILE_PATTERN_OLD_END));
+        if (strchr(arg, '/') != NULL && strstr(arg, "**") == NULL) {
+            fnm_flag |= FNM_PATHNAME | FNM_LEADING_DIR;
+        }
+    }
+    /* process each getsource function of the '...' va_list */
+    while ((getsource = va_arg(valist, vdecode_fun_t)) != NULL) {
+        ssize_t n, n_sav = 1;
+        size_t  bufoff = 0;
+        int     found = 0;
+
+        while (n_sav > 0 && (n = n_sav = getsource(NULL, buffer + bufoff,
+                                                   bufsz - 1 - bufoff, &ctx)) >= 0) {
+            char *  newfile;
+            char *  bufptr = buffer;
+
+            n += bufoff;
+            buffer[n] = 0;
+            do {
+                if ((newfile = strstr(bufptr, search)) != NULL) {
+                    /* FILE PATTERN found */
+                    /* write if needed bytes preceding the file pattern, then skip them */
+                    if (found && newfile > bufptr) {
+                        fwrite(bufptr, sizeof(char), newfile - bufptr, out);
+                    }
+                    n -= (newfile - bufptr);
+                    bufptr = newfile;
+                    newfile += filtersz;
+                    /* checks whether PATH_MAX fits in current buffer position */
+                    if (newfile + PATH_MAX > buffer + bufsz - 1
+                    &&  n_sav > 0 && strchr(newfile, '\n') == NULL) {
+                        /* shift pattern at beginning of buffer to catch truncated files */
+                        memmove(buffer, bufptr, n);
+                        bufoff = n;
+                        break ;
+                    }
+                    bufoff = 0;
+                    char * t = NULL;
+                    if (*arg == ':' && (t = strchr(newfile, '\n')) != NULL) *t = 0;
+                    found = (fnmatch(pattern, newfile, fnm_flag) == 0);
+                    if (*arg == ':' && t != NULL) *t = '\n';
+                } else if (n_sav > 0 && filtersz > 0) {
+                    /* FILE PATTERN not found */
+                    /* shift filtersz-1 last bytes to start of buffer to get truncated patterns */
+                    bufoff = n >= (ssize_t) (filtersz - 1) ? filtersz - 1 : (size_t) n;
+                    n -= bufoff;
+                } else
+                    bufoff = 0;
+                if (found) {
+                    fwrite(bufptr, sizeof(char), newfile ? newfile - bufptr : n, out);
+                }
+                if (newfile)
+                    n -= (newfile - bufptr);
+                else
+                    memmove(buffer, bufptr + n, bufoff);
+                bufptr = newfile;
+            } while (newfile != NULL);
+        }
+        /* release resources */
+        getsource(NULL, NULL, 0, &ctx);
+        if (ctx != NULL) {
+            LOG_ERROR(NULL, "error: ctx after vdecode_buffer should be NULL");
+        }
+    }
+    va_end(valist);
+    free(pattern);
+    return OPT_EXIT_OK(0);
+}
+#endif
+
+/*************************************************************************/
 
