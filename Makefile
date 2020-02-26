@@ -1095,13 +1095,13 @@ $(SRCINC_STR): $(SRCINC_CONTENT)
 	           } { \
 		       if (curfile != FILENAME) { \
 		           fname=FILENAME; if ("$(.OBJDIR)" != "$(.CURDIR)" && index(fname, "$(.CURDIR)") == 1) { fname=substr(fname,length("$(.CURDIR)")+2); }; \
-		           curfile="/* #@@# FILE #@@# $(NAME)/" fname " */"; if (blk != "") blk = blk "\n"; blk=blk "\n" curfile; curfile=FILENAME; \
+		           curfile="/* #@@# FILE #@@# $(NAME)/" fname " */"; blk = blk "\n"; blk=blk "\n" curfile; curfile=FILENAME; \
 	               } if (length($$0 " " blk) > 500) { \
 	                   printblk(); blk=$$0; \
                        } else \
 		           blk=blk "\n" $$0; \
 		   } END { \
-		       printblk(); print "NULL };\n" \
+		       printblk(); print "\"\\n\", NULL };\n" \
 	           }' $${input} >> '$@'; \
 	     print_getsrc_fun() { \
 	         name_fixed=`$(cmd_NAME_FIXED)`; \
@@ -1174,7 +1174,7 @@ $(SRCINC_Z): $(SRCINC_CONTENT)
 	     $(cmd_TESTBSDOBJ) && fname=`echo "$${f}" | sed -e 's|^$(.CURDIR)/||' -e 's|^$(.OBJDIR)/||'` || fname=$${f}; \
 	     $(PRINTF) "\n/* #@@# FILE #@@# $(NAME)/$${fname} */\n"; \
 	     cat "$${f}"; \
-	     done; }; dumpsrc | $(GZIP) -c | $(OD) -An -tuC | $(SED) -e 's/[[:space:]][[:space:]]*0*\([0-9][0-9]*\)/\1,/g' >> '$@'; \
+	     done; echo; }; dumpsrc | $(GZIP) -c | $(OD) -An -tuC | $(SED) -e 's/[[:space:]][[:space:]]*0*\([0-9][0-9]*\)/\1,/g' >> '$@'; \
 	 sha=`$(WHICH) shasum sha256 sha256sum $(NO_STDERR) | $(HEADN1)`; case "$${sha}" in */shasum) sha="$${sha} -a256";; esac; \
 	 name_fixed=`$(cmd_NAME_FIXED)`; \
 	 { $(PRINTF) '%s\n' "};" "static const char * s_program_hash = \"`dumpsrc | $${sha} | $(AWK) '{ print $$1; }'`\";"; \
