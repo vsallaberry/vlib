@@ -763,15 +763,21 @@ int vterm_goto_enable(int fd, int enable) {
             caplen = strlen(cap);
             vterm_fdwrite(fd, cap, caplen);
         } else {
+            /* display 'LINES' \r\n to not lose what was displayed before */
+            for (int i = 0; i < vterm_get_lines(fd); ++i)
+                while (write(fd, "\r\n", 2) < 0 && errno == EINTR) ; /*loop */
+            vterm_fdflush(fd);
+            /* send terminfo clear if available */
             if ((cap = tigetstr("clear")) != NULL && cap != (char*) -1) {
                 caplen = strlen(cap);
                 while (write(fd, cap, caplen) < 0 && errno == EINTR) ;/* loop */
             } else {
+                /* not necessary TODO to be removed
                 for (int i = 0; i < vterm_get_lines(fd); ++i) {
-                    for (int j = 0; i < vterm_get_columns(fd); ++j)
-                        while (write(fd, " ", 1) < 0 && errno == EINTR) ;/* loop */
-                    while (write(fd, "\r\n", 2) < 0 && errno == EINTR) ; /*loop */
-                }
+                    for (int j = 0; j < vterm_get_columns(fd); ++j)
+                        while (write(fd, " ", 1) < 0 && errno == EINTR) ;/ * loop * /
+                    while (write(fd, "\r\n", 2) < 0 && errno == EINTR) ; / *loop * /
+                }*/
             }
         }
         s_vterm_info.ti_cup = cupcap;
