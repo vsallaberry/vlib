@@ -295,7 +295,8 @@ int log_header(log_level_t level, log_t * log,
     if (prefix == NULL)
         prefix = "*";
 
-    log_colors = (flags & LOG_FLAG_COLOR) != 0 && vterm_has_colors(fd = fileno(out));
+    fd = fileno(out);
+    log_colors = (flags & LOG_FLAG_COLOR) != 0 && vterm_has_colors(fd);
 
     if ((flags & LOG_FLAG_DATETIME) != 0) {
         //static time_t * const plast_timet = NULL;
