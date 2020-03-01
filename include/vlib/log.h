@@ -80,8 +80,8 @@ typedef enum {
 
 /** log context */
 typedef struct {
-    log_level_t     level:4;
-    log_flag_t      flags:28;
+    unsigned int    level:4;
+    unsigned int    flags:28;
     FILE *          out;
     char *          prefix;
 } log_t;
