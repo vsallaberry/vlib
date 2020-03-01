@@ -95,6 +95,7 @@ void            refresh();
 
 #include <unistd.h>
 #include <sys/select.h>
+#include <sys/ioctl.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -109,6 +110,16 @@ void            refresh();
 #include "vlib/util.h"
 
 #include "vlib_private.h"
+
+/* ************************************************************************* */
+
+#if defined(TIOCGWINSZ)
+# define VTERM_IOCTL_GETWINSZ (TIOCGWINSZ)
+#elif defined(TIOCGSIZE)
+# define VTERM_IOCTL_GETWINSZ (TIOCGSIZE)
+#else
+# undef VTERM_IOCTL_GETWINSZ
+#endif
 
 /* ************************************************************************* */
 
@@ -791,12 +802,14 @@ int vterm_goto_enable(int fd, int enable) {
         if (cupcap) {
             while (write(fd, cupcap, strlen(cupcap)) < 0 && errno == EINTR) ;/* loop */
         }
-        while (write(fd, "\r\n", 2) < 0 && errno == EINTR) ;/* loop */
 
         if ((cap = tigetstr("rmcup")) != NULL && cap != (char*) -1) {
             caplen = strlen(cap);
             vterm_fdwrite(fd, cap, caplen);
+        } else {
+            while (write(fd, "\r\n", 2) < 0 && errno == EINTR) ;/* loop */
         }
+
         tcsetattr(fd, TCSANOW, &s_vterm_info.termio_bak);
         if (s_vterm_info.ti_cup != NULL)
             free(s_vterm_info.ti_cup);
