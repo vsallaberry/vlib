@@ -310,6 +310,7 @@ static inline ssize_t vdecode_getline(
         //LOG_ERROR(g_vlib_log, "%s(): pline/pline_capacity/ctx NULL");
         return -1;
     }
+    pctx = *ctx;
     if (*pline == NULL || *ctx == NULL) {
         /* first call */
         if (*pline == NULL) {
@@ -321,7 +322,6 @@ static inline ssize_t vdecode_getline(
         lineoff = 0;
         **pline = 0;
     } else {
-        pctx = *ctx;
         lineoff = (size_t) pctx->user_data;
         if ((eol = strchr(*pline, '\n')) == NULL) {
             eol = *pline + strlen(*pline) - 1;
