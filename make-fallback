@@ -61,7 +61,8 @@ if tmp=`mktemp /tmp/Makefile.XXXXXXXX` && mv "${mymakefile}" "${tmp}"; then
     touch -r "${tmp}" "${mymakefile}"
 
     # create empty .alldeps.d as some old bsd make do not see it when created by a makefile shell command.
-    deps=$(dirname "${mymakefile}")/.alldeps.d; [ -e "$deps" ] || echo '# alldeps.d' > "$deps"
+    deps=$(dirname "${mymakefile}")/.alldeps.d
+    [ -e "$deps" ] || printf -- '# alldeps.d\ninclude config.make\n' > "$deps"
 
     "${mymake}" MAKE="${mypath}" "$@"; status=$?
 
