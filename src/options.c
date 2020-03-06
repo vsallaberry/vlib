@@ -52,6 +52,7 @@
 #define OPT_USAGE_LOGLEVEL          LOG_LVL_INFO
 
 /* default values for options colors, can be overriden in opt_config_t */
+/* dark mode */
 #define OPT_COLOR_SHORTOPT          VCOLOR_BUILD(VCOLOR_GREEN, VCOLOR_EMPTY, VCOLOR_BOLD)
 #define OPT_COLOR_USE_SHORTOPT      OPT_COLOR_SHORTOPT
 #define OPT_COLOR_LONGOPT           VCOLOR_BUILD(VCOLOR_CYAN, VCOLOR_EMPTY, VCOLOR_EMPTY)
@@ -61,6 +62,16 @@
 #define OPT_COLOR_ERROR             VCOLOR_BUILD(VCOLOR_RED, VCOLOR_EMPTY, VCOLOR_BOLD)
 #define OPT_COLOR_SECTION           VCOLOR_BUILD(VCOLOR_EMPTY, VCOLOR_EMPTY, VCOLOR_BOLD)
 #define OPT_COLOR_DESC_TRUNC        OPT_COLOR_SECTION
+/* light mode */
+#define OPT_COLOR_SHORTOPT_LIGHT    VCOLOR_BUILD(VCOLOR_RED, VCOLOR_EMPTY, VCOLOR_BOLD)
+#define OPT_COLOR_USE_SHORTOPT_LIGHT OPT_COLOR_SHORTOPT_LIGHT
+#define OPT_COLOR_LONGOPT_LIGHT     VCOLOR_BUILD(VCOLOR_BLUE, VCOLOR_EMPTY, VCOLOR_EMPTY)
+#define OPT_COLOR_USE_LONGOPT_LIGHT OPT_COLOR_LONGOPT_LIGHT
+#define OPT_COLOR_ARG_LIGHT         VCOLOR_BUILD(VCOLOR_MAGENTA, VCOLOR_EMPTY, VCOLOR_EMPTY)
+#define OPT_COLOR_USE_ARG_LIGHT     OPT_COLOR_ARG_LIGHT
+#define OPT_COLOR_ERROR_LIGHT       OPT_COLOR_ERROR
+#define OPT_COLOR_SECTION_LIGHT     VCOLOR_BUILD(VCOLOR_GREEN, VCOLOR_EMPTY, VCOLOR_BOLD)
+#define OPT_COLOR_DESC_TRUNC_LIGHT  OPT_COLOR_SECTION_LIGHT
 
 #define OPT_COLOR_3ARGS(fd, colors) vterm_color(fd, VCOLOR_GET_FORE(colors)), \
                                     vterm_color(fd, VCOLOR_GET_BACK(colors)), \
@@ -160,21 +171,33 @@ static int opt_check_opt_config(opt_config_t * opt_config) {
         opt_config->log = NULL;
         return -1;
     } else {
-        const struct { vterm_colorset_t * ptr; vterm_colorset_t val; } colors[] = {
-            { &opt_config->color_short, OPT_COLOR_SHORTOPT },
-            { &opt_config->color_useshort, OPT_COLOR_USE_SHORTOPT },
-            { &opt_config->color_long, OPT_COLOR_LONGOPT },
-            { &opt_config->color_uselong, OPT_COLOR_USE_LONGOPT },
-            { &opt_config->color_arg, OPT_COLOR_ARG },
-            { &opt_config->color_usearg, OPT_COLOR_USE_ARG },
-            { &opt_config->color_sect, OPT_COLOR_SECTION },
-            { &opt_config->color_trunc, OPT_COLOR_DESC_TRUNC },
-            { &opt_config->color_err, OPT_COLOR_ERROR }
+        const struct { vterm_colorset_t * ptr; vterm_colorset_t val[2]; } colors[] = {
+            { &opt_config->color_short, { OPT_COLOR_SHORTOPT, OPT_COLOR_SHORTOPT_LIGHT } },
+            { &opt_config->color_useshort, { OPT_COLOR_USE_SHORTOPT, OPT_COLOR_USE_SHORTOPT_LIGHT } },
+            { &opt_config->color_long, { OPT_COLOR_LONGOPT, OPT_COLOR_LONGOPT_LIGHT } },
+            { &opt_config->color_uselong, { OPT_COLOR_USE_LONGOPT, OPT_COLOR_USE_LONGOPT_LIGHT } },
+            { &opt_config->color_arg, { OPT_COLOR_ARG, OPT_COLOR_ARG_LIGHT } },
+            { &opt_config->color_usearg, { OPT_COLOR_USE_ARG, OPT_COLOR_USE_ARG_LIGHT } },
+            { &opt_config->color_sect, { OPT_COLOR_SECTION, OPT_COLOR_SECTION_LIGHT } },
+            { &opt_config->color_trunc, { OPT_COLOR_DESC_TRUNC, OPT_COLOR_DESC_TRUNC_LIGHT } },
+            { &opt_config->color_err, { OPT_COLOR_ERROR, OPT_COLOR_ERROR_LIGHT } }
         };
-        unsigned int i;
-        for (i = 0; i < sizeof(colors) / sizeof(*colors); ++i) {
-            if (*(colors[i].ptr) == UINT_MAX)
-                *(colors[i].ptr) = colors[i].val;
+        int color_mode = -1;
+        int fd = opt_config && opt_config->log && opt_config->log->out
+                    ? fileno(opt_config->log->out) : STDOUT_FILENO;
+
+        for (unsigned int i = 0; i < sizeof(colors) / sizeof(*colors); ++i) {
+            if (*(colors[i].ptr) == UINT_MAX) {
+                if (color_mode == -1) {
+                    vterm_colorset_t term_colors = vterm_termfgbg(fd);
+                    if (VCOLOR_GET_BACK(term_colors) != VCOLOR_BLACK) {
+                        color_mode = 1;
+                    } else {
+                        color_mode = 0;
+                    }
+                }
+                *(colors[i].ptr) = colors[i].val[color_mode];
+            }
         }
         return 0;
     }

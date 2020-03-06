@@ -154,6 +154,13 @@ int             vterm_get_lines(int fd);
  * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
 int             vterm_has_colors(int fd);
 
+/** get foreground/background color of the terminal attached to <fd>.
+ * @return colors the result of VCOLOR_BUILD(fore, back, style)
+ * @notes not supported on all terminals, COLORFGBG env can be set manually,
+ *        with format 'foreground;background': "15;0" for dark, "0;15" for light.
+ * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
+vterm_colorset_t vterm_termfgbg(int fd);
+
 /** get color string for terminal attached to <fd>.
  * vterm_color is reentrant and can be used several times in *printf().
  * @param color a simple color for foreground or background or style

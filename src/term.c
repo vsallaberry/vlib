@@ -234,6 +234,27 @@ int vterm_has_colors(int fd) {
     return s_vterm_info.has_colors;
 }
 
+vterm_colorset_t vterm_termfgbg(int fd) {
+    const char * env;
+
+    if (vterm_init(fd, s_vterm_info.flags) == VTERM_OK
+    &&  (env = getenv("COLORFGBG")) != NULL) {
+        const char * token;
+        size_t len;
+        int fg, bg;
+        len = strtok_ro_r(&token, ";", &env, NULL, 0);
+        // TODO COLOR CONVERSION NOT 100% accurate
+        fg = (len > 0) ? strtol(token, NULL, 10) : 7;
+        bg = (len > 0 && env && *env) ? strtol(env, NULL, 10) : 0;
+        if (fg > 7)
+           fg = fg < 16 ? fg - 8 : 0;
+        if (bg > 7)
+           bg = bg < 16 ? bg - 8 : 7;
+        return VCOLOR_BUILD(fg, bg, VCOLOR_EMPTY);
+    }
+    return VCOLOR_BUILD(VCOLOR_WHITE, VCOLOR_BLACK, VCOLOR_EMPTY);
+}
+
 static inline unsigned int vterm_color_index(int fd, vterm_color_t color) {
     if (vterm_has_colors(fd)) {
         if ((int)color < 0 || color >= sizeof(s_vterm_colors) / sizeof(*s_vterm_colors)) {
