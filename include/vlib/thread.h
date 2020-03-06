@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Vincent Sallaberry
+ * Copyright (C) 2018-2020 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -171,7 +171,7 @@ int                 vlib_thread_pipe_create(
 ssize_t             vlib_thread_pipe_write(
                             vlib_thread_t *             vthread,
                             int                         pipe_fdout,
-                            void *                      data,
+                            const void *                data,
                             size_t                      size);
 
 /** get thread state

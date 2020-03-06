@@ -372,9 +372,11 @@ int                 vlib_thread_pipe_create(
 ssize_t                 vlib_thread_pipe_write(
                             vlib_thread_t *             vthread,
                             int                         pipe_fdout,
-                            void *                      data,
+                            const void *                data,
                             size_t                      size) {
     vlib_thread_priv_t *    priv = vthread ? vthread->priv : NULL;
+    ssize_t                 ret;
+    size_t                  offset;
 
     /* sanity checks */
     if (priv == NULL) {
@@ -383,15 +385,22 @@ ssize_t                 vlib_thread_pipe_write(
     }
     /* checks whether the size exceeds PIPE_BUF */
     if (size <= PIPE_BUF) {
-        return write(pipe_fdout, data, size);
-    } else {
-        ssize_t                 ret;
-
-        pthread_mutex_lock(&priv->mutex);
-        ret = write(pipe_fdout, data, size);
-        pthread_mutex_unlock(&priv->mutex);
+        while ((ret = write(pipe_fdout, data, size)) < 0 && errno == EINTR)
+            ; /* nothing but loop */
         return ret;
     }
+    for (offset = 0; offset < size; /*no incr*/ ) {
+        pthread_mutex_lock(&priv->mutex);
+        while ((ret = write(pipe_fdout, (const char *)data + offset,
+                            offset + PIPE_BUF > size ? size - offset : PIPE_BUF))
+                 < 0 && errno == EINTR)
+           ; /* nothing but loop */
+        pthread_mutex_unlock(&priv->mutex);
+        if (ret < 0)
+            return ret;
+        offset += ret;
+    }
+    return offset;
 }
 
 /*****************************************************************************/
