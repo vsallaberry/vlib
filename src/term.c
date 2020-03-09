@@ -114,9 +114,15 @@ void            refresh();
 /* ************************************************************************* */
 
 #if defined(TIOCGWINSZ)
-# define VTERM_IOCTL_GETWINSZ (TIOCGWINSZ)
+# define VTERM_IOCTL_GETWINSZ   (TIOCGWINSZ)
+# define VTERM_WINSIZE_T        struct winsize
+# define VTERM_WINSZ_COLS(s)    (s)->ws_col
+# define VTERM_WINSZ_ROWS(s)    (s)->ws_row
 #elif defined(TIOCGSIZE)
-# define VTERM_IOCTL_GETWINSZ (TIOCGSIZE)
+# define VTERM_IOCTL_GETWINSZ   (TIOCGSIZE)
+# define VTERM_WINSZ_T          struct ttysize
+# define VTERM_WINSZ_COLS(s)    (s)->ts_cols
+# define VTERM_WINSZ_ROWS(s)    (s)->ts_lines
 #else
 # undef VTERM_IOCTL_GETWINSZ
 #endif
@@ -127,25 +133,29 @@ void            refresh();
 #define VTERM_FD_BUSY   (-2)
 
 static struct {
-    unsigned int    flags;
-    int             fd;
-    int             has_colors;
+    unsigned int        flags;
+    int                 fd;
+    int                 has_colors;
+    vterm_colorset_t    term_fgbg;
+    int                 fixedwinsz;
 #  if CONFIG_CURSES
-    char *          ti_col;
-    char *          ti_cup;
+    char *              ti_col;
+    char *              ti_cup;
+    char *              ti_clr;
 #   if CONFIG_CURSES_SCR
-    SCREEN *        screen;
+    SCREEN *            screen;
 #   endif
 #   if defined(VLIB_CURSESDL)
-    void *          lib;
-    int             (*tigetnum)(char*);
+    void *              lib;
+    int                 (*tigetnum)(char*);
 #   endif
-    struct termios  termio_bak;
+    struct termios      termio_bak;
 #  endif
 } s_vterm_info = {
-    .flags = VTF_DEFAULT, .fd = VTERM_FD_FREE, .has_colors = 0
+    .flags = VTF_DEFAULT, .fd = VTERM_FD_FREE, .has_colors = 0,
+    .term_fgbg = VCOLOR_NULL, .fixedwinsz = -1
 #  if CONFIG_CURSES
-    , .ti_col = NULL, .ti_cup = NULL
+    , .ti_col = NULL, .ti_cup = NULL, .ti_clr = NULL
 #   if CONFIG_CURSES_SCR
     , .screen = NULL
 #   endif
@@ -194,6 +204,7 @@ static const vterm_colors_t s_vterm_colors_default[VCOLOR_EMPTY+1] = {
 };
 static vterm_colors_t s_vterm_colors[VCOLOR_EMPTY+1] = { { NULL, 0, 0 }, };
 
+/* ************************************************************************* */
 static int vterm_init_default_colors(int set_static) {
     memcpy(s_vterm_colors, s_vterm_colors_default, sizeof(s_vterm_colors_default));
     for (unsigned int i = 0; i <= VCOLOR_EMPTY; ++i) {
@@ -201,9 +212,12 @@ static int vterm_init_default_colors(int set_static) {
         if (set_static)
             s_vterm_colors[i].libcolor = VCOLOR_STATIC;
     }
+    s_vterm_info.term_fgbg = VCOLOR_NULL;
+    s_vterm_info.fixedwinsz = -1;
     return VTERM_OK;
 }
 
+/* ************************************************************************* */
 static int vterm_free_colors() {
     for (unsigned int i = 0; i <= VCOLOR_EMPTY; ++i) {
         if (s_vterm_colors[i].libcolor != VCOLOR_STATIC
@@ -214,6 +228,7 @@ static int vterm_free_colors() {
     return VTERM_OK;
 }
 
+/* ************************************************************************* */
 int vterm_enable(int enable) {
     if (enable) {
         if (s_vterm_info.fd < 0)
@@ -227,6 +242,7 @@ int vterm_enable(int enable) {
     return VTERM_OK;
 }
 
+/* ************************************************************************* */
 int vterm_has_colors(int fd) {
     if (vterm_init(fd, s_vterm_info.flags) != VTERM_OK) {
        return 0;
@@ -234,27 +250,39 @@ int vterm_has_colors(int fd) {
     return s_vterm_info.has_colors;
 }
 
+/* ************************************************************************* */
 vterm_colorset_t vterm_termfgbg(int fd) {
-    const char * env;
+    static const vterm_colorset_t termfgbg_default
+        = VCOLOR_BUILD(VCOLOR_WHITE, VCOLOR_BLACK, VCOLOR_EMPTY);
+    const char *    env;
+    const char *    token;
+    size_t          len;
+    int             fg, bg;
 
-    if (vterm_init(fd, s_vterm_info.flags) == VTERM_OK
-    &&  (env = getenv("COLORFGBG")) != NULL) {
-        const char * token;
-        size_t len;
-        int fg, bg;
-        len = strtok_ro_r(&token, ";", &env, NULL, 0);
-        // TODO COLOR CONVERSION NOT 100% accurate
-        fg = (len > 0) ? strtol(token, NULL, 10) : 7;
-        bg = (len > 0 && env && *env) ? strtol(env, NULL, 10) : 0;
-        if (fg > 7)
-           fg = fg < 16 ? fg - 8 : 0;
-        if (bg > 7)
-           bg = bg < 16 ? bg - 8 : 7;
-        return VCOLOR_BUILD(fg, bg, VCOLOR_EMPTY);
+    if (vterm_init(fd, s_vterm_info.flags) != VTERM_OK) {
+        return termfgbg_default;
     }
-    return VCOLOR_BUILD(VCOLOR_WHITE, VCOLOR_BLACK, VCOLOR_EMPTY);
+    if (s_vterm_info.term_fgbg != VCOLOR_NULL) {
+        return s_vterm_info.term_fgbg;
+    }
+    if ((env = getenv("COLORFGBG")) == NULL) {
+        s_vterm_info.term_fgbg = termfgbg_default;
+        return s_vterm_info.term_fgbg;
+    }
+    len = strtok_ro_r(&token, ";", &env, NULL, 0);
+    // TODO COLOR CONVERSION NOT 100% accurate
+    fg = (len > 0) ? strtol(token, NULL, 10) : 7;
+    bg = (len > 0 && env && *env) ? strtol(env, NULL, 10) : 0;
+    if (fg > 7)
+        fg = fg < 16 ? fg - 8 : 0;
+    if (bg > 7)
+        bg = bg < 16 ? bg - 8 : 7;
+
+    s_vterm_info.term_fgbg = VCOLOR_BUILD(fg, bg, VCOLOR_EMPTY);
+    return s_vterm_info.term_fgbg;
 }
 
+/* ************************************************************************* */
 static inline unsigned int vterm_color_index(int fd, vterm_color_t color) {
     if (vterm_has_colors(fd)) {
         if ((int)color < 0 || color >= sizeof(s_vterm_colors) / sizeof(*s_vterm_colors)) {
@@ -268,14 +296,17 @@ static inline unsigned int vterm_color_index(int fd, vterm_color_t color) {
     return VCOLOR_EMPTY;
 }
 
+/* ************************************************************************* */
 const char * vterm_color(int fd, vterm_color_t color) {
     return s_vterm_colors[vterm_color_index(fd, color)].str;
 }
 
+/* ************************************************************************* */
 unsigned int vterm_color_size(int fd, vterm_color_t color) {
     return s_vterm_colors[vterm_color_index(fd, color)].size;
 }
 
+/* ************************************************************************* */
 unsigned int vterm_color_maxsize(int fd) {
     unsigned int i, size, max = 0;
 
@@ -286,6 +317,7 @@ unsigned int vterm_color_maxsize(int fd) {
     return max;
 }
 
+/* ************************************************************************* */
 ssize_t vterm_putcolor(FILE * out, vterm_colorset_t colors) {
     ssize_t             n;
     vterm_colorset_t    fg, bg, s; /* could be vterm_color_t, no pb as bounds are checked */
@@ -315,6 +347,7 @@ ssize_t vterm_putcolor(FILE * out, vterm_colorset_t colors) {
     return 0;
 }
 
+/* ************************************************************************* */
 char * vterm_buildcolor(int fd, vterm_colorset_t colors, char * buffer, size_t * psize) {
     ssize_t             n;
     vterm_colorset_t    fg, bg, s; /* could be vterm_color_t, no pb as bounds are checked */
@@ -360,11 +393,133 @@ char * vterm_buildcolor(int fd, vterm_colorset_t colors, char * buffer, size_t *
     return buffer;
 }
 
+/* ************************************************************************* */
+static inline int vterm_get_env_int(const char * env) {
+    char *s = getenv(env);
+    char *endp = NULL;
+    long res;
+
+    if (s == NULL)
+        return VTERM_ERROR;
+
+    errno = 0;
+    res = strtol(s, &endp, 0);
+    if (endp == NULL || *endp != 0 || errno != 0)
+        return VTERM_ERROR;
+
+    return res;
+}
+
+/* ************************************************************************* */
+int vterm_get_winsize(int fd, unsigned int * p_lines, unsigned int * p_columns) {
+    int ret, tcols = -1, tlines = -1;
+
+    if ((ret = vterm_init(fd, s_vterm_info.flags)) != VTERM_OK) {
+        return ret;
+    }
+
+#if defined(VTERM_IOCTL_GETWINSZ)
+    VTERM_WINSIZE_T ws;
+    if (s_vterm_info.fixedwinsz <= 0 && ioctl(fd, VTERM_IOCTL_GETWINSZ, &ws, sizeof(ws)) == 0) {
+        tlines = VTERM_WINSZ_ROWS(&ws);
+        tcols = VTERM_WINSZ_COLS(&ws);
+        if (s_vterm_info.fixedwinsz < 0) {
+            int tmp;
+            s_vterm_info.fixedwinsz = 0;
+            if (((tmp = vterm_get_env_int("LINES")) > 0 && tmp < tlines)) {
+                s_vterm_info.fixedwinsz = 1;
+                tlines = tmp;
+            }
+            if (((tmp = vterm_get_env_int("COLUMNS")) > 0 && tmp < tcols)) {
+                s_vterm_info.fixedwinsz = 1;
+                tcols = tmp;
+            }
+            if (s_vterm_info.fixedwinsz > 0) {
+                LOG_WARN(g_vlib_log, "warning env COLUMNS or LINES overrides real term size");
+            }
+        }
+    }
+#endif
+
+#if CONFIG_CURSES
+    if (p_columns != NULL && tcols <= 0) {
+        if (s_vterm_info.ti_col != NULL) {
+            tcols = tigetnum(s_vterm_info.ti_col);
+        }
+    }
+    if (p_lines != NULL && tlines <= 0) {
+        tlines = tigetnum("lines");
+    }
+#endif
+
+    if (p_lines != NULL) {
+        if (tlines <= 0)
+            tlines = vterm_get_env_int("LINES");
+        if (tlines > 0)
+            *p_lines = tlines;
+        else
+            return VTERM_ERROR;
+    }
+    if (p_columns != NULL) {
+        if (tcols <= 0)
+            tcols = vterm_get_env_int("COLUMNS");
+        if (tcols > 0)
+            *p_columns = tcols;
+        else
+            return VTERM_ERROR;
+    }
+    return VTERM_OK;
+}
+
+/* ************************************************************************* */
+int vterm_get_lines(int fd) {
+    int ret;
+    unsigned int tlines;
+    if ((ret = vterm_get_winsize(fd, &tlines, NULL)) == VTERM_OK)
+        return tlines;
+    if (ret == VTERM_NOTTY)
+        return 0;
+    return VTERM_ERROR;
+}
+
+/* ************************************************************************* */
+int vterm_get_columns(int fd) {
+    int ret;
+    unsigned int tcols;
+    if ((ret = vterm_get_winsize(fd, NULL, &tcols)) == VTERM_OK)
+        return tcols;
+    if (ret == VTERM_NOTTY)
+        return 0;
+    return VTERM_ERROR;
+}
+
+/* ************************************************************************* */
+static inline int vterm_clear_manual(FILE * out) {
+    char * buf;
+    unsigned int row, cols = 0, rows = 0;
+    int fd = out != NULL ? fileno(out) : -1;
+
+    vterm_get_winsize(fd, &rows, &cols);
+    if ((buf = malloc(cols + 3)) != NULL) {
+        memset(buf, ' ', cols);
+        buf[cols] = '\r';
+        buf[cols+1] = '\n';
+        buf[cols+2] = 0;        buf[cols+1] = '\n';
+        vterm_goto(out, 0, 0);
+        for (row = 0; row < rows; ++row) {
+            fwrite(buf, 1, cols + 2, out);
+        }
+        free(buf);
+    }
+    return VTERM_OK;
+}
+
 #if ! CONFIG_CURSES
 /*******************************************************************
  * vterm implementation WITHOUT ncurses.
  ******************************************************************/
 
+/* ************************************************************************* */
 int vterm_init(int fd, unsigned int flags) {
     if (!isatty(fd) || s_vterm_info.fd == VTERM_FD_BUSY) { /* first thing to be done here */
         return VTERM_NOTTY;
@@ -390,6 +545,7 @@ int vterm_init(int fd, unsigned int flags) {
     return VTERM_OK;
 }
 
+/* ************************************************************************* */
 int vterm_free() {
     LOG_DEBUG(g_vlib_log, "vterm: cleaning...");
 
@@ -402,38 +558,22 @@ int vterm_free() {
     return VTERM_OK;
 }
 
-static inline int vterm_get_env(int fd, const char * env) {
-    int ret;
+/* ************************************************************************* */
+int             vterm_clear(FILE * out) {
+    int ret, fd = out != NULL ? fileno(out) : -1;
 
     if ((ret = vterm_init(fd, s_vterm_info.flags)) == VTERM_NOTTY)
-        return 0;
+        return VTERM_NOTTY;
     if (ret != VTERM_OK) {
         return VTERM_ERROR;
     }
+    vterm_clear_manual(out);
+    fflush(out);
 
-    char *s = getenv(env);
-    char *endp = NULL;
-    long res;
-
-    if (s == NULL)
-        return 0;
-
-    errno = 0;
-    res = strtol(s, &endp, 0);
-    if (endp == NULL || *endp != 0 || errno != 0)
-        return VTERM_ERROR;
-
-    return res;
+    return VTERM_OK;
 }
 
-int vterm_get_columns(int fd) {
-    return vterm_get_env(fd, "COLUMNS");
-}
-
-int vterm_get_lines(int fd) {
-    return vterm_get_env(fd, "LINES");
-}
-
+/* ************************************************************************* */
 int vterm_goto(FILE *out, int r, int c) {
     int ret;
     int fd;
@@ -450,6 +590,7 @@ int vterm_goto(FILE *out, int r, int c) {
     return VTERM_ERROR;
 }
 
+/* ************************************************************************* */
 int vterm_goto_enable(int fd, int enable) {
     if (enable)
         return VTERM_ERROR;
@@ -462,6 +603,7 @@ int vterm_goto_enable(int fd, int enable) {
  * vterm implementation WITH ncurses.
  **************************************************************************/
 
+/* ************************************************************************* */
 static void vterm_init_colors(int flags) {
     int             i;
     char *          capstr;
@@ -554,28 +696,7 @@ static void vterm_init_colors(int flags) {
 #   endif
 }
 
-int vterm_get_columns(int fd) {
-    int ret;
-
-    if ((ret = vterm_init(fd, s_vterm_info.flags)) == VTERM_NOTTY)
-        return 0;
-    if (ret != VTERM_OK || s_vterm_info.ti_col == NULL) {
-        return VTERM_ERROR;
-    }
-    return tigetnum(s_vterm_info.ti_col);
-}
-
-int vterm_get_lines(int fd) {
-    int ret;
-
-    if ((ret = vterm_init(fd, s_vterm_info.flags)) == VTERM_NOTTY)
-        return 0;
-    if (ret != VTERM_OK) {
-        return VTERM_ERROR;
-    }
-    return tigetnum("lines");
-}
-
+/* ************************************************************************* */
 int vterm_free() {
     LOG_DEBUG(g_vlib_log, "vterm: cleaning...");
 
@@ -587,6 +708,9 @@ int vterm_free() {
         if (s_vterm_info.ti_col != NULL)
             free(s_vterm_info.ti_col);
         s_vterm_info.ti_col = NULL;
+        if (s_vterm_info.ti_clr != NULL)
+            free(s_vterm_info.ti_clr);
+        s_vterm_info.ti_clr = NULL;
         if (s_vterm_info.has_colors)
             vterm_free_colors();
 #       if CONFIG_CURSES_SCR
@@ -611,6 +735,7 @@ int vterm_free() {
     return VTERM_OK;
 }
 
+/* ************************************************************************* */
 int vterm_init(int fd, unsigned int flags) {
     /* checking tty and BUSY must be first thing to be done here */
     if (!isatty(fd) || s_vterm_info.fd == VTERM_FD_BUSY) {
@@ -668,12 +793,19 @@ int vterm_init(int fd, unsigned int flags) {
         }
     }
 
+    if ((ti_col = tigetstr("clear")) != NULL && ti_col != (char *) -1) {
+        s_vterm_info.ti_clr = strdup(ti_col);
+    } else {
+        s_vterm_info.ti_clr = NULL;
+    }
+
     if ((ret = tigetnum(ti_col = "cols")) <= 0
     &&         (ret = tigetnum(ti_col = "columns")) <= 0
     &&         (ret = tigetnum(ti_col = "COLUMNS")) <= 0) {
         LOG_ERROR(g_vlib_log, "tigetnum(cols,columns,COLUMNS): cannot get value");
         ti_col = NULL;
     }
+
 
     if ((flags & VTF_NO_COLORS) != 0) {
         s_vterm_info.has_colors = 0;
@@ -723,6 +855,7 @@ int vterm_init(int fd, unsigned int flags) {
     return VTERM_OK;
 }
 
+/* ************************************************************************* */
 static ssize_t vterm_fdwrite(int fd, const void * buf, size_t n) {
     ssize_t ret;
     while ((ret = write(fd, buf, n)) < 0 && errno == EINTR)
@@ -735,6 +868,7 @@ static ssize_t vterm_fdwrite(int fd, const void * buf, size_t n) {
     return ret;
 }
 
+/* ************************************************************************* */
 static int vterm_fdflush(int fd) {
     int ret;
 
@@ -754,6 +888,26 @@ static int vterm_fdflush(int fd) {
     return ret;
 }
 
+/* ************************************************************************* */
+int             vterm_clear(FILE * out) {
+    int ret, fd = out != NULL ? fileno(out) : -1;
+
+    if ((ret = vterm_init(fd, s_vterm_info.flags)) == VTERM_NOTTY)
+        return VTERM_NOTTY;
+    if (ret != VTERM_OK) {
+        return VTERM_ERROR;
+    }
+    if (s_vterm_info.ti_clr != NULL) {
+        fputs(s_vterm_info.ti_clr, out);
+    } else {
+        vterm_clear_manual(out);
+    }
+    fflush(out);
+
+    return VTERM_OK;
+}
+
+/* ************************************************************************* */
 int vterm_goto_enable(int fd, int enable) {
     char * cap, * cupcap;
     size_t caplen;
@@ -841,6 +995,7 @@ int vterm_goto_enable(int fd, int enable) {
     return VTERM_OK;
 }
 
+/* ************************************************************************* */
 int vterm_goto(FILE * out, int r, int c) {
     int ret;
     int fd;
@@ -878,6 +1033,7 @@ static void vterm_sig_handler(int sig) {
 #define FD_COPY(pset_in, pset_out) (memcpy(pset_out, pset_in, sizeof(fd_set)))
 #endif
 
+/* ************************************************************************* */
 int vterm_screen_loop(
         FILE *                  out,
         unsigned int            timer_ms,
@@ -1069,6 +1225,8 @@ int vterm_screen_loop(
  * DEPRECATED AND OUTDATED NOT BUILDING CODE
  * *******************************************/
 #if defined(VLIB_CURSESDL) && CONFIG_CURSES
+
+/* ************************************************************************* */
 int vterm_get_columns(int fd) {
     int ret;
 
@@ -1083,6 +1241,7 @@ int vterm_get_columns(int fd) {
 # pragma GCC diagnostic push
 # pragma GCC diagnostic ignored "-Wpedantic"
 
+/* ************************************************************************* */
 int vterm_free() {
     if (s_vterm_info.lib == NULL) {
         return VTERM_OK;
@@ -1102,6 +1261,7 @@ int vterm_free() {
     return VTERM_OK;
 }
 
+/* ************************************************************************* */
 int vterm_init(int fd, unsigned int flags) {
     if (!isatty(fd) || s_vterm_info.fd == VTERM_FD_BUSY) {
         return VTERM_NOTTY;
@@ -1171,5 +1331,6 @@ int vterm_init(int fd, unsigned int flags) {
     return VTERM_OK;
 }
 # pragma GCC diagnostic pop
+
 # endif /* VLIB_CURSESDL && CONFIG_CURSES */
 

@@ -137,18 +137,37 @@ int             vterm_enable(int enable);
 int             vterm_free();
 
 /** get number of columns of terminal attached to <fd>.
+ * @param fd the descriptor of terminal
+ * @param [OUT] p_lines where to store number of lines (can be NULL)
+ * @param [OUT] p_columns where to store number of columns (can be NULL)
+ * @return VTERM_OK on SUCCESS
+ *         or VTERM_NOTTY if fd is not a terminal
+ *         or VTERM_ERROR on error
+ * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
+int             vterm_get_winsize(int fd, unsigned int * p_lines, unsigned int * p_columns);
+
+/** get number of columns of terminal attached to <fd>.
  * @return columns
  *         or 0 if fd is not a terminal
  *         or VTERM_ERROR on error
- * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
+ * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed.
+ * @notes use vterm_get_winsize rather than calling vterm_get_lines after this */
 int             vterm_get_columns(int fd);
 
 /** get number of lines of terminal attached to <fd>.
  * @return lines
  *         or 0 if fd is not a terminal
  *         or VTERM_ERROR on error
- * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
+ * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed.
+ * @notes use vterm_get_winsize rather than calling vterm_get_columns after this */
 int             vterm_get_lines(int fd);
+
+/** clear screen on terminal attached to <out>.
+ * @return VTERM_OK on success
+ *         VTERM_NOTTY if not tty
+ *         VTERM_ERROR otherwise
+ * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
+int             vterm_clear(FILE * out);
 
 /** get color capability of terminal attached to <fd>.
  * @return 1 if terminal with color capability.
