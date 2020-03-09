@@ -198,6 +198,7 @@ struct opt_config_s {
     vterm_colorset_t            color_usearg;   /* colorset for short-usage arguments */
     vterm_colorset_t            color_sect;     /* colorset for usage sections */
     vterm_colorset_t            color_err;      /* colorset for options error keyword */
+    vterm_colorset_t            color_errmsg;   /* colorset for options error message */
     vterm_colorset_t            color_trunc;    /* colorset for truncation string '**' */
 };
 /** OPT_INITILIZER(), a R-value for opt_config_t, initializing an opt_config_t
@@ -206,8 +207,9 @@ struct opt_config_s {
     { argc, argv, callb, desc, OPT_FLAG_DEFAULT | OPT_FLAG_MACROINIT, \
       ver, data, NULL, OPT_USAGE_DESC_ALIGNMENT, OPT_USAGE_DESC_MINLEN, \
       OPT_USAGE_DESC_HEAD, OPT_USAGE_OPT_HEAD, \
-      (sizeof(opt_config_t) << 16 | sizeof(opt_options_desc_t)), "help", UINT_MAX, \
-      UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX }
+      (sizeof(opt_config_t) << 16 | sizeof(opt_options_desc_t)), "help", \
+      VCOLOR_NULL, VCOLOR_NULL, VCOLOR_NULL, VCOLOR_NULL, VCOLOR_NULL, \
+      VCOLOR_NULL, VCOLOR_NULL, VCOLOR_NULL, VCOLOR_NULL, VCOLOR_NULL }
 
 /**
  * print program usage.

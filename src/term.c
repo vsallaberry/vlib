@@ -294,7 +294,7 @@ ssize_t vterm_putcolor(FILE * out, vterm_colorset_t colors) {
         return 0;
     }
 
-    if ((fg = VCOLOR_GET_FORE(colors)) >= VCOLOR_BG)
+    if ((fg = VCOLOR_GET_FORE(colors)) >= VCOLOR_BG && fg != VCOLOR_RESET)
         fg = VCOLOR_EMPTY;
 
     if ((bg = VCOLOR_GET_BACK(colors)) >= VCOLOR_STYLE || bg < VCOLOR_BG)
@@ -327,7 +327,7 @@ char * vterm_buildcolor(int fd, vterm_colorset_t colors, char * buffer, size_t *
         return buffer;
     }
 
-    if ((fg = VCOLOR_GET_FORE(colors)) >= VCOLOR_BG)
+    if ((fg = VCOLOR_GET_FORE(colors)) >= VCOLOR_BG && fg != VCOLOR_RESET)
         fg = VCOLOR_EMPTY;
 
     if ((bg = VCOLOR_GET_BACK(colors)) >= VCOLOR_STYLE || bg < VCOLOR_BG)

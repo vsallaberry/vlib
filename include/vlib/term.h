@@ -92,6 +92,8 @@ typedef enum {
 /** vterm_colorset_t, a bit combination of vterm_color_t */
 typedef unsigned int    vterm_colorset_t;
 
+#define         VCOLOR_NULL     UINT_MAX
+
 #define         VCOLOR_BUILD(fore, back, style) \
                     ((fore) | ((back) << VCOLOR_BG) | ((style) << VCOLOR_STYLE))
 
