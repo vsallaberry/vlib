@@ -228,6 +228,21 @@ int             vterm_goto_enable(int fd, int enable);
  * @notes implicit call to vterm_init, vterm_enable(0) or vterm_free needed. */
 int             vterm_goto(FILE *out, int r, int c);
 
+/** read user input until EOL or buffer full
+ * @return size of result string or VTERM_ERROR, VTERM_NOTTY on error */
+int             vterm_readline(FILE * in, FILE * out, char * buf, unsigned int maxsize);
+
+/** read user input until EOL or buffer full, with prompt and optional erasing.
+ * @return size of result string or VTERM_ERROR, VTERM_NOTTY on error */
+#define         VTERM_PROMPT_ERASE          (1 << 0)
+int             vterm_prompt(
+                    const char *            prompt,
+                    FILE *                  in,
+                    FILE *                  out,
+                    char *                  buf,
+                    unsigned int            maxsize,
+                    int                     flags);
+
 /** Events values for vterm_screen_loop() */
 typedef enum {
     VTERM_SCREEN_START = 0, /* after vterm_goto_enable(), before loop */

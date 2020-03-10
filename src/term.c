@@ -104,6 +104,7 @@ void            refresh();
 #include <stdarg.h>
 #include <termios.h>
 #include <signal.h>
+#include <ctype.h>
 
 #include "vlib/log.h"
 #include "vlib/term.h"
@@ -512,6 +513,110 @@ static inline int vterm_clear_manual(FILE * out) {
         free(buf);
     }
     return VTERM_OK;
+}
+
+/* ************************************************************************* */
+int vterm_readline(FILE * in, FILE * out, char * buf, unsigned int maxsize) {
+    unsigned int    i;
+    int             c;
+    char            key[7];
+    int             fdin, fdout;
+    struct termios  tios_bak, tios;
+
+    if (buf == NULL || in == NULL || out == NULL)
+        return VTERM_ERROR;
+    if ((c = vterm_init(fileno(out), s_vterm_info.flags)) != VTERM_OK)
+        return c;
+    if (maxsize == 1)
+        *buf = 0;
+    if (maxsize <= 1)
+        return 0;
+
+    fdin = fileno(in);
+    fdout = fileno(out);
+    #if CONFIG_CURSES
+    if (s_vterm_info.ti_cup == NULL)
+    #endif
+    {
+        tcgetattr(fdout, &tios_bak);
+        tios = tios_bak;
+        cfmakeraw(&tios);
+        tcsetattr(fdout, TCSANOW, &tios);
+    }
+
+    for (i = 0; i < maxsize - 1; /* no incr */) {
+        if (read(fdin, key, sizeof(key) / sizeof(*key)) != 1)
+            continue ;
+        c = *key;
+        if (c == EOF || c == '\n' || c == '\r')
+            break ;
+        if (c == 0x7f) {
+            if (i > 0) {
+                --i;
+                fputs("\b \b", out);
+                fflush(out);
+            }
+            continue ;
+        }
+        if (!isprint(c))
+            continue ;
+        fputc(c, out);
+        fflush(out);
+        buf[i] = c;
+        ++i;
+    }
+
+    #if CONFIG_CURSES
+    if (s_vterm_info.ti_cup == NULL)
+    #endif
+    {
+        tcsetattr(fdout, TCSANOW, &tios_bak);
+    }
+    buf[i] = 0;
+    return i;
+}
+
+/* ************************************************************************* */
+int vterm_prompt(
+            const char *    prompt,
+            FILE *          in,
+            FILE *          out,
+            char *          buf,
+            unsigned int    maxsize,
+            int             flags) {
+    ssize_t     prompt_len;
+    ssize_t     res;
+    (void)      flags;
+
+    if (out == NULL || buf == NULL || in == NULL)
+        return VTERM_ERROR;
+    if ((res = vterm_init(fileno(out), s_vterm_info.flags)) != VTERM_OK)
+        return res;
+    if (prompt == NULL)
+        prompt_len = 0;
+    else {
+        prompt_len = strlen(prompt);
+        fputs(prompt, out);
+    }
+    if ((flags & VTERM_PROMPT_ERASE) != 0) {
+        for (res = 0; res < prompt_len + maxsize; ++res)
+            fputc(' ', out);
+        for (res = 0; res < prompt_len + maxsize; ++res)
+            fputc('\b', out);
+    }
+    fflush(out);
+
+    res = vterm_readline(in, out, buf, maxsize);
+
+    if ((flags & VTERM_PROMPT_ERASE) != 0) {
+        if (res > 0)
+            prompt_len += res;
+        while (prompt_len--)
+            fputs("\b \b", out);
+        fflush(out);
+    }
+
+    return res;
 }
 
 #if ! CONFIG_CURSES
