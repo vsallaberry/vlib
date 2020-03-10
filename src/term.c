@@ -517,11 +517,11 @@ static inline int vterm_clear_manual(FILE * out) {
 
 /* ************************************************************************* */
 int vterm_readline(FILE * in, FILE * out, char * buf, unsigned int maxsize) {
-    unsigned int    i;
-    int             c;
-    char            key[7];
-    int             fdin, fdout;
+    char            key[16];
     struct termios  tios_bak, tios;
+    unsigned int    i;
+    int             c = 0;
+    int             fdin, fdout;
 
     if (buf == NULL || in == NULL || out == NULL)
         return VTERM_ERROR;
@@ -548,7 +548,7 @@ int vterm_readline(FILE * in, FILE * out, char * buf, unsigned int maxsize) {
         if (read(fdin, key, sizeof(key) / sizeof(*key)) != 1)
             continue ;
         c = *key;
-        if (c == EOF || c == '\n' || c == '\r')
+        if (c == EOF || c == 27 || c == '\n' || c == '\r')
             break ;
         if (c == 0x7f) {
             if (i > 0) {
@@ -558,7 +558,7 @@ int vterm_readline(FILE * in, FILE * out, char * buf, unsigned int maxsize) {
             }
             continue ;
         }
-        if (!isprint(c))
+        if (!isprint(c) || i == maxsize - 2)
             continue ;
         fputc(c, out);
         fflush(out);
@@ -573,7 +573,7 @@ int vterm_readline(FILE * in, FILE * out, char * buf, unsigned int maxsize) {
         tcsetattr(fdout, TCSANOW, &tios_bak);
     }
     buf[i] = 0;
-    return i;
+    return (c == 27 || c == EOF) ? VTERM_ERROR : i;
 }
 
 /* ************************************************************************* */
@@ -585,10 +585,10 @@ int vterm_prompt(
             unsigned int    maxsize,
             int             flags) {
     ssize_t     prompt_len;
-    ssize_t     res;
+    ssize_t     res, len;
     (void)      flags;
 
-    if (out == NULL || buf == NULL || in == NULL)
+    if (out == NULL || buf == NULL || in == NULL || maxsize == 0)
         return VTERM_ERROR;
     if ((res = vterm_init(fileno(out), s_vterm_info.flags)) != VTERM_OK)
         return res;
@@ -599,18 +599,21 @@ int vterm_prompt(
         fputs(prompt, out);
     }
     if ((flags & VTERM_PROMPT_ERASE) != 0) {
-        for (res = 0; res < prompt_len + maxsize; ++res)
+        for (res = 0; res < maxsize - 1; ++res)
             fputc(' ', out);
-        for (res = 0; res < prompt_len + maxsize; ++res)
+        for (res = 0; res < maxsize - 1; ++res)
             fputc('\b', out);
     }
     fflush(out);
 
-    res = vterm_readline(in, out, buf, maxsize);
-
+    *buf = 0;
+    res = len = vterm_readline(in, out, buf, maxsize);
+    if (res < 0)
+        for (len = 0; buf[len] != 0; ++len)
+            ; /* nothing but loop */
     if ((flags & VTERM_PROMPT_ERASE) != 0) {
-        if (res > 0)
-            prompt_len += res;
+        if (len > 0)
+            prompt_len += len;
         while (prompt_len--)
             fputs("\b \b", out);
         fflush(out);
