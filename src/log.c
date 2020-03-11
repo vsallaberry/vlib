@@ -335,9 +335,9 @@ int log_header(log_level_t level, log_t * log,
                     memset(&tm, 0, sizeof(tm));
                 }
                 snprintf(old_datetime, LOG_DATETIME_SZ,
-                         "%04d.%02d.%02d %02d:%02d:",
-                         tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-                         tm.tm_hour, tm.tm_min);
+                         "%04u.%02u.%02u %02u:%02u:",
+                         (tm.tm_year + 1900U) % 10000U, (tm.tm_mon + 1U) % 100U, (tm.tm_mday % 100U),
+                         tm.tm_hour % 100U, tm.tm_min % 100U);
             }
             strncpy(datetime, old_datetime, LOG_DATETIME_SZ);
             pthread_mutex_unlock(mutex);
