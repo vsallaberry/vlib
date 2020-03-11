@@ -885,7 +885,7 @@ int opt_parse_options(opt_config_t * opt_config) {
             const char *    short_opts      = argv[i_argv] + 1;
             const char *    opt_arg         = NULL;
             const char *    long_opt        = NULL;
-            int             i_opt;
+            int             i_opt           = -1; /* initialized when long_opt NULL or not */
 
             /* Check for a second '-' : long option. */
             if (*short_opts == '-') {
@@ -923,7 +923,8 @@ int opt_parse_options(opt_config_t * opt_config) {
             for (const char * popt = short_opts; *popt; popt++, opt_arg = NULL) {
                 *short_str = *popt;
                 /* Check if short option is reconized */
-                if (long_opt == NULL && (i_opt = get_registered_short_opt(*popt, opt_config)) < 0) {
+                if ((long_opt == NULL || i_opt < 0)
+                && (i_opt = get_registered_short_opt(*popt, opt_config)) < 0) {
                     return opt_error(OPT_ERROR(OPT_ESHORT), opt_config,
                                 OPTERR_SHOW_USAGE | OPTERR_PRINT_ERR, NULL,
                                 "unknown option '-" "%s%s%s" "%c" "%s%s%s" "'\n",
@@ -1004,8 +1005,8 @@ int opt_parse_options(opt_config_t * opt_config) {
                         return OPT_EXIT_OK(result);
                     }
                 }
-            }
-        } else {
+            } /* ! for ( short_opts ) */
+        } else { /* ! if (*short_opts == '-') */
             /* the argument is not an option. */
             if (opt_config->callback) {
                 const char * arg = argv[i_argv];
