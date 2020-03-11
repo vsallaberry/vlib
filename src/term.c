@@ -224,6 +224,8 @@ static int vterm_free_colors() {
         if (s_vterm_colors[i].libcolor != VCOLOR_STATIC
         &&  s_vterm_colors[i].str != NULL) {
             free(s_vterm_colors[i].str);
+            s_vterm_colors[i].libcolor = VCOLOR_STATIC;
+            s_vterm_colors[i].str = NULL;
         }
     }
     return VTERM_OK;
@@ -573,7 +575,36 @@ int vterm_readline(FILE * in, FILE * out, char * buf, unsigned int maxsize) {
         tcsetattr(fdout, TCSANOW, &tios_bak);
     }
     buf[i] = 0;
-    return (c == 27 || c == EOF) ? VTERM_ERROR : i;
+    return (c == 27 || c == EOF) ? VTERM_ERROR : (int) i;
+}
+
+/* ************************************************************************* */
+static size_t vterm_strlen(int fd, const char * str) {
+    size_t len = 0;
+
+    if (str == NULL)
+        return 0;
+    vterm_init(fd, s_vterm_info.flags);
+
+    for (int j = 0; str[j] != 0; /* no incr */) {
+        int i_col, i_found = -1;
+        for (i_col = 0; i_col < VCOLOR_EMPTY; ++i_col) {
+            if (((i_found < 0 && s_vterm_colors[i_col].size > 0)
+                        || s_vterm_colors[i_col].size > s_vterm_colors[i_found].size)
+                    &&  strncmp(str + j, s_vterm_colors[i_col].str,
+                        s_vterm_colors[i_col].size) == 0) {
+                i_found = i_col;
+            }
+        }
+        if (i_found >= 0) {
+            j += s_vterm_colors[i_found].size;
+        } else {
+            ++j;
+            ++len;
+        }
+    }
+
+    return len;
 }
 
 /* ************************************************************************* */
@@ -586,16 +617,18 @@ int vterm_prompt(
             int             flags) {
     ssize_t     prompt_len;
     ssize_t     res, len;
+    int         fd;
     (void)      flags;
 
     if (out == NULL || buf == NULL || in == NULL || maxsize == 0)
         return VTERM_ERROR;
-    if ((res = vterm_init(fileno(out), s_vterm_info.flags)) != VTERM_OK)
+    fd = fileno(out);
+    if ((res = vterm_init(fd, s_vterm_info.flags)) != VTERM_OK)
         return res;
     if (prompt == NULL)
         prompt_len = 0;
     else {
-        prompt_len = strlen(prompt);
+        prompt_len = vterm_strlen(fd, prompt);
         fputs(prompt, out);
     }
     if ((flags & VTERM_PROMPT_ERASE) != 0) {
@@ -608,12 +641,15 @@ int vterm_prompt(
 
     *buf = 0;
     res = len = vterm_readline(in, out, buf, maxsize);
+
     if (res < 0)
         for (len = 0; buf[len] != 0; ++len)
             ; /* nothing but loop */
     if ((flags & VTERM_PROMPT_ERASE) != 0) {
-        if (len > 0)
-            prompt_len += len;
+        fputs(s_vterm_colors[VCOLOR_RESET].str, out);
+        while (len++ < maxsize)
+            fputc(' ', out);
+        prompt_len += maxsize;
         while (prompt_len--)
             fputs("\b \b", out);
         fflush(out);
@@ -629,7 +665,7 @@ int vterm_prompt(
 
 /* ************************************************************************* */
 int vterm_init(int fd, unsigned int flags) {
-    if (!isatty(fd) || s_vterm_info.fd == VTERM_FD_BUSY) { /* first thing to be done here */
+    if (s_vterm_info.fd == VTERM_FD_BUSY || !isatty(fd)) { /* first thing to be done here */
         return VTERM_NOTTY;
     }
     if (s_vterm_info.fd != VTERM_FD_FREE)
@@ -656,6 +692,10 @@ int vterm_init(int fd, unsigned int flags) {
 /* ************************************************************************* */
 int vterm_free() {
     LOG_DEBUG(g_vlib_log, "vterm: cleaning...");
+
+    if (s_vterm_info.fd < 0) {
+        return VTERM_OK;
+    }
 
     if (s_vterm_info.has_colors)
         vterm_free_colors();
@@ -808,35 +848,38 @@ static void vterm_init_colors(int flags) {
 int vterm_free() {
     LOG_DEBUG(g_vlib_log, "vterm: cleaning...");
 
-    if (s_vterm_info.fd >= 0) {
-        vterm_goto_enable(s_vterm_info.fd, 0);
-        if (s_vterm_info.ti_cup != NULL)
-            free(s_vterm_info.ti_cup);
-        s_vterm_info.ti_cup = NULL;
-        if (s_vterm_info.ti_col != NULL)
-            free(s_vterm_info.ti_col);
-        s_vterm_info.ti_col = NULL;
-        if (s_vterm_info.ti_clr != NULL)
-            free(s_vterm_info.ti_clr);
-        s_vterm_info.ti_clr = NULL;
-        if (s_vterm_info.has_colors)
-            vterm_free_colors();
-#       if CONFIG_CURSES_SCR
-        if ((s_vterm_info.flags & VTF_INITSCR) != 0) { //TODO
-            if (s_vterm_info.screen != NULL) {
-                delscreen(s_vterm_info.screen);
-                s_vterm_info.screen = NULL;
-            }
-            endwin();
-        } else
-#       endif
-        {
-            if(cur_term != NULL) {
-                del_curterm(cur_term);
-                cur_term=NULL;
-            }
+    if (s_vterm_info.fd < 0) {
+        return VTERM_OK;
+    }
+
+    vterm_goto_enable(s_vterm_info.fd, 0);
+    if (s_vterm_info.ti_cup != NULL)
+        free(s_vterm_info.ti_cup);
+    s_vterm_info.ti_cup = NULL;
+    if (s_vterm_info.ti_col != NULL)
+        free(s_vterm_info.ti_col);
+    s_vterm_info.ti_col = NULL;
+    if (s_vterm_info.ti_clr != NULL)
+        free(s_vterm_info.ti_clr);
+    s_vterm_info.ti_clr = NULL;
+    if (s_vterm_info.has_colors)
+        vterm_free_colors();
+#   if CONFIG_CURSES_SCR
+    if ((s_vterm_info.flags & VTF_INITSCR) != 0) { //TODO
+        if (s_vterm_info.screen != NULL) {
+            delscreen(s_vterm_info.screen);
+            s_vterm_info.screen = NULL;
+        }
+        endwin();
+    } else
+#   endif
+    {
+        if(cur_term != NULL) {
+            del_curterm(cur_term);
+            cur_term=NULL;
         }
     }
+
     LOG_VERBOSE(g_vlib_log, "%s(): done.", __func__);
     s_vterm_info.fd = VTERM_FD_FREE;/* must be last or vterm could be reinit by log */
 
@@ -846,7 +889,7 @@ int vterm_free() {
 /* ************************************************************************* */
 int vterm_init(int fd, unsigned int flags) {
     /* checking tty and BUSY must be first thing to be done here */
-    if (!isatty(fd) || s_vterm_info.fd == VTERM_FD_BUSY) {
+    if (s_vterm_info.fd == VTERM_FD_BUSY || !isatty(fd)) {
         return VTERM_NOTTY;
     }
     if (s_vterm_info.fd != VTERM_FD_FREE) {
@@ -1371,7 +1414,7 @@ int vterm_free() {
 
 /* ************************************************************************* */
 int vterm_init(int fd, unsigned int flags) {
-    if (!isatty(fd) || s_vterm_info.fd == VTERM_FD_BUSY) {
+    if (s_vterm_info.fd == VTERM_FD_BUSY || !isatty(fd)) {
         return VTERM_NOTTY;
     }
     if (s_vterm_info.lib != NULL) {
