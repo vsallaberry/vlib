@@ -135,37 +135,37 @@ int log_describe_option(char * buffer, int * size, const char *const* modules,
     }
 
     /* describe log levels */
-    n += (ret = snprintf(buffer + n, *size - n, "- levels: '")) > 0 ? ret : 0;
+    n += VLIB_SNPRINTF(ret, buffer + n, *size - n, "- levels: '");
     for (int lvl = LOG_LVL_NONE; lvl < LOG_LVL_NB; ++lvl, *sep = ',') {
-        n += (ret = snprintf(buffer + n, *size - n, "%s%d|%s",
-                    sep, lvl, s_log_levels_info[lvl].str)) > 0 ? ret : 0;
+        n += VLIB_SNPRINTF(ret, buffer + n, *size - n, "%s%d|%s",
+                    sep, lvl, s_log_levels_info[lvl].str);
     }
-    n += (ret = snprintf((buffer) + n, *size - n, "'")) > 0 ? ret : 0;
+    n += VLIB_SNPRINTF(ret, buffer + n, *size - n, "'");
 
     /* describe log flags */
     *sep = 0; sep[1] = 0;
-    n += (ret = snprintf(buffer + n, *size - n, "\r- flags: '")) > 0 ? ret : 0;
+    n += VLIB_SNPRINTF(ret, buffer + n, *size - n, "\r- flags: '");
     for (unsigned int i = 0; i < LOG_FLAG_STR_NB; ++i, *sep = '|') {
-        n += (ret = snprintf(buffer + n, *size - n, "%s%s",
-                    sep, s_log_flag_str[i].name)) > 0 ? ret : 0;
+        n += VLIB_SNPRINTF(ret, buffer + n, *size - n, "%s%s",
+                    sep, s_log_flag_str[i].name);
     }
-    n += (ret = snprintf((buffer) + n, *size - n, "'")) > 0 ? ret : 0;
+    n += VLIB_SNPRINTF(ret, buffer + n, *size - n, "'");
 
     /* describe modules */
-    n += (ret = snprintf(buffer + n, *size - n, "\r- modules: '")) > 0 ? ret : 0;
+    n += VLIB_SNPRINTF(ret, buffer + n, *size - n, "\r- modules: '");
     *sep = 0; sep[1] = 0;
     if (modules != NULL) { /* modules array */
         for (const char *const* mod = modules; *mod; mod++, *sep = ',') {
-            n += (ret = snprintf(buffer + n, *size - n, "%s%s", sep, *mod)) > 0 ? ret : 0;
+            n += VLIB_SNPRINTF(ret, buffer + n, *size - n, "%s%s", sep, *mod);
         }
     }
     if (modules_list != NULL) { /* modules list */
         for (slist_t * mod = modules_list; mod; mod = mod->next, *sep = ',') {
             const char * name = module_get ? module_get(mod->data) : (const char *) mod->data;
-            n += (ret = snprintf(buffer + n, *size - n, "%s%s", sep, name)) > 0 ? ret : 0;
+            n += VLIB_SNPRINTF(ret, buffer + n, *size - n, "%s%s", sep, name);
         }
     }
-    n += (ret = snprintf((buffer) + n, *size - n, "'")) > 0 ? ret : 0;
+    n += VLIB_SNPRINTF(ret, buffer + n, *size - n, "'");
     *size = n;
 
     return OPT_CONTINUE(1);

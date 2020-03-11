@@ -379,10 +379,10 @@ char * vterm_buildcolor(int fd, vterm_colorset_t colors, char * buffer, size_t *
                     s_vterm_colors[s].str);
 
     } else {
-        n = snprintf(buffer, *psize, "%s%s%s",
-                     s_vterm_colors[fg].str,
-                     s_vterm_colors[bg].str,
-                     s_vterm_colors[s].str);
+        n = VLIB_SNPRINTF(n, buffer, *psize, "%s%s%s",
+                    s_vterm_colors[fg].str,
+                    s_vterm_colors[bg].str,
+                    s_vterm_colors[s].str);
     }
     if (n <= 0) {
         *buffer = 0;

@@ -34,6 +34,16 @@
 extern "C" {
 #endif
 
+/** snprintf wrapper which returns the real number of characters
+ * stored in the string, rather than the number of character which would
+ * have been stored in an unlimited buffer
+ * @notes: WARNING: size is evaluated several times
+ * @notes: WARNING: ret_var must be a lvalue and is intermediate variable */
+#define VLIB_SNPRINTF(ret_var, buffer, size, ...) \
+            (((ret_var) = snprintf(buffer, size, __VA_ARGS__)) < 0 \
+              || (size) == 0 ? 0 : ((ssize_t)(ret_var) >= (ssize_t)(size) \
+                                    ? (ssize_t) ((size) - 1) : (ret_var)))
+
 /**
  * This will copy at maximum <maxlen-1> bytes of <src> in <dst>.
  * dst will always be terminated by 0, causing possibe src truncation.
