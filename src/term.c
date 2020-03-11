@@ -355,9 +355,12 @@ char * vterm_buildcolor(int fd, vterm_colorset_t colors, char * buffer, size_t *
     ssize_t             n;
     vterm_colorset_t    fg, bg, s; /* could be vterm_color_t, no pb as bounds are checked */
 
-    if (buffer == NULL || ! vterm_has_colors(fd)) {
-        if (psize)
+    if (buffer == NULL || (psize != NULL && *psize <= 1) || ! vterm_has_colors(fd)) {
+        if (psize != NULL) {
+            if (*psize == 0)
+                return NULL;
             *psize = 0;
+        }
         if (buffer != NULL)
             *buffer = 0;
         return buffer;
