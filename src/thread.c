@@ -51,6 +51,7 @@
 /*****************************************************************************/
 typedef struct vlib_thread_priv_s {
     pthread_mutex_t             mutex;
+    pthread_rwlock_t            pipe_mutex;
     pthread_cond_t              cond;
     int                         exit_signal;
     slist_t *                   event_list;
@@ -119,6 +120,7 @@ vlib_thread_t *     vlib_thread_create(
     priv->process_timeout = process_timeout;
     priv->exit_signal = VLIB_THREAD_EXIT_SIG;
     pthread_mutex_init(&priv->mutex, NULL);
+    pthread_rwlock_init(&priv->pipe_mutex, NULL);
     pthread_cond_init(&priv->cond, NULL);
 
     /* create and run the thread */
@@ -368,6 +370,31 @@ int                 vlib_thread_pipe_create(
     return pipefd[1];
 }
 
+static int write_nonblock(int fd, const void * buf, size_t size, unsigned int timeout_ms) {
+    int ret;
+
+    while ((ret = write(fd, buf, size)) < 0) {
+        if (errno == EINTR)
+            continue ;
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            struct timeval timeout;
+            fd_set set;
+            do {
+                timeout.tv_sec = timeout_ms / 1000;
+                timeout.tv_usec = (timeout_ms % 1000) * 1000;
+                FD_ZERO(&set);
+                FD_SET(fd, &set);
+                ret = select(fd + 1, NULL, &set, NULL, &timeout);
+            } while (ret < 0 && errno == EINTR);
+            if (ret <= 0)
+                return -1;
+            continue ;
+        }
+        break ;
+    }
+    return ret;
+}
+
 /*****************************************************************************/
 ssize_t                 vlib_thread_pipe_write(
                             vlib_thread_t *             vthread,
@@ -383,23 +410,25 @@ ssize_t                 vlib_thread_pipe_write(
         LOG_WARN(g_vlib_log, "bad thread context");
         return -1;
     }
+    /* lock pipe lock */
     /* checks whether the size exceeds PIPE_BUF */
     if (size <= PIPE_BUF) {
-        while ((ret = write(pipe_fdout, data, size)) < 0 && errno == EINTR)
-            ; /* nothing but loop */
+        pthread_rwlock_rdlock(&priv->pipe_mutex);
+        ret = write_nonblock(pipe_fdout, data, size, 1000);
+        pthread_rwlock_unlock(&priv->pipe_mutex);
         return ret;
     }
+    pthread_rwlock_wrlock(&priv->pipe_mutex);
     for (offset = 0; offset < size; /*no incr*/ ) {
-        pthread_mutex_lock(&priv->mutex);
-        while ((ret = write(pipe_fdout, (const char *)data + offset,
-                            offset + PIPE_BUF > size ? size - offset : PIPE_BUF))
-                 < 0 && errno == EINTR)
-           ; /* nothing but loop */
-        pthread_mutex_unlock(&priv->mutex);
-        if (ret < 0)
+        ret = write_nonblock(pipe_fdout, (const char *)data + offset,
+                             offset + PIPE_BUF > size ? size - offset : PIPE_BUF, 1000);
+        if (ret < 0) {
+            pthread_rwlock_unlock(&priv->pipe_mutex);
             return ret;
+        }
         offset += ret;
     }
+    pthread_rwlock_unlock(&priv->pipe_mutex);
     return offset;
 }
 
@@ -682,6 +711,7 @@ static void vlib_thread_ctx_destroy(vlib_thread_t * vthread) {
     if (priv) {
         slist_free(priv->event_list, free);
         pthread_mutex_destroy(&priv->mutex);
+        pthread_rwlock_destroy(&priv->pipe_mutex);
         pthread_cond_destroy(&priv->cond);
         free(priv);
     }
