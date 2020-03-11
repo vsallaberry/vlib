@@ -113,7 +113,8 @@ void *               vlib_thread_stop(
  *   VTE_FD_{READ,WRITE,ERR}: event_data is fd. This flags can be combined together.
  *   VTE_SIG: event_data is signal value. This flag cannot be combined.
  * @param event_data see parameter 'action'
- * @param callback the callback to be called on this event
+ * @param callback the callback to be called on this event.
+ *        thread will exit if callback returns negative value.
  * @param callback_user_data the pointer to be passed to callback
  * @return 0 on SUCCESS, other value on error
  */

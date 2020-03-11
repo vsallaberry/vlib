@@ -484,6 +484,8 @@ static void * vlib_thread_body(void * data) {
     SLIST_FOREACH_DATA(priv->event_list, data, vlib_thread_event_data_t *) {
         if (data != NULL && data->callback != NULL && (data->event & VTE_INIT) != 0) {
             ret = data->callback(vthread, VTE_INIT, NULL, data->callback_data);
+            if (ret < 0)
+                priv->state |= VTS_EXIT_REQUESTED;
         }
     }
     priv->state |= VTS_RUNNING;
@@ -581,6 +583,8 @@ static void * vlib_thread_body(void * data) {
                 ret = data->callback(vthread, VTE_PROCESS_START,
                                              (void *)((long) select_ret),
                                              data->callback_data);
+                if (ret < 0)
+                    priv->state |= VTS_EXIT_REQUESTED;
             }
         }
 
@@ -596,6 +600,8 @@ static void * vlib_thread_body(void * data) {
                 && (data->event & VTE_SIG) != 0 && (last_signal == data->ev.sig)) {
                     ret = data->callback(vthread, VTE_SIG, VTE_DATA_SIG(data->ev.sig),
                                                   data->callback_data);
+                    if (ret < 0)
+                        priv->state |= VTS_EXIT_REQUESTED;
                 }
             }
             continue ;
@@ -610,14 +616,20 @@ static void * vlib_thread_body(void * data) {
                 if ((data->event & VTE_FD_READ) != 0 && FD_ISSET(data->ev.fd, &readfds)) {
                     ret = data->callback(vthread, VTE_FD_READ, VTE_DATA_FD(data->ev.fd),
                                             data->callback_data);
+                    if (ret < 0)
+                        priv->state |= VTS_EXIT_REQUESTED;
                 }
                 if ((data->event & VTE_FD_WRITE) != 0 && FD_ISSET(data->ev.fd, &writefds)) {
                     ret = data->callback(vthread, VTE_FD_WRITE, VTE_DATA_FD(data->ev.fd),
                                             data->callback_data);
+                    if (ret < 0)
+                        priv->state |= VTS_EXIT_REQUESTED;
                 }
                 if ((data->event & VTE_FD_ERR) != 0 && FD_ISSET(data->ev.fd, &errfds)) {
                     ret = data->callback(vthread, VTE_FD_ERR, VTE_DATA_FD(data->ev.fd),
                                             data->callback_data);
+                    if (ret < 0)
+                        priv->state |= VTS_EXIT_REQUESTED;
                 }
             }
         }
