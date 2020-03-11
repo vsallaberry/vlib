@@ -555,7 +555,7 @@ int vterm_readline(FILE * in, FILE * out, char * buf, unsigned int maxsize) {
         c = *key;
         if (c == EOF || c == 27 || c == '\n' || c == '\r')
             break ;
-        if (c == 0x7f) {
+        if (c == 0x7f || c == 8) { //TODO use terminfo
             if (i > 0) {
                 --i;
                 fputs("\b \b", out);
