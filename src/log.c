@@ -215,20 +215,24 @@ static int log_location(FILE * out, log_flag_t flags, log_level_t level,
 static int xvlog(log_level_t level, log_t * log,
                  const char *fmt, va_list arg) {
     int n = 0;
-	if (LOG_CAN_LOG(log, level))
-	{
-        FILE *          out = log && log->out ? log->out : stderr;
-        log_flag_t      flags = log ? log->flags : LOG_FLAG_DEFAULT;
+    if (LOG_CAN_LOG(log, level))
+    {
+        FILE *          out;
+        unsigned int    flags;
         const char *    file = "?", * func = "?";
         int             line = 0;
 
+        out = log_getfile_locked(log);
+        flags = log ? log->flags : LOG_FLAG_DEFAULT;
+
         if (fmt == NULL) {
-            return fputc('\n', out) != EOF ? 1 : 0;
+            line = fputc('\n', out) != EOF ? 1 : 0;
+            funlockfile(out);
+            return line;
         }
 
-        flockfile(out);
         n += log_header(level, log, file, func, line);
-	    n += vfprintf(out, fmt, arg);
+        n += vfprintf(out, fmt, arg);
         if ((flags & LOG_FLAG_LOC_TAIL) == 0) {
             if (fputc(' ', out) != EOF)
                 ++n;
@@ -237,8 +241,8 @@ static int xvlog(log_level_t level, log_t * log,
         if (fputc('\n', out) != EOF)
             ++n;
         funlockfile(out);
-	}
-	return n;
+    }
+    return n;
 }
 int log_error(log_t * log, const char * fmt, ...) {
     va_list arg;
@@ -396,28 +400,32 @@ int log_header(log_level_t level, log_t * log,
     return n;
 }
 
-int	vlog(log_level_t level, log_t * log,
+int vlog(log_level_t level, log_t * log,
          const char * file, const char * func, int line,
          const char * fmt, ...)
 {
     int total = 0;
 
-	if (LOG_CAN_LOG(log, level))
-	{
-        FILE *      out = log && log->out ? log->out : stderr;
-        log_flag_t  flags = log ? log->flags : LOG_FLAG_DEFAULT;
-        va_list     arg;
-        int         n;
+    if (LOG_CAN_LOG(log, level))
+    {
+        FILE *          out;
+        unsigned int    flags;
+        va_list         arg;
+        int             n;
+
+        out = log_getfile_locked(log);
+        flags = log ? log->flags : LOG_FLAG_DEFAULT;
 
         if (fmt == NULL) {
-            return fputc('\n', out) != EOF ? 1 : 0;
+            n = fputc('\n', out) != EOF ? 1 : 0;
+            funlockfile(out);
+            return n;
         }
 
-        flockfile(out);
         total = log_header(level, log, file, func, line);
 
         va_start(arg, fmt);
-		if ((n = vfprintf(out, fmt, arg)) >= 0)
+        if ((n = vfprintf(out, fmt, arg)) >= 0)
             total += n;
         va_end(arg);
 
@@ -429,34 +437,36 @@ int	vlog(log_level_t level, log_t * log,
         if (fputc('\n', out) != EOF)
             ++total;
         funlockfile(out);
-	}
-	return total;
+    }
+    return total;
 }
 
 #define INCR_GE0(call, test, total) if (((test) = (call)) >= 0) (total) += (test)
 
-int	log_buffer(log_level_t level, log_t * log,
+int log_buffer(log_level_t level, log_t * log,
                const void * pbuffer, size_t len,
                const char * file, const char * func, int line,
                const char * fmt_header, ...)
 {
     int total = 0;
 
-	if (LOG_CAN_LOG(log, level))
-	{
-        FILE *          out = log && log->out ? log->out : stderr;
-    	va_list         arg;
+    if (LOG_CAN_LOG(log, level))
+    {
+        FILE *          out;
+        va_list         arg;
         const size_t    chars_per_line = 16;
         const char *    buffer = (const char *) pbuffer;
-        log_flag_t      flags = log ? log->flags : LOG_FLAG_DEFAULT;
+        unsigned int    flags;
         int             n;
 
+        out = log_getfile_locked(log);
+        flags = log ? log->flags : LOG_FLAG_DEFAULT;
+
         if (buffer == NULL || len == 0) {
-            flockfile(out);
             INCR_GE0(log_header(level, log, file, func, line), n, total);
             if (fmt_header) {
                 va_start(arg, fmt_header);
-	    	    INCR_GE0(vfprintf(out, fmt_header, arg), n, total);
+                INCR_GE0(vfprintf(out, fmt_header, arg), n, total);
                 INCR_GE0(fprintf(out, "<empty>"), n, total);
                 va_end(arg);
             }
@@ -471,14 +481,13 @@ int	log_buffer(log_level_t level, log_t * log,
             return total;
         }
 
-        flockfile(out);
         for (size_t i_buf = 0; i_buf < len; i_buf += chars_per_line) {
             size_t i_char;
 
             INCR_GE0(log_header(level, log, file, func, line), n, total);
             if (fmt_header) {
                 va_start(arg, fmt_header);
-	    	    INCR_GE0(vfprintf(out, fmt_header, arg), n, total);
+                INCR_GE0(vfprintf(out, fmt_header, arg), n, total);
                 va_end(arg);
             }
 
@@ -504,8 +513,8 @@ int	log_buffer(log_level_t level, log_t * log,
                 ++total;
         }
         funlockfile(out);
-	}
-	return total;
+    }
+    return total;
 }
 
 log_t * log_create(log_t * from) {
@@ -549,6 +558,33 @@ void log_destroy(void * vlog) {
         if ((log->flags & LOG_FLAG_FREELOG) != 0) {
             free(log);
         }
+    }
+}
+
+FILE * log_getfile_locked(log_t * log) {
+    FILE * file;
+
+    if (log == NULL || log->out == NULL) {
+        file = stderr;
+        flockfile(file);
+        return file;
+    }
+    file = log->out;
+    while (1) {
+        flockfile(file);
+        /* lock acquired, other thread must wait before writing, closing, ... */
+        if (file != log->out) {
+            /* file was changed */
+            FILE * old = file;
+            file = log->out;
+            LOG_DEBUG(g_vlib_log, "%s(): file was changed, old:%p new:%p",
+                __func__, (void *) old, (void *) file);
+            /* release old lock, will allow other thread to close it */
+            funlockfile(old);
+            /* try again */
+            continue ;
+        }
+        return file;
     }
 }
 

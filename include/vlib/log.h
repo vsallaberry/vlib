@@ -221,6 +221,10 @@ int         log_header(log_level_t level, log_t * log,
 void        log_close(log_t * log);
 void        log_destroy(void * vlog);
 
+/* get and lock the file associated with given log
+ * @return file locked or locked stderr if log or log->out is NULL */
+FILE *      log_getfile_locked(log_t * log);
+
 /** set internal vlib log instance, shared between vlib components
  * @param log the new vlib log instance. If NULL, default will be used.
  * @return the previous vlib log instance
