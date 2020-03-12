@@ -507,8 +507,7 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
 
     /* choose the FILE* to be used as output */
     if (opt_config->log != NULL && opt_config->log->out != NULL) {
-        out = opt_config->log->out;
-        flockfile(out);
+        out = log_getfile_locked(opt_config->log);
     }
 
     /* if this is an error: use stderr and put a blank between error message and usage */
@@ -1112,7 +1111,7 @@ int opt_filter_source(FILE * out, const char * filter, ...) {
         searchsz = 0;
         pattern = malloc((patlen + 2) * sizeof(char));
         strncpy(pattern, filter + 1, patlen - 1);
-        strcpy(pattern + patlen - 1, "");
+        pattern[patlen - 1] = 0;
     } else {
         /* build search pattern */
         if ((pattern = malloc(sizeof(char) * (patlen + sizeof(FILE_PATTERN_END)))) == NULL) {

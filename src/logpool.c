@@ -141,10 +141,11 @@ static void logpool_file_free(void * vfile) {
     logpool_file_t * pool_file = (logpool_file_t *) vfile;
 
     if (pool_file != NULL) {
-        if (pool_file->file && pool_file->file != stderr && pool_file->file != stdout) {
-            fclose(pool_file->file);
-        } else {
-            fflush(pool_file->file);
+        if (pool_file->file != NULL) {
+            if (pool_file->file != stderr && pool_file->file != stdout)
+                fclose(pool_file->file);
+            else
+                fflush(pool_file->file);
         }
         if (pool_file->path != NULL) {
             free(pool_file->path);
@@ -180,9 +181,10 @@ logpool_t *         logpool_create() {
         return NULL;
     }
     if (NULL == (pool->logs = avltree_create(AFL_DEFAULT | AFL_SHARED_STACK
-                                             | AFL_INSERT_REPLACE | AFL_REMOVE_NOFREE,
+                                             | AFL_INSERT_IGNDOUBLE | AFL_REMOVE_NOFREE,
                                              logpool_prefixcmp, logpool_entry_free))
-    ||  NULL == (pool->files = avltree_create((AFL_DEFAULT & ~AFL_SHARED_STACK) | AFL_INSERT_NODOUBLE,
+    ||  NULL == (pool->files = avltree_create((AFL_DEFAULT & ~AFL_SHARED_STACK)
+                                              | AFL_INSERT_NODOUBLE | AFL_REMOVE_NOFREE,
                                               logpool_pathcmp, logpool_file_free))) {
         LOG_ERROR(g_vlib_log, "error avltree_create(logs | files) : %s", strerror(errno));
         if (pool->logs != NULL) {
@@ -453,9 +455,9 @@ static log_t *      logpool_add_unlocked(
                         logpool_t *         pool,
                         log_t *             log,
                         const char *        path) {
+    char                abspath[PATH_MAX];
     logpool_file_t      tmpfile, * pfile;
     logpool_entry_t *   logentry, * preventry;
-    char                tmppath[20];
 
     if ((logentry = malloc(sizeof(logpool_entry_t))) == NULL) {
         return NULL;
@@ -472,25 +474,31 @@ static log_t *      logpool_add_unlocked(
         logentry->log.flags |= LOG_FLAG_SILENT;
     logentry->file = NULL;
 
+    /* if path not given, use ';fd;' as path, else get absolute path from given path. */
+    if (path == NULL) {
+        snprintf(abspath, sizeof(abspath), ";%d;", log->out ? fileno(log->out) : -1);
+    } else if (*path == ';') {
+        str0cpy(abspath, path, sizeof(abspath));
+    } else {
+        vabspath(abspath, sizeof(abspath), path, NULL);
+    }
+
     /* insert logentry and get previous one if any */
     if ((preventry = avltree_insert(pool->logs, logentry)) == NULL) {
         logpool_entry_free(logentry);
         return NULL;
     }
-    /* if path not given, use ';fd;' as path, else use given path. */
-    if (path == NULL) {
-        snprintf(tmppath, sizeof(tmppath), ";%d;", log->out ? fileno(log->out) : -1);
-        path = tmppath;
-    }
+
     /* look for already openned file */
-    tmpfile.path = (char *) path;
+    tmpfile.path = abspath;
     tmpfile.file = log->out;
     if ((pfile = avltree_find(pool->files, &tmpfile)) == NULL) {
         pfile = logpool_file_create(tmpfile.path, tmpfile.file);
-        if (pfile == NULL || avltree_insert(pool->files, pfile) == NULL) {
+        if (pfile == NULL || avltree_insert(pool->files, pfile) == NULL) { //TODO FIXME IGNDOUBLE
             if (preventry != logentry) {
-                if (--preventry->file->use_count == 0) {
-                    avltree_remove(pool->files, preventry->file);
+                if (--preventry->file->use_count == 0
+                && avltree_remove(pool->files, preventry->file) != NULL) {
+                    logpool_file_free(preventry->file);
                 }
                 logpool_entry_free(preventry);
             }
@@ -500,10 +508,23 @@ static log_t *      logpool_add_unlocked(
             return NULL;
         }
     }
-    /* checks whether the logentry has replaced a previous one */
+
+    /* logentry initialization */
+    ++pfile->use_count;
+    logentry->file = pfile;
+    logentry->log.out = pfile->file;
+
+    /* checks whether the logentry was already in the pool and update it with new data */
     if (preventry != logentry) {
+        logpool_file_t *    file_to_free = NULL;
+        FILE *              logout;
+
         LOG_DEBUG(g_vlib_log, "LOGENTRY <%s> REPLACED by <%s>",
                   preventry->log.prefix, logentry->log.prefix);
+
+        /* lock log file before continuing, to not disturb threads owning this log entry */
+        logout = log_getfile_locked(&(preventry->log));
+
         if (preventry->file != pfile) { /* pointer comparison OK as doubles are forbiden. */
             /* the new logentry has a different file */
             LOG_DEBUG(g_vlib_log, "LOGENTRY REPLACED: FILE <%s> replaced by <%s>",
@@ -512,20 +533,37 @@ static log_t *      logpool_add_unlocked(
                 LOG_DEBUG(g_vlib_log, "LOGENTRY REPLACED: previous file <%s> is NO LONGER USED",
                           preventry->file->path);
                 /* the file of previous logentry is no longer used -> remove it. */
-                avltree_remove(pool->files, preventry->file);
+                if (avltree_remove(pool->files, preventry->file) == NULL) {
+                    LOG_ERROR(g_vlib_log, "error: cannot remove file <%s> from logpool",
+                              preventry->file->path);
+                } else {
+                    file_to_free = preventry->file;
+                }
             }
         } else {
             LOG_DEBUG(g_vlib_log, "LOGENTRY REPLACED: SAME FILE <%s>", pfile->path);
-            /* new log has the same file as previous: decrement because ++use_count later. */
+            /* new log has the same file as previous: decrement because ++use_count earlier. */
             --preventry->file->use_count;
         }
-        logpool_entry_free(preventry);
+        /* prefix of prev entry is kept, new one (equal) is freed */
+        if (logentry->log.prefix != NULL) {
+            free(logentry->log.prefix);
+            logentry->log.prefix = preventry->log.prefix;
+        }
+        /* copy new log entry data into previous entry (data changes, log pointer does not */
+        memcpy(preventry, logentry, sizeof(*logentry));
+
+        /* we can now unlock the old file, and free it as updated log entry is ready to be used */
+        funlockfile(logout);
+        if (file_to_free != NULL)
+            logpool_file_free(file_to_free);
+        logentry->log.prefix = NULL; /* logentry->log.prefix already freed */
+        logpool_entry_free(logentry);
     }
-    /* finish logentry initialization and return */
-    logentry->file = pfile;
-    logentry->log.out = pfile->file;
-    ++pfile->use_count;
-    log = &(logentry->log);
+
+    /* return log instance */
+    log = &(preventry->log);
+
     return log;
 }
 
@@ -542,8 +580,9 @@ int                 logpool_remove(
     pthread_rwlock_wrlock(&pool->rwlock);
     //FIXME: don't remove templates
     if ((logentry = avltree_remove(pool->logs, log)) != NULL) {
-        if (logentry->file != NULL && --logentry->file->use_count == 0) {
-            avltree_remove(pool->files, logentry->file);
+        if (logentry->file != NULL && --logentry->file->use_count == 0
+        && avltree_remove(pool->files, logentry->file) != NULL) {
+            logpool_file_free(logentry->file);
         }
         logpool_entry_free(logentry);
     }
@@ -639,6 +678,8 @@ static avltree_visit_status_t   logpool_filesz_visit(
 
     if (psz != NULL && file != NULL) {
         *psz += (file->path != NULL ? strlen(file->path) : 0);// + sizeof(FILE);
+        LOG_DEBUG(g_vlib_log, "LOGPOOL SZ FILE <%s>",
+                file->path ? file->path : "(null)");
     }
     return AVS_CONTINUE;
 }
@@ -655,6 +696,8 @@ static avltree_visit_status_t   logpool_logsz_visit(
 
     if (psz != NULL && entry != NULL && entry->log.prefix != NULL) {
         *psz += strlen(entry->log.prefix);
+        LOG_DEBUG(g_vlib_log, "LOGPOOL SZ LOG <%s>",
+                entry->log.prefix ? entry->log.prefix : "(null)");
     }
     return AVS_CONTINUE;
 }
