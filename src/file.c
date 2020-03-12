@@ -42,9 +42,11 @@ int         vabspath(char * dst, size_t maxlen, const char * path, const char * 
         if (last_slash != NULL) {
             *last_slash = 0;
             cwd_fd = open(".", O_RDONLY);
+            if (cwd != NULL)
+                chdir(cwd);
         }
         if ((last_slash != NULL && chdir(path) != 0)
-                || (cwd == NULL && getcwd(dst, maxlen - 2) == NULL)) {
+                || getcwd(dst, maxlen - 2) == NULL) {
             if (last_slash != NULL)
                 *last_slash = '/';
             len = str0cpy(dst, path, maxlen);
