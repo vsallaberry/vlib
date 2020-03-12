@@ -89,6 +89,15 @@ size_t      strtok_ro_r(const char ** token, const char * seps,
                         const char ** next, size_t * maxlen,
                         int flags);
 
+/** vabspath: get file absolute path
+ * @param dst where to store absolute path
+ * @param maxlen the capacity of dst buffer
+ * @param path the path to convert
+ * @param the current working directory (getcwd() is used if NULL)
+ * @return length of string stored in dst
+ * */
+int         vabspath(char * dst, size_t maxlen, const char * path, const char * cwd);
+
 /** vdecode_buffer : decode <inbuf> (zlib or raw (char[]), char * tab[])
  * This function must be called until it returns 0 or -1.
  * To release resources before it returns 0 or -1, call it with (NULL, 0, &ctx, NULL, 0).
