@@ -126,12 +126,18 @@ static logpool_file_t * logpool_file_create(const char * path, FILE * file) {
         return NULL;
     }
     pool_file->use_count = 0;
-    if (file != NULL) {
-        pool_file->file = file;
-    } else {
+
+    if (path != NULL && file == NULL) {
         pool_file->file = fopen(path, "a");
+    } else {
+        pool_file->file = file;
     }
-    pool_file->path = strdup(path);
+
+    if (path != NULL) {
+        pool_file->path = strdup(path);
+    } else {
+        pool_file->path = NULL;
+    }
 
     return pool_file;
 }
@@ -455,7 +461,7 @@ static log_t *      logpool_add_unlocked(
                         logpool_t *         pool,
                         log_t *             log,
                         const char *        path) {
-    char                abspath[PATH_MAX];
+    char                abspath[PATH_MAX*2];
     logpool_file_t      tmpfile, * pfile;
     logpool_entry_t *   logentry, * preventry;
 
@@ -476,11 +482,17 @@ static log_t *      logpool_add_unlocked(
 
     /* if path not given, use ';fd;' as path, else get absolute path from given path. */
     if (path == NULL) {
-        snprintf(abspath, sizeof(abspath), ";%d;", log->out ? fileno(log->out) : -1);
-    } else if (*path == ';') {
-        str0cpy(abspath, path, sizeof(abspath));
+        if (logentry->log.out == NULL)
+            logentry->log.out = stderr;
+        snprintf(abspath, sizeof(abspath), ";%d;%08lx;",
+                 fileno(logentry->log.out), (unsigned long) logentry->log.out);
     } else {
-        vabspath(abspath, sizeof(abspath), path, NULL);
+        logentry->log.out = NULL;
+        if (*path == ';') {
+            str0cpy(abspath, path, sizeof(abspath));
+        } else {
+            vabspath(abspath, sizeof(abspath), path, NULL);
+        }
     }
 
     /* insert logentry and get previous one if any */
@@ -495,6 +507,7 @@ static log_t *      logpool_add_unlocked(
     if ((pfile = avltree_find(pool->files, &tmpfile)) == NULL) {
         pfile = logpool_file_create(tmpfile.path, tmpfile.file);
         if (pfile == NULL || avltree_insert(pool->files, pfile) == NULL) { //TODO FIXME IGNDOUBLE
+            LOG_WARN(g_vlib_log, "%s(): **** error case TODO FIXME ******", __func__);
             if (preventry != logentry) {
                 if (--preventry->file->use_count == 0
                 && avltree_remove(pool->files, preventry->file) != NULL) {
@@ -510,7 +523,6 @@ static log_t *      logpool_add_unlocked(
     }
 
     /* logentry initialization */
-    ++pfile->use_count;
     logentry->file = pfile;
     logentry->log.out = pfile->file;
 
@@ -542,7 +554,7 @@ static log_t *      logpool_add_unlocked(
             }
         } else {
             LOG_DEBUG(g_vlib_log, "LOGENTRY REPLACED: SAME FILE <%s>", pfile->path);
-            /* new log has the same file as previous: decrement because ++use_count earlier. */
+            /* new log has the same file as previous: decrement because ++use_count below. */
             --preventry->file->use_count;
         }
         /* prefix of prev entry is kept, new one (equal) is freed */
@@ -561,7 +573,8 @@ static log_t *      logpool_add_unlocked(
         logpool_entry_free(logentry);
     }
 
-    /* return log instance */
+    /* finish initialization and return log instance */
+    ++pfile->use_count;
     log = &(preventry->log);
 
     return log;
@@ -676,10 +689,17 @@ static avltree_visit_status_t   logpool_filesz_visit(
     (void) tree;
     (void) context;
 
-    if (psz != NULL && file != NULL) {
+    if (psz == NULL) {
+        if (file != NULL) {
+            LOG_INFO(g_vlib_log, "LOGPOOL: FILE %16s out:%08lx fd:%02d used:%d FILE <%s>",
+                     "", (unsigned long) (file->file),
+                     file->file ? fileno(file->file) : -1, file->use_count,
+                     file->path ? file->path : "(null)");
+        } else {
+            LOG_INFO(g_vlib_log, "LOGPOOL: FILE (null)");
+        }
+    } else if (psz != NULL && file != NULL) {
         *psz += (file->path != NULL ? strlen(file->path) : 0);// + sizeof(FILE);
-        LOG_DEBUG(g_vlib_log, "LOGPOOL SZ FILE <%s>",
-                file->path ? file->path : "(null)");
     }
     return AVS_CONTINUE;
 }
@@ -694,10 +714,22 @@ static avltree_visit_status_t   logpool_logsz_visit(
     (void) tree;
     (void) context;
 
-    if (psz != NULL && entry != NULL && entry->log.prefix != NULL) {
+    if (psz == NULL) {
+        if (entry != NULL) {
+            LOG_INFO(g_vlib_log, "LOGPOOL: ENTRY %-15s out:%08lx,fd:%02d file:%08lx,"
+                                 "fd:%02d,used:%d,path:%s",
+                     entry->log.prefix ? entry->log.prefix : "(null)",
+                     (unsigned long) entry->log.out,
+                     entry->log.out ? fileno(entry->log.out) : -1,
+                     (unsigned long) (entry->file ? entry->file->file : NULL),
+                     entry->file && entry->file->file ? fileno(entry->file->file) : -1,
+                     entry->file ? entry->file->use_count : -1,
+                     entry->file && entry->file->path ? entry->file->path : "(null)");
+        } else {
+            LOG_INFO(g_vlib_log, "LOGPOOL: ENTRY (null)");
+        }
+    } else if (psz != NULL && entry != NULL && entry->log.prefix != NULL) {
         *psz += strlen(entry->log.prefix);
-        LOG_DEBUG(g_vlib_log, "LOGPOOL SZ LOG <%s>",
-                entry->log.prefix ? entry->log.prefix : "(null)");
     }
     return AVS_CONTINUE;
 }
@@ -724,5 +756,25 @@ size_t              logpool_memorysize(
            + avltree_memorysize(pool->files)
            + datas_size;
 }
+
+/* ************************************************************************ */
+int                 logpool_print(
+                        logpool_t *         pool,
+                        log_t *             log) {
+    if (pool == NULL) {
+        errno = EINVAL;
+        return 0;
+    }
+    log = g_vlib_log;
+
+    LOG_INFO(log, "LOGPOOL nbr of files : %zu", avltree_count(pool->files));
+    LOG_INFO(log, "LOGPOOL nbr of logs  : %zu", avltree_count(pool->logs));
+
+    avltree_visit(pool->files, logpool_filesz_visit, NULL, AVH_PREFIX);
+    avltree_visit(pool->logs,  logpool_logsz_visit,  NULL, AVH_PREFIX);
+
+    return 0;
+}
+
 
 /* ************************************************************************ */

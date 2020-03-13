@@ -112,11 +112,18 @@ log_t *             logpool_getlog(
                         int                 flags);
 
 /** logpool_memorysize()
- * complexity: O(1)
+ * complexity: O(n)
  * @return estimation of memory used by the logpool (except size of FILE structures)
  *         or 0 on error with errno set (errno is NOT changed on success). */
 size_t              logpool_memorysize(
                         logpool_t *         pool);
+
+/** logpool_print()
+ * complexity: O(n)
+ * @return 0 */
+ int                 logpool_print(
+                        logpool_t *         pool,
+                        log_t *             log);
 
 /*****************************************************************************/
 
