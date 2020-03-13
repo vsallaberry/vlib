@@ -21,13 +21,15 @@
  */
 #include <unistd.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <stdlib.h>
 
 #include "vlib/util.h"
 
 int         vabspath(char * dst, size_t maxlen, const char * path, const char * cwd) {
-    int     len;
-    char *  last_slash;
-    int     cwd_fd = -1;
+    size_t          len;
+    const char *    next, * token;
+    size_t          token_len;
 
     if (dst == NULL || path == NULL || maxlen <= 2) {
         if (dst != NULL && maxlen > 0)
@@ -35,35 +37,52 @@ int         vabspath(char * dst, size_t maxlen, const char * path, const char * 
         return 0;
     }
 
-    last_slash = strrchr(path, '/');
-    if (last_slash == path) {
-        len = str0cpy(dst, path, maxlen);
-    } else {
-        if (last_slash != NULL) {
-            *last_slash = 0;
-            cwd_fd = open(".", O_RDONLY);
-            if (cwd != NULL)
-                chdir(cwd);
-        }
-        if ((last_slash != NULL && chdir(path) != 0)
-                || getcwd(dst, maxlen - 2) == NULL) {
-            if (last_slash != NULL)
-                *last_slash = '/';
+    len = 0;
+    *dst = 0;
+    if (*path != '/') {
+        /* prefix path with current working directory if not starting with '/' */
+        if (cwd != NULL) {
+            len = str0cpy(dst, cwd, maxlen - 2);
+        } else if (getcwd(dst, maxlen - 2) == NULL) {
             len = str0cpy(dst, path, maxlen);
+            return len;
         } else {
-            if (cwd != NULL)
-                len = str0cpy(dst, cwd, maxlen - 2);
-            else
-                len = strlen(dst);
-            dst[len++] = '/';
-            len += str0cpy(dst + len, last_slash ? last_slash + 1: path,
-                           maxlen - len);
+            len = strlen(dst);
         }
     }
-    if (cwd_fd >= 0) {
-        fchdir(cwd_fd);
-        close(cwd_fd);
+
+    /* split path between '/', get rid of '..', '.' or '//' */
+    next = path;
+    while (len < maxlen - 1 && ((token_len = strtok_ro_r(&token, "/", &next, NULL, 0)) > 0 || *next)) {
+        if (token_len == 0)
+            continue ; /* ignore '//' */
+        if (token_len == 1 && *token == '.')
+            continue ; /* ignore '.' */
+        if (token_len == 2 && *token == '.' && token[1] == '.') { /* handle '..' */
+            while (len > 0 && dst[len] != '/') {
+                --len;
+            }
+            dst[len] = 0;
+            continue ;
+        }
+        dst[len++] = '/';
+        len += strn0cpy(dst + len, token, token_len, maxlen - len);
     }
+
+    if (len == 0)
+        dst[len++] = '/';
+
+    dst[len] = 0;
+
+    if (len > 0) {
+        /* finally get rid of symbolic links in case file is valid
+         * we clean path before as realpath works only on existing files */
+        char rpath[PATH_MAX*2];
+        if (realpath(dst, rpath) != NULL) {
+            len = str0cpy(dst, rpath, maxlen);
+        }
+    }
+
     return len;
 }
 
