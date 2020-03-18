@@ -223,10 +223,7 @@ static int opt_error(int exit_code, opt_config_t * opt_config, int flags,
             if ( ! LOG_CAN_LOG(opt_config->log, LOG_LVL_ERROR)) {
                 return exit_code;
             }
-            if (opt_config->log->out != NULL) {
-                out = opt_config->log->out;
-            }
-            flockfile(out);
+            out = log_getfile_locked(opt_config->log);
             log_header(LOG_LVL_ERROR, opt_config->log, NULL, NULL, 0);
         } else {
             flockfile(out);
@@ -506,7 +503,7 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
     opt_headsz = strlen(opt_config->opt_head);
 
     /* choose the FILE* to be used as output */
-    if (opt_config->log != NULL && opt_config->log->out != NULL) {
+    if (opt_config->log != NULL) {
         out = log_getfile_locked(opt_config->log);
     }
 
