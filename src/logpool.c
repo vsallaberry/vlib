@@ -32,6 +32,7 @@
 #include "vlib_private.h"
 
 /* ************************************************************************ */
+logpool_t * g_vlib_logpool = NULL;
 
 /** internal logpool flags */
 typedef enum {
@@ -208,6 +209,10 @@ logpool_t *         logpool_create() {
     /* add a default log instance */ //TODO
     logpool_add_unlocked(pool, &log, NULL);
 
+    if (g_vlib_logpool == NULL) {
+        g_vlib_logpool = pool;
+    }
+
     return pool;
 }
 
@@ -216,6 +221,9 @@ void                logpool_free(
                         logpool_t *         pool) {
     if (pool != NULL) {
         pthread_rwlock_wrlock(&pool->rwlock);
+        if (pool == g_vlib_logpool) {
+            g_vlib_logpool = NULL;
+        }
         avltree_free(pool->files);
         avltree_free(pool->logs); /* must be last : it will free the rbuf stack */
         pthread_rwlock_unlock(&pool->rwlock);
@@ -231,23 +239,28 @@ static avltree_visit_status_t   logpool_enable_visit(
                                     avltree_node_t *                    node,
                                     const avltree_visit_context_t *     context,
                                     void *                              user_data) {
-    logpool_entry_t *   entry   = (logpool_entry_t *) node->data;
+    log_t *             log;
     int                 enable  = (int)((unsigned long)user_data);
-    (void) tree;
     (void) context;
 
-    if (entry != NULL) {
-        if (entry->log.out != NULL)
-            flockfile(entry->log.out);
+    if (tree == NULL)
+        log = (log_t *) node; /* for calling this function outside of visit */
+    else
+        log = &(((logpool_entry_t *) node->data)->log); /* normal avltree_visit */
+
+    if (log != NULL) {
+        FILE * out = log_getfile_locked(log);
 
         if (enable == 0) {
-            entry->log.flags |= LOG_FLAG_SILENT;
-        } else if (&entry->log != g_vlib_log) {
-            entry->log.flags &= ~LOG_FLAG_SILENT;
+            log->flags |= LOG_FLAG_SILENT;
+        } else if (log != g_vlib_log || tree == NULL) {
+            log->flags &= ~LOG_FLAG_SILENT;
         }
 
-        if (entry->log.out != NULL)
-            funlockfile(entry->log.out);
+        if (out != NULL) {
+            fflush(out);
+            funlockfile(out);
+        }
     }
     return AVS_CONTINUE;
 }
@@ -263,8 +276,8 @@ int                 logpool_enable(
 
         if (enable == 0) {
             /* special case for vlib log to avoid avltree logging while disabling */
-            if (g_vlib_log != NULL)
-                g_vlib_log->flags |= LOG_FLAG_SILENT;
+            logpool_enable_visit(NULL, (avltree_node_t *) g_vlib_log, NULL, (void*)(0UL));
+
             /* set SILENT flag to logpool to create new logs as SILENT */
             pool->flags |= LPP_SILENT;
         }
@@ -272,8 +285,7 @@ int                 logpool_enable(
         avltree_visit(pool->logs, logpool_enable_visit, (void*)((unsigned long)enable), AVH_PREFIX);
 
         if (enable == 1) {
-            if (g_vlib_log != NULL)
-                g_vlib_log->flags &= ~LOG_FLAG_SILENT;
+            logpool_enable_visit(NULL, (avltree_node_t *) g_vlib_log, NULL, (void*)(1UL));
             pool->flags &= ~LPP_SILENT;
         }
 
@@ -480,7 +492,7 @@ static log_t *      logpool_add_unlocked(
         logentry->log.flags |= LOG_FLAG_SILENT;
     logentry->file = NULL;
 
-    /* if path not given, use ';fd;' as path, else get absolute path from given path. */
+    /* if path not given, use ';fd;fileptr;' as path, else get absolute path from given path. */
     if (path == NULL) {
         if (logentry->log.out == NULL)
             logentry->log.out = stderr;
@@ -591,7 +603,7 @@ int                 logpool_remove(
     }
 
     pthread_rwlock_wrlock(&pool->rwlock);
-    //FIXME: don't remove templates
+    //TODO: don't remove templates
     if ((logentry = avltree_remove(pool->logs, log)) != NULL) {
         if (logentry->file != NULL && --logentry->file->use_count == 0
         && avltree_remove(pool->files, logentry->file) != NULL) {

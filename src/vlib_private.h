@@ -23,12 +23,14 @@
 #define VLIB_VLIB_PRIVATE_H
 
 #include "vlib/log.h"
+#include "vlib/logpool.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-extern log_t * g_vlib_log;
+extern log_t *          g_vlib_log;
+extern logpool_t *      g_vlib_logpool;
 
 #ifdef __cplusplus
 }
