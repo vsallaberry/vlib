@@ -173,18 +173,17 @@ int log_describe_option(char * buffer, int * size, const char *const* modules,
 
 log_t * log_set_vlib_instance(log_t * log) {
     log_t * old_log = g_vlib_log;
-    FILE * out = g_vlib_log && g_vlib_log->out ? g_vlib_log->out : stderr;
+    FILE * out;
 
-    if (out) {
-        flockfile(out);
-        fflush(out);
-    }
+    out = log_getfile_locked(g_vlib_log);
+    fflush(out);
+
     if (log == NULL) {
         log = &s_vlib_log_default;
     }
     g_vlib_log = log;
-    if (out)
-        funlockfile(out);
+
+    funlockfile(out);
     return old_log;
 }
 
