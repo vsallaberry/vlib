@@ -29,18 +29,12 @@
 #include "vlib/job.h"
 #include "vlib/thread.h"
 
-/** internal */
-enum {
-    VJS_NONE        = 0,
-    VJS_CREATED     = 1 << 0,
-    VJS_STARTED     = 1 << 1,
-    VJS_DONE        = 1 << 2
-};
+#include "vlib_private.h"
 
 /** internal */
 struct vjob_s {
+    void *                  retval;
     void *                  user_data;
-    volatile sig_atomic_t * pfreed;
     vjob_fun_t              user_fun;
     pthread_t               tid;
     pthread_mutex_t         mutex;
@@ -49,48 +43,79 @@ struct vjob_s {
 };
 
 /* ************************************************************************ */
-typedef struct {
-    vjob_t *                job;
-    volatile sig_atomic_t   freed;
-} job_runner_cleanup_t;
 
-static void job_runner_cleanup(void * vdata) {
-    job_runner_cleanup_t * data = (job_runner_cleanup_t *) vdata;
-    if (data->freed == 0) {
-        data->job->state |= VJS_DONE;
-        data->job->pfreed = NULL;
-        pthread_mutex_unlock(&(data->job->mutex));
+typedef struct {
+    vjob_t *            job;
+} vjob_cleanup_t;
+
+static void job_cleanup(void * vdata) {
+    vjob_cleanup_t *    cleanup = (vjob_cleanup_t *) vdata;
+
+    if (cleanup != NULL && cleanup->job != NULL) {
+        pthread_mutex_lock(&(cleanup->job->mutex));
+        cleanup->job->state |= VJS_INTERRUPTED;
+        pthread_mutex_unlock(&(cleanup->job->mutex));
     }
 }
 
 static void * job_runner(void * vdata) {
-    vjob_t *                job = (vjob_t *) vdata;
-    void *                  ret;
-    job_runner_cleanup_t    cleanup = { job, 0 };
+    vjob_t *                job         = (vjob_t *) vdata;
+    void *                  retval      = VJOB_NO_RESULT;
+    vjob_cleanup_t          cleanup     = { job };
+    vjob_fun_t              user_fun;
+    void *                  user_data;
 
-    pthread_mutex_lock(&job->mutex);
-
-    job->pfreed = &(cleanup.freed);
-    pthread_cleanup_push(job_runner_cleanup, &cleanup);
-    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
-    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+    pthread_mutex_lock(&(job->mutex));
+    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+    pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
+    user_fun = job->user_fun;
+    user_data = job->user_data;
     job->state |= VJS_STARTED;
+    job->retval = retval;
+    if ((job->state & VJS_DETACHED) != 0) {
+        cleanup.job = NULL;
+        pthread_detach(pthread_self());
+    }
+    if ((job->state & VJS_EXIT_REQUESTED) != 0) {
+        job->state |= VJS_INTERRUPTED;
+        pthread_mutex_unlock(&(job->mutex));
+        pthread_exit(retval);
+    }
+
+    pthread_cleanup_push(job_cleanup, &cleanup);
+    /* synchro with vjob_run() */
     pthread_cond_signal(&(job->cond));
     pthread_cond_wait(&(job->cond), &(job->mutex));
+    pthread_mutex_unlock(&(job->mutex));
 
-    ret = job->user_fun(job->user_data);
+    /* prepare start, enable cancelation */
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+    pthread_testcancel();
 
-    pthread_cleanup_pop(1);
+    /* Run the actual job */
+    retval = user_fun(user_data);
 
-    return ret;
+    /* finish and set job done */
+    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+    pthread_cleanup_pop(0);
+
+    if (cleanup.job != NULL) {
+        pthread_mutex_lock(&(job->mutex));
+        job->state |= VJS_DONE;
+        job->retval = retval;
+        pthread_mutex_unlock(&(job->mutex));
+    }
+
+    /* exit */
+    return retval;
 }
 
 /* ************************************************************************ */
 int vjob_free(vjob_t * job) {
     if (job == NULL)
         return -1;
-    if (job->pfreed != NULL)
-        *(job->pfreed) = 1;
+    vjob_kill(job);
+    vjob_wait(job);
     pthread_mutex_destroy(&job->mutex);
     pthread_cond_destroy(&job->cond);
     free(job);
@@ -98,7 +123,7 @@ int vjob_free(vjob_t * job) {
 }
 
 /* ************************************************************************ */
-vjob_t * vjob_run(vjob_fun_t fun, void * data) {
+vjob_t * vjob_run(vjob_fun_t fun, void * user_data) {
     vjob_t * job;
 
     if (fun == NULL)
@@ -110,74 +135,117 @@ vjob_t * vjob_run(vjob_fun_t fun, void * data) {
 
     pthread_mutex_init(&(job->mutex), NULL);
     pthread_cond_init(&(job->cond), NULL);
-    pthread_mutex_lock(&(job->mutex));
 
     job->user_fun = fun;
-    job->user_data = data;
-    job->pfreed = NULL;
+    job->user_data = user_data;
+    job->retval = VJOB_NO_RESULT;
     job->state = VJS_CREATED;
 
+    pthread_mutex_lock(&(job->mutex));
     if (pthread_create(&(job->tid), NULL, job_runner, job) != 0) {
+        pthread_mutex_unlock(&(job->mutex));
         vjob_free(job);
         return NULL;
     }
+    /* synchro with job_runner() */
     pthread_cond_wait(&(job->cond), &(job->mutex));
     pthread_cond_signal(&(job->cond));
     pthread_mutex_unlock(&(job->mutex));
-
     return job;
 }
 
 /* ************************************************************************ */
-int vjob_runandfree(vjob_fun_t fun, void * data) {
-    vjob_t * job;
+unsigned int vjob_state(vjob_t * job) {
+    unsigned int state;
 
-    if ((job = vjob_run(fun, data)) == NULL) {
-        return -1;
-    }
-    vjob_free(job);
-    return 0;
+    if (job == NULL)
+        return VJS_NONE;
+
+    pthread_mutex_lock(&(job->mutex));
+    state = job->state;
+    pthread_mutex_unlock(&(job->mutex));
+
+    return state;
 }
 
 /* ************************************************************************ */
 int vjob_done(vjob_t * job) {
-    if (job == NULL)
-        return -1;
-
-    if (pthread_mutex_trylock(&job->mutex) == 0) {
-        /* mutex can be aqcuired if not started or if done. need to check state */
-        int done = (job->state & VJS_DONE) != 0;
-        pthread_mutex_unlock(&job->mutex);
-        return done;
-    }
-    return 0;
+    return ((vjob_state(job) & (VJS_DONE | VJS_INTERRUPTED)) != 0);
 }
 
 /* ************************************************************************ */
 void * vjob_wait(vjob_t * job) {
-    void *  retval = (void *) -1;
+    void *  retval = VJOB_ERR_RESULT;
+    unsigned int state;
 
     if (job == NULL)
         return retval;
+
+    /* ------------------------------------- */
+    pthread_mutex_lock(&(job->mutex));
+    state = job->state;
+
+    if ((state & (VJS_DETACHED)) != 0) {
+        retval = job->retval;
+        pthread_mutex_unlock(&(job->mutex));
+        LOG_DEBUG(g_vlib_log, "%s(): state %x", __func__, state);
+        return retval;
+    }
+
+    job->state |= VJS_DETACHED;
+    pthread_mutex_unlock(&(job->mutex));
+    /* ------------------------------------- */
+    LOG_DEBUG(g_vlib_log, "%s(): state %x", __func__, state);
+
     if (vlib_thread_valgrind(0, NULL)) {
+        pthread_detach(job->tid);
         while (!vjob_done(job)) {
             usleep(100000);
         }
+        retval = job->retval;
     } else {
-        pthread_join(job->tid, &retval);
+        if (pthread_join(job->tid, &retval) == 0) {
+            job->retval = retval;
+        } else {
+            retval = job->retval;
+        }
     }
     return retval;
 }
 
 /* ************************************************************************ */
 void * vjob_kill(vjob_t * job) {
-    void *  retval = (void *) -1;
+    void *          retval  = VJOB_ERR_RESULT;
+    unsigned int    state   = 1;
 
     if (job == NULL)
         return retval;
 
-    if (pthread_cancel(job->tid) == 0)
-        retval = vjob_wait(job);
+    pthread_mutex_lock(&(job->mutex));
+    state = job->state;
+    job->state |= VJS_EXIT_REQUESTED;
+    if ((state & (VJS_DONE | VJS_DETACHED | VJS_INTERRUPTED | VJS_EXIT_REQUESTED)) != 0
+    || (state & VJS_STARTED) == 0) {
+        retval = job->retval;
+        pthread_mutex_unlock(&(job->mutex));
+        return retval;
+    }
+    pthread_mutex_unlock(&(job->mutex));
+
+    LOG_DEBUG(g_vlib_log, "%s(): state %x", __func__, state);
+
+    fflush(NULL);
+    if (g_vlib_logpool != NULL) {
+        logpool_enable(g_vlib_logpool, NULL, 0);
+        fflush(NULL);
+    }
+    pthread_cancel(job->tid);
+
+    retval = vjob_wait(job);
+
+    if (g_vlib_logpool != NULL) {
+        logpool_enable(g_vlib_logpool, NULL, 1);
+    }
     return retval;
 }
 
@@ -197,13 +265,46 @@ void * vjob_killandfree(vjob_t * job) {
 
 /* ************************************************************************ */
 void vjob_testkill() {
+    int state;
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, &state);
     pthread_testcancel();
+    pthread_setcancelstate(state, NULL);
 }
 
 /* ************************************************************************ */
-int vjob_killasync(int async) {
-    return pthread_setcanceltype(async ? PTHREAD_CANCEL_ASYNCHRONOUS
-                                       : PTHREAD_CANCEL_DEFERRED, NULL);
+int vjob_killmode(int enable, int async, int *old_enable, int *old_async) {
+    int ret, old_state;
+
+    ret = pthread_setcancelstate(enable ? PTHREAD_CANCEL_ENABLE
+                                        : PTHREAD_CANCEL_DISABLE, &old_state);
+    if (ret != 0)
+        return -1;
+
+    if (old_enable != NULL)
+        *old_enable = (old_state == PTHREAD_CANCEL_ENABLE ? 1 : 0);
+
+    ret = pthread_setcanceltype(async ? PTHREAD_CANCEL_ASYNCHRONOUS
+                                      : PTHREAD_CANCEL_DEFERRED, old_async);
+    if (ret != 0) {
+        pthread_setcancelstate(old_state, NULL);
+        return -1;
+    }
+
+    if (old_async != NULL)
+        *old_async = (*old_async == PTHREAD_CANCEL_ASYNCHRONOUS ? 1 : 0);
+    return 0;
 }
 
+#if 0
+/* ************************************************************************ */
+int vjob_runandfree(vjob_fun_t fun, void * data) {
+    vjob_t * job;
+
+    if ((job = vjob_run(fun, data)) == NULL) {
+        return -1;
+    }
+    vjob_free(job);
+    return 0;
+}
+#endif
 

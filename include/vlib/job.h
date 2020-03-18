@@ -27,56 +27,108 @@
 #else
 # include <stdlib.h>
 #endif
+/* ************************************************************************ */
 
 /** vjob_fun_t : fun ptr executing job */
-typedef void * (*vjob_fun_t)(void *);
+#define VJOB_NO_RESULT      ((void *) -2)
+#define VJOB_ERR_RESULT     ((void *) -1)
+typedef void *              (*vjob_fun_t)(void *);
 
 /** external opaque job_t */
 struct vjob_s;
 typedef struct vjob_s vjob_t;
 
+/** vjob states */
+typedef enum {
+    VJS_NONE            = 0,
+    VJS_CREATED         = 1 << 0,
+    VJS_STARTED         = 1 << 1,
+    VJS_DONE            = 1 << 2,
+    VJS_DETACHED        = 1 << 3,
+    VJS_EXIT_REQUESTED  = 1 << 4,
+    VJS_INTERRUPTED     = 1 << 5
+} vjob_state_t;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+/* ************************************************************************ */
 
-/** free a job without stopping it (let it run) */
-int         vjob_free(vjob_t * job);
+/** free a job (kill and wait for termination if running) */
+int             vjob_free(vjob_t * job);
 
 /** run a job in a new thread
  * @param fun the function to execute
- * @param data the data to give to function
+ * @param user_data the data to give to function
  * @return job handle or NULL on error */
-vjob_t *    vjob_run(vjob_fun_t fun, void * data);
+vjob_t *        vjob_run(vjob_fun_t fun, void * user_data);
+
+/** get state of job
+ * @return bit combination of vjob_state_t */
+unsigned int    vjob_state(vjob_t * job);
+
+/** check whether job is completed
+ * @return non-null if job is done or interrupted, 0 otherwise. */
+int             vjob_done(vjob_t * job);
+
+/** wait for job completion, get job return value
+ * @return  result of vjob_fun_t
+ *          VJOB_ERR_RESULT on error,
+ *          VJOB_NO_RESULT if job not done */
+void *          vjob_wait(vjob_t * job);
+
+/** kill job with waiting
+ * @return VJOB_ERR_RESULT on error, VJOB_NO_RESULT if job not done, or job result
+ * @notes: Warning, if the kill mode is enabled, the job could let locked
+ *   mutexes locked depending on pthread implementation.
+ *   To Avoid this, the job (vjob_fun_t) can call at startup
+ *   vjob_killmode(0, 0, NULL, NULL) and vjob_testkill() in safe
+ *   locations during processing, or/and use pthread_clean{push/pop}().
+ *   See below functions vjob_killmode(). */
+void *          vjob_kill(vjob_t * job);
+
+/** wait job completion, get return value and free job.
+ * @return result of vjob_wait() */
+void *          vjob_waitandfree(vjob_t * job);
+
+/** kill job, wait completion, and free job
+ * @return result of vjob_kill() */
+void *          vjob_killandfree(vjob_t * job);
+
+/** can be called inside the job function (vjob_fun_t) to add a
+ * cancelation point for vjob_kill().
+ * @notes: calling this function implicitly re-enable the
+ * kill mode then restore it before return. */
+void            vjob_testkill();
+
+/** turn on or off asynchronous job kill mode
+ * to be called from the vjob_fun_t function.
+ * @param enable mode : if 0 thread connot be killed unless during
+ *   vjob_testkill() called by job function (vjob_fun_t);
+ * @param async mode : if not 0, job can be killed at any moment
+ *   as long as kill mode is enabled.
+ *   (dangerous if system does not clean mutex at thread exit)
+ *   if 0, job can be killed at system cancelation points (refer to
+ *   man 3 pthread_setcancelstate), as long as kill mode is enabled.
+ * @param old_enable, if not NULL, the previous enable state is stored here.
+ * @param old_async, if not NULL, the previous async state is stored here.
+ * @return 0 on success, -1 on error */
+int             vjob_killmode(
+                    int             enable,
+                    int             async,
+                    int *           old_enable,
+                    int *           old_async);
+
+/* ************************************************************************ */
+#if 0
+/** disabled features */
 
 /** run job and forget it (let it run)
  * @return 0 on success */
-int         vjob_runandfree(vjob_fun_t fun, void * data);
+int             vjob_runandfree(vjob_fun_t fun, void * data);
 
-/** check whether job is completed
- * @return non-null if job is done, 0 otherwise. */
-int         vjob_done(vjob_t * job);
-
-/** wait for job completion, get job return value */
-void *      vjob_wait(vjob_t * job);
-
-/** kill job and wait for completion */
-void *      vjob_kill(vjob_t * job);
-
-/** wait job completion, get return value and free job. */
-void *      vjob_waitandfree(vjob_t * job);
-
-/** kill job, wait completion, and free job */
-void *      vjob_killandfree(vjob_t * job);
-
-/** can be called inside the job function (vjob_fun_t) to add a
- * cancelation point for vjob_kill(). */
-void        vjob_testkill();
-
-/** turn on or off asynchronous job kill mode
- * if async mode is off, calls to vjob_testkill() in job function
- * (vjob_fun_t) are mandatory.
- * @return 0 on success */
-int         vjob_killasync(int async);
+#endif /* ! disabled features */
+/* ************************************************************************ */
 
 #ifdef __cplusplus
 }
