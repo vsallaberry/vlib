@@ -1175,7 +1175,8 @@ $(SRCINC_Z): $(SRCINC_CONTENT)
 	     $(PRINTF) "\n/* #@@# FILE #@@# $(NAME)/$${fname} */\n"; \
 	     cat "$${f}"; \
 	     done; echo; }; dumpsrc | $(GZIP) -c | $(OD) -An -tuC | $(SED) -e 's/[[:space:]][[:space:]]*0*\([0-9][0-9]*\)/\1,/g' >> '$@'; \
-	 sha=`$(WHICH) shasum sha256 sha256sum $(NO_STDERR) | $(HEADN1)`; case "$${sha}" in */shasum) sha="$${sha} -a256";; esac; \
+	 sha=`$(WHICH) shasum sha256 sha256sum cksum $(NO_STDERR) | $(HEADN1)`; \
+	 case "$${sha}" in */shasum) sha="$${sha} -a256";; */cksum) sha="$${sha} -a SHA256";; esac; \
 	 name_fixed=`$(cmd_NAME_FIXED)`; \
 	 { $(PRINTF) '%s\n' "};" "static const char * s_program_hash = \"`dumpsrc | $${sha} | $(AWK) '{ print $$1; }'`\";"; \
 	 $(cmd_HAVEVLIB) || $(PRINTF) '%s\n' $(VDECODEBUFFER_SOURCE); \
