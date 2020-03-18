@@ -271,7 +271,10 @@ int                 logpool_enable(
                         int                 enable) {
     (void) log;
 
-    if (pool != NULL) {
+    if (pool == NULL) {
+        logpool_enable_visit(NULL, (avltree_node_t *) g_vlib_log, NULL,
+                             (void*)((unsigned long)enable));
+    } else {
         pthread_rwlock_wrlock(&pool->rwlock);
 
         if (enable == 0) {
