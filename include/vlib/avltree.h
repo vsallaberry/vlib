@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Vincent Sallaberry
+ * Copyright (C) 2018-2020 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,6 +22,8 @@
  */
 #ifndef VLIB_AVLTREE_H
 #define VLIB_AVLTREE_H
+
+#include <stdio.h>
 
 #include "vlib/rbuf.h"
 
