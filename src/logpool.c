@@ -704,16 +704,7 @@ static avltree_visit_status_t   logpool_filesz_visit(
     (void) tree;
     (void) context;
 
-    if (psz == NULL) {
-        if (file != NULL) {
-            LOG_INFO(g_vlib_log, "LOGPOOL: FILE %16s out:%08lx fd:%02d used:%d FILE <%s>",
-                     "", (unsigned long) (file->file),
-                     file->file ? fileno(file->file) : -1, file->use_count,
-                     file->path ? file->path : "(null)");
-        } else {
-            LOG_INFO(g_vlib_log, "LOGPOOL: FILE (null)");
-        }
-    } else if (psz != NULL && file != NULL) {
+    if (psz != NULL && file != NULL) {
         *psz += (file->path != NULL ? strlen(file->path) : 0);// + sizeof(FILE);
     }
     return AVS_CONTINUE;
@@ -729,21 +720,7 @@ static avltree_visit_status_t   logpool_logsz_visit(
     (void) tree;
     (void) context;
 
-    if (psz == NULL) {
-        if (entry != NULL) {
-            LOG_INFO(g_vlib_log, "LOGPOOL: ENTRY %-15s out:%08lx,fd:%02d file:%08lx,"
-                                 "fd:%02d,used:%d,path:%s",
-                     entry->log.prefix ? entry->log.prefix : "(null)",
-                     (unsigned long) entry->log.out,
-                     entry->log.out ? fileno(entry->log.out) : -1,
-                     (unsigned long) (entry->file ? entry->file->file : NULL),
-                     entry->file && entry->file->file ? fileno(entry->file->file) : -1,
-                     entry->file ? entry->file->use_count : -1,
-                     entry->file && entry->file->path ? entry->file->path : "(null)");
-        } else {
-            LOG_INFO(g_vlib_log, "LOGPOOL: ENTRY (null)");
-        }
-    } else if (psz != NULL && entry != NULL && entry->log.prefix != NULL) {
+    if (psz != NULL && entry != NULL && entry->log.prefix != NULL) {
         *psz += strlen(entry->log.prefix);
     }
     return AVS_CONTINUE;
@@ -773,6 +750,73 @@ size_t              logpool_memorysize(
 }
 
 /* ************************************************************************ */
+static avltree_visit_status_t   logpool_logprint_visit(
+                                    avltree_t *                         tree,
+                                    avltree_node_t *                    node,
+                                    const avltree_visit_context_t *     context,
+                                    void *                              user_data) {
+    logpool_entry_t *   entry = (logpool_entry_t *) node->data;
+    log_t *             log = user_data != NULL ? (log_t *) user_data : g_vlib_log;
+    (void) tree;
+    (void) context;
+
+    if (entry != NULL) {
+        LOG_INFO(log, "LOGPOOL: ENTRY %-15s out:%08lx,fd:%02d file:%08lx,"
+                "fd:%02d,used:%d,path:%s",
+                entry->log.prefix ? entry->log.prefix : "(null)",
+                (unsigned long) entry->log.out,
+                entry->log.out ? fileno(entry->log.out) : -1,
+                (unsigned long) (entry->file ? entry->file->file : NULL),
+                entry->file && entry->file->file ? fileno(entry->file->file) : -1,
+                entry->file ? entry->file->use_count : -1,
+                entry->file && entry->file->path ? entry->file->path : "(null)");
+    } else {
+        LOG_INFO(log, "LOGPOOL: ENTRY (null)");
+    }
+    return AVS_CONTINUE;
+}
+/* ************************************************************************ */
+static avltree_visit_status_t   logpool_fileprint_visit(
+                                    avltree_t *                         tree,
+                                    avltree_node_t *                    node,
+                                    const avltree_visit_context_t *     context,
+                                    void *                              user_data) {
+    logpool_file_t *    file = (logpool_file_t *) node->data;
+    log_t *             log = user_data != NULL ? (log_t *) user_data : g_vlib_log;
+    (void) tree;
+    (void) context;
+
+    if (file != NULL) {
+        LOG_INFO(log, "LOGPOOL: FILE %16s out:%08lx fd:%02d used:%d FILE <%s>",
+                "", (unsigned long) (file->file),
+                file->file ? fileno(file->file) : -1, file->use_count,
+                file->path ? file->path : "(null)");
+    } else {
+        LOG_INFO(log, "LOGPOOL: FILE (null)");
+    }
+
+    return AVS_CONTINUE;
+}
+/* ************************************************************************ */
+#if defined(_DEBUG)
+static int avltree_print_logpool(FILE * out, const avltree_node_t * node) {
+    logpool_entry_t *   entry = (logpool_entry_t *) node->data;
+    char                name[13];
+    const ssize_t       name_sz = sizeof(name) / sizeof(*name);
+    ssize_t             len;
+
+    len = snprintf(name, name_sz, "%s", entry->log.prefix);
+    if (len < 0)  {
+        str0cpy(name, "error", name_sz);
+    }
+    if (len >= name_sz) {
+        strncpy(name + name_sz - 3, "..", 3);
+    }
+    fputs(name, out);
+    return len;
+}
+#endif
+/* ************************************************************************ */
 int                 logpool_print(
                         logpool_t *         pool,
                         log_t *             log) {
@@ -780,16 +824,23 @@ int                 logpool_print(
         errno = EINVAL;
         return 0;
     }
-    log = g_vlib_log;
+    if (log == NULL) {
+        log = g_vlib_log;
+    }
 
     LOG_INFO(log, "LOGPOOL nbr of files : %zu", avltree_count(pool->files));
     LOG_INFO(log, "LOGPOOL nbr of logs  : %zu", avltree_count(pool->logs));
 
-    avltree_visit(pool->files, logpool_filesz_visit, NULL, AVH_PREFIX);
-    avltree_visit(pool->logs,  logpool_logsz_visit,  NULL, AVH_PREFIX);
+    avltree_visit(pool->files, logpool_fileprint_visit, log, AVH_PREFIX);
+    avltree_visit(pool->logs,  logpool_logprint_visit,  log, AVH_PREFIX);
+
+#if defined(_DEBUG)
+    if (log && LOG_CAN_LOG(log, LOG_LVL_SCREAM) && avltree_count(pool->logs) < 50) {
+        avltree_print(pool->logs, avltree_print_logpool, log->out);
+    }
+#endif
 
     return 0;
 }
-
 
 /* ************************************************************************ */
