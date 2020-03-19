@@ -216,7 +216,8 @@ void * vjob_wait(vjob_t * job) {
 /* ************************************************************************ */
 void * vjob_kill(vjob_t * job) {
     void *          retval  = VJOB_ERR_RESULT;
-    unsigned int    state   = 1;
+    unsigned int    state;
+    int             prev_enable;
 
     if (job == NULL)
         return retval;
@@ -234,18 +235,15 @@ void * vjob_kill(vjob_t * job) {
 
     LOG_DEBUG(g_vlib_log, "%s(): state %x", __func__, state);
 
+    logpool_enable(g_vlib_logpool, NULL, 0, &prev_enable);
     fflush(NULL);
-    if (g_vlib_logpool != NULL) {
-        logpool_enable(g_vlib_logpool, NULL, 0);
-        fflush(NULL);
-    }
+
     pthread_cancel(job->tid);
 
     retval = vjob_wait(job);
 
-    if (g_vlib_logpool != NULL) {
-        logpool_enable(g_vlib_logpool, NULL, 1);
-    }
+    logpool_enable(g_vlib_logpool, NULL, prev_enable, NULL);
+
     return retval;
 }
 
