@@ -122,7 +122,7 @@ typedef struct {
 #  define   LOG_INFO(log,...)       LOG_CHECK_LOG(log, LOG_LVL_INFO,    __VA_ARGS__)
 #  define   LOG_VERBOSE(log,...)    LOG_CHECK_LOG(log, LOG_LVL_VERBOSE, __VA_ARGS__)
 #  define   LOG_BUFFER(lvl,log,buf,sz,...) \
-                                    LOG_CHECK_LOGBUF(log,lvl,buf,sz,__VA_ARGS__);
+                                    LOG_CHECK_LOGBUF(log,lvl,buf,sz,__VA_ARGS__)
 #  ifdef _DEBUG
 #   define  LOG_DEBUG(log,...)      LOG_CHECK_LOG(log, LOG_LVL_DEBUG,   __VA_ARGS__)
 #   define  LOG_SCREAM(log,...)     LOG_CHECK_LOG(log, LOG_LVL_SCREAM,  __VA_ARGS__)
