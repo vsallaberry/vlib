@@ -274,7 +274,7 @@ int                 logpool_enable(
 
     if (pool == NULL) {
         if (prev_enable != NULL) {
-            *prev_enable = g_vlib_log == NULL ? 1 : (g_vlib_log->flags & LOG_FLAG_SILENT) != 0;
+            *prev_enable = g_vlib_log == NULL ? 1 : (g_vlib_log->flags & LOG_FLAG_SILENT) == 0;
         }
         logpool_enable_visit(NULL, (avltree_node_t *) g_vlib_log, NULL,
                              (void*)((unsigned long)enable));
@@ -282,7 +282,7 @@ int                 logpool_enable(
         pthread_rwlock_wrlock(&pool->rwlock);
 
         if (prev_enable != NULL) {
-            *prev_enable = (pool->flags & LPP_SILENT) != 0;
+            *prev_enable = (pool->flags & LPP_SILENT) == 0;
         }
 
         if (enable == 0) {
