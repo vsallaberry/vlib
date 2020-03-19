@@ -116,7 +116,10 @@ typedef enum {
             /*(testgroup_t *)*/     _TESTGROUP,         \
             /*String constant*/     _msg,               \
             /*(Boolean Expr.)*/     _CHECKING)          \
-        TEST_CHECK2(_TESTGROUP, _CHECKING, _msg "%s", "")
+        TEST_CHECK0(_TESTGROUP, _msg "%s", _CHECKING, #_CHECKING, "")
+
+#define TEST_CHECK2(_TESTGROUP, _fmt, _CHECKING, ...)       \
+        TEST_CHECK0(_TESTGROUP, _fmt, _CHECKING, #_CHECKING, __VA_ARGS__)
 
 /* ************************************************************************ */
 #ifdef __cplusplus
@@ -200,14 +203,15 @@ int                     tests_check(
                 "<- %s tests: ending with %lu error%s" _fmt,                \
                 (_TESTGROUP)->name, (_TESTGROUP)->n_errors,                 \
                 (_TESTGROUP)->n_errors > 1 ? "s" : "", __VA_ARGS__) || 1)   \
+        && (LOG_INFO((_TESTGROUP)->log, NULL) || 1)                         \
            ? tests_end(_TESTGROUP) : 1)
 
-#define TEST_CHECK2(_TESTGROUP, _CHECKING, _fmt, ...)                       \
+#define TEST_CHECK0(_TESTGROUP, _fmt, _CHECKING, _CHECKING_NAME, ...)       \
         do {                                                                \
             testresult_t    result;                                         \
             if ((_TESTGROUP) == NULL) break ;                               \
             memset(&(result), 0, sizeof(result));                           \
-            result.testgroup = _TESTGROUP; result.msg = _fmt; result.checkname = #_CHECKING; \
+            result.testgroup = _TESTGROUP; result.msg = _fmt; result.checkname = _CHECKING_NAME; \
             if (((_TESTGROUP)->flags & TPF_BENCH_RESULTS) != 0) {           \
                 BENCH_TM_START(result.tm_bench);                            \
                 BENCH_START(result.cpu_bench);                              \
@@ -219,13 +223,13 @@ int                     tests_check(
             }                                                               \
             if (result.success) {                                           \
                 if (LOG_CAN_LOG((_TESTGROUP)->log, (_TESTGROUP)->ok_loglevel)) { \
-                    vlog((_TESTGROUP)->ok_loglevel, (_TESTGROUP)->log,     \
+                    vlog((_TESTGROUP)->ok_loglevel, (_TESTGROUP)->log,      \
                     __FILE__, __func__, __LINE__,                           \
-                    "%s: OK: " _fmt "(" #_CHECKING ")",                     \
+                    "%s: OK: " _fmt "(" _CHECKING_NAME ")",                 \
                     (_TESTGROUP)->name, __VA_ARGS__);                       \
                 }                                                           \
             } else {                                                        \
-                LOG_ERROR((_TESTGROUP)->log, "%s: ERROR " _fmt "(" #_CHECKING ")",\
+                LOG_ERROR((_TESTGROUP)->log, "%s: ERROR " _fmt "(" _CHECKING_NAME ")",\
                           (_TESTGROUP)->name, __VA_ARGS__);                 \
             }                                                               \
             tests_check(&result, __func__, __FILE__, __LINE__);             \

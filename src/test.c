@@ -150,7 +150,7 @@ static avltree_visit_status_t   tests_printgroup_visit(
 
     if (group != NULL) {
         if ((data->flags & TPR_PRINT_GROUPS) != 0) {
-            LOG_INFO(data->log, "%s - %lu/%lu OK, %lu error%s, duration: %lums (cpu:%lums)",
+            LOG_INFO(data->log, "%-16s: %lu/%lu, %lu error%s, duration: %lums (cpu:%lums)",
                 group->name, group->n_ok, group->n_tests, group->n_errors,
                 group->n_errors > 1 ? "s" : "",
                 BENCH_TM_GET(group->tm_bench), BENCH_GET(group->cpu_bench));
@@ -160,8 +160,8 @@ static avltree_visit_status_t   tests_printgroup_visit(
                 if (result != NULL
                     &&  (   ((data->flags & TPR_PRINT_ERRORS) != 0  && result->success == 0)
                          || ((data->flags & TPR_PRINT_OK) != 0      && result->success != 0))) {
-                        LOG_INFO(data->log, "  [%s] %s/%lu: %s(%s), duration: %lums (cpu:%lums), %s():%s:%u",
-                                result->success ? "OK    " : "FAILED",
+                        LOG_INFO(data->log, "  %s %s/%lu: %s(%s), duration: %lums (cpu:%lums), %s():%s:%u",
+                                result->success ? "[OK]    " : "[FAILED]",
                                 result->testgroup->name, result->id, result->msg, result->checkname,
                                 BENCH_TM_GET(result->tm_bench), BENCH_GET(result->cpu_bench),
                                 result->func, result->file, result->line);
