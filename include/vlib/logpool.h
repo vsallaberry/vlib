@@ -60,11 +60,13 @@ logpool_t *         logpool_create_from_cmdline(
  * Currently only NULL value for log parameter is supported.
  * @param pool the logpool
  * @param log a particular log to enable/disable or NULL for all
- * @param enable 0 to disable, others to enable */
+ * @param enable 0 to disable, others to enable
+ * @param prev_enable if not NULL, where to store previous enable state */
 int                 logpool_enable(
                         logpool_t *         pool,
                         log_t *             log,
-                        int                 enable);
+                        int                 enable,
+                        int *               prev_enable);
 
 /** logpool_add()
  * Add a copy of log to the pool.

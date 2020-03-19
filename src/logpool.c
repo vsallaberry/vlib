@@ -268,14 +268,22 @@ static avltree_visit_status_t   logpool_enable_visit(
 int                 logpool_enable(
                         logpool_t *         pool,
                         log_t *             log,
-                        int                 enable) {
+                        int                 enable,
+                        int *               prev_enable) {
     (void) log;
 
     if (pool == NULL) {
+        if (prev_enable != NULL) {
+            *prev_enable = g_vlib_log == NULL ? 1 : (g_vlib_log->flags & LOG_FLAG_SILENT) != 0;
+        }
         logpool_enable_visit(NULL, (avltree_node_t *) g_vlib_log, NULL,
                              (void*)((unsigned long)enable));
     } else {
         pthread_rwlock_wrlock(&pool->rwlock);
+
+        if (prev_enable != NULL) {
+            *prev_enable = (pool->flags & LPP_SILENT) != 0;
+        }
 
         if (enable == 0) {
             /* special case for vlib log to avoid avltree logging while disabling */
