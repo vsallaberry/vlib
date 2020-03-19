@@ -272,6 +272,10 @@ int                 logpool_enable(
                         int *               prev_enable) {
     (void) log;
 
+    if (pool == NULL && g_vlib_logpool != NULL) {
+        pool = g_vlib_logpool;
+    }
+
     if (pool == NULL) {
         if (prev_enable != NULL) {
             *prev_enable = g_vlib_log == NULL ? 1 : (g_vlib_log->flags & LOG_FLAG_SILENT) == 0;
