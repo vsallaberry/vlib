@@ -51,6 +51,7 @@ typedef struct {
     unsigned long   n_errors;
     BENCH_TM_DECL   (tm_bench);
     BENCH_DECL      (cpu_bench);
+    log_level_t     ok_loglevel;
 } testgroup_t;
 
 typedef struct {
@@ -115,7 +116,7 @@ typedef enum {
             /*(testgroup_t *)*/     _TESTGROUP,         \
             /*String constant*/     _msg,               \
             /*(Boolean Expr.)*/     _CHECKING)          \
-        TEST_CHECK2(_TESTGROUP, LOG_LVL_VERBOSE, _CHECKING, _msg "%s", "")
+        TEST_CHECK2(_TESTGROUP, _CHECKING, _msg "%s", "")
 
 /* ************************************************************************ */
 #ifdef __cplusplus
@@ -201,11 +202,12 @@ int                     tests_check(
                 (_TESTGROUP)->n_errors > 1 ? "s" : "", __VA_ARGS__) || 1)   \
            ? tests_end(_TESTGROUP) : 1)
 
-#define TEST_CHECK2(_TESTGROUP, _loglevel, _CHECKING, _fmt, ...)            \
+#define TEST_CHECK2(_TESTGROUP, _CHECKING, _fmt, ...)                       \
         do {                                                                \
-            testresult_t    result = { .testgroup = _TESTGROUP, .msg = _fmt,\
-                                       .checkname = #_CHECKING };           \
+            testresult_t    result;                                         \
             if ((_TESTGROUP) == NULL) break ;                               \
+            memset(&(result), 0, sizeof(result));                           \
+            result.testgroup = _TESTGROUP; result.msg = _fmt; result.checkname = #_CHECKING; \
             if (((_TESTGROUP)->flags & TPF_BENCH_RESULTS) != 0) {           \
                 BENCH_TM_START(result.tm_bench);                            \
                 BENCH_START(result.cpu_bench);                              \
@@ -216,10 +218,11 @@ int                     tests_check(
                 BENCH_TM_STOP(result.tm_bench);                             \
             }                                                               \
             if (result.success) {                                           \
-                if (LOG_CAN_LOG((_TESTGROUP)->log, _loglevel)) {            \
-                    vlog(_loglevel, (_TESTGROUP)->log, __FILE__, __func__, __LINE__, \
-                         "%s: OK: " _fmt "(" #_CHECKING ")",   \
-                         (_TESTGROUP)->name, __VA_ARGS__);                  \
+                if (LOG_CAN_LOG((_TESTGROUP)->log, (_TESTGROUP)->ok_loglevel)) { \
+                    vlog((_TESTGROUP)->ok_loglevel, (_TESTGROUP)->log,     \
+                    __FILE__, __func__, __LINE__,                           \
+                    "%s: OK: " _fmt "(" #_CHECKING ")",                     \
+                    (_TESTGROUP)->name, __VA_ARGS__);                       \
                 }                                                           \
             } else {                                                        \
                 LOG_ERROR((_TESTGROUP)->log, "%s: ERROR " _fmt "(" #_CHECKING ")",\

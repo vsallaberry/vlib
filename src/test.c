@@ -237,6 +237,7 @@ testgroup_t *           tests_start(
     group->n_tests = group->n_ok = group->n_errors = 0;
     group->log = tests_getlog(tests, testname);
     group->name = strdup(testname);
+    group->ok_loglevel = LOG_LVL_VERBOSE;
 
     pthread_rwlock_wrlock(&(tests->rwlock));
 
