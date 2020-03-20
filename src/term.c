@@ -618,10 +618,9 @@ int vterm_prompt(
             char *          buf,
             unsigned int    maxsize,
             int             flags) {
-    ssize_t     prompt_len;
-    ssize_t     res, len;
-    int         fd;
-    (void)      flags;
+    int             res;
+    unsigned int    len, prompt_len;
+    int             fd;
 
     if (out == NULL || buf == NULL || in == NULL || maxsize == 0)
         return VTERM_ERROR;
@@ -635,9 +634,9 @@ int vterm_prompt(
         fputs(prompt, out);
     }
     if ((flags & VTERM_PROMPT_ERASE) != 0) {
-        for (res = 0; res < maxsize - 1; ++res)
+        for (len = 0; len < maxsize - 1; ++len)
             fputc(' ', out);
-        for (res = 0; res < maxsize - 1; ++res)
+        for (len = 0; len < maxsize - 1; ++len)
             fputc('\b', out);
     }
     fflush(out);

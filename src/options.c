@@ -1128,7 +1128,8 @@ int opt_filter_source(FILE * out, const char * filter, ...) {
         while ((n = vdecode_getline_fun(&line, &line_capacity,
                         s_opt_filter_bufsz, &ctx, getsource)) > 0) {
             if ((strncmp(line, search, searchsz)) == 0) {
-                if (*filter == ':') strcpy(pattern + patlen -1, line[n-1] == '\n' ? "\n" : "");
+                if (*filter == ':')
+                    str0cpy(pattern + patlen -1, line[n-1] == '\n' ? "\n" : "", 2);
                 if ((size_t) n > searchsz) {
                     found = (fnmatch(pattern, line + searchsz, fnm_flag) == 0);
                 } else {
