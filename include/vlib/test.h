@@ -202,7 +202,7 @@ int                     tests_check(
 #define TEST_END2(_TESTGROUP, _fmt, ...)                                    \
     ( (_TESTGROUP) != NULL                                                  \
        && (LOG_INFO((_TESTGROUP)->log,                                      \
-                "<- %s / %s(): ending with %lu error%s" _fmt,               \
+                "<- %s (%s()): ending with %lu error%s" _fmt,               \
                 (_TESTGROUP)->name, __func__, (_TESTGROUP)->n_errors,       \
                 (_TESTGROUP)->n_errors > 1 ? "s" : "", __VA_ARGS__) || 1)   \
         && (LOG_INFO((_TESTGROUP)->log, NULL) || 1)                         \

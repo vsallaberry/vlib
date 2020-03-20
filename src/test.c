@@ -29,6 +29,7 @@
 #include "vlib/job.h"
 #include "vlib/time.h"
 #include "vlib/slist.h"
+#include "vlib/term.h"
 
 #include "vlib/test.h"
 
@@ -138,6 +139,7 @@ int                     tests_free(
 typedef struct {
     log_t *         log;
     unsigned int    flags;
+    int             do_eol;
 } tests_print_visit_t;
 static avltree_visit_status_t   tests_printgroup_visit(
                                     avltree_t *                         tree,
@@ -146,26 +148,41 @@ static avltree_visit_status_t   tests_printgroup_visit(
                                     void *                              user_data) {
     tests_print_visit_t *   data    = (tests_print_visit_t *) user_data;
     testgroup_t *           group   = (testgroup_t *) node->data;
+    int                     fd      = data != NULL && data->log != NULL
+                                      && data->log->out != NULL
+                                      && (data->log->flags & LOG_FLAG_COLOR) != 0
+                                      ? fileno(data->log->out) : -1;
     (void) context;
     (void) tree;
 
     if (group != NULL) {
         if ((data->flags & TPR_PRINT_GROUPS) != 0) {
-            LOG_INFO(data->log, "%-16s: %lu/%lu, %lu error%s, duration: %lums (cpu:%lums)",
-                group->name, group->n_ok, group->n_tests, group->n_errors,
-                group->n_errors > 1 ? "s" : "",
+            const char * color, * color_reset;
+
+            color_reset = vterm_color(fd, VCOLOR_RESET);
+            color = vterm_color(fd, group->n_errors > 0 ? VCOLOR_RED : VCOLOR_GREEN);
+            LOG_INFO(data->log, "%-16s: %lu/%lu, %s%lu error%s%s, duration: %lums (cpu:%lums)",
+                group->name, group->n_ok, group->n_tests, color, group->n_errors,
+                group->n_errors > 1 ? "s" : "", color_reset,
                 BENCH_TM_GET(group->tm_bench), BENCH_GET(group->cpu_bench));
+            if (data->do_eol == 0) data->do_eol = 1;
         }
         if ((data->flags & (TPR_PRINT_ERRORS | TPR_PRINT_OK)) != 0) {
             SLIST_FOREACH_DATA(group->results, result, testresult_t *) {
                 if (result != NULL
                     &&  (   ((data->flags & TPR_PRINT_ERRORS) != 0  && result->success == 0)
                          || ((data->flags & TPR_PRINT_OK) != 0      && result->success != 0))) {
-                        LOG_INFO(data->log, "  %s %s/%lu: %s(%s), duration: %lums (cpu:%lums), %s():%s:%u",
-                                result->success ? "[OK]    " : "[FAILED]",
+                        const char * color, * color_reset;
+
+                        color_reset = vterm_color(fd, VCOLOR_RESET);
+                        color = vterm_color(fd, result->success == 0 ? VCOLOR_RED : VCOLOR_GREEN);
+
+                        LOG_INFO(data->log, "  %s" "%s" "%s %s/%lu: %s(%s), duration: %lums (cpu:%lums), %s():%s:%u",
+                                color, result->success ? "[OK]    " : "[FAILED]", color_reset,
                                 result->testgroup->name, result->id, result->msg, result->checkname,
                                 BENCH_TM_GET(result->tm_bench), BENCH_GET(result->cpu_bench),
                                 result->func, result->file, result->line);
+                        if (data->do_eol == 0) data->do_eol = 1;
                 }
             }
         }
@@ -177,7 +194,7 @@ static avltree_visit_status_t   tests_printgroup_visit(
 int                     tests_print(
                             testpool_t *        tests,
                             unsigned int        flags) {
-    tests_print_visit_t data = { .flags = flags };
+    tests_print_visit_t data = { .flags = flags, .do_eol = 0 };
     int ret;
 
     if (tests == NULL) {
@@ -192,6 +209,9 @@ int                     tests_print(
     pthread_rwlock_rdlock(&(tests->rwlock));
     data.log = logpool_getlog(tests->logs, TESTPOOL_LOG_PREFIX, LPG_DEFAULT);
     ret = avltree_visit(tests->tests, tests_printgroup_visit, &data, AVH_INFIX);
+    if (data.do_eol != 0) {
+        LOG_INFO(data.log, NULL);
+    }
     pthread_rwlock_unlock(&(tests->rwlock));
     /* ---------------------------------------------------------------------*/
 
