@@ -20,6 +20,7 @@
  * Simple unit tests utilities.
  */
 #include <stdlib.h>
+#include <stdarg.h>
 #include <pthread.h>
 
 #include "vlib/avltree.h"
@@ -272,11 +273,14 @@ int                     tests_check(
                             testresult_t *      result,
                             const char *        func,
                             const char *        file,
-                            int                 line) {
-    int store_result;
+                            int                 line,
+                            const char *        fmt,
+                            ...) {
+    int         store_result;
+    va_list     valist;
 
     if (result == NULL || result->testgroup == NULL) {
-        return -1;
+        return 0;
     }
     result->id = (result->testgroup->n_tests)++;
     if (result->success) {
@@ -293,7 +297,12 @@ int                     tests_check(
             newresult->func = strdup(func);
             newresult->file = strdup(file);
             newresult->line = line;
-            newresult->msg  = strdup(result->msg);
+            newresult->msg = NULL;
+            va_start(valist, fmt);
+            if (vasprintf(&(newresult->msg), fmt, valist) < 0 || newresult->msg == NULL) {
+                newresult->msg = strdup("<VASPRINTF_ERROR> ");
+            }
+            va_end(valist);
             newresult->checkname = strdup(result->checkname);
             result->testgroup->results = slist_prepend(result->testgroup->results, newresult);
         }

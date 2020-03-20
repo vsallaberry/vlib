@@ -183,7 +183,9 @@ int                     tests_check(
                             testresult_t *      result,
                             const char *        func,
                             const char *        file,
-                            int                 line);
+                            int                 line,
+                            const char *        fmt,
+                            ...) __attribute__((format(printf,5,6)));
 
 /* ************************************************************************ */
 #ifdef __cplusplus
@@ -200,8 +202,8 @@ int                     tests_check(
 #define TEST_END2(_TESTGROUP, _fmt, ...)                                    \
     ( (_TESTGROUP) != NULL                                                  \
        && (LOG_INFO((_TESTGROUP)->log,                                      \
-                "<- %s tests: ending with %lu error%s" _fmt,                \
-                (_TESTGROUP)->name, (_TESTGROUP)->n_errors,                 \
+                "<- %s / %s(): ending with %lu error%s" _fmt,               \
+                (_TESTGROUP)->name, __func__, (_TESTGROUP)->n_errors,       \
                 (_TESTGROUP)->n_errors > 1 ? "s" : "", __VA_ARGS__) || 1)   \
         && (LOG_INFO((_TESTGROUP)->log, NULL) || 1)                         \
            ? tests_end(_TESTGROUP) : 1)
@@ -211,7 +213,7 @@ int                     tests_check(
             testresult_t    result;                                         \
             if ((_TESTGROUP) == NULL) break ;                               \
             memset(&(result), 0, sizeof(result));                           \
-            result.testgroup = _TESTGROUP; result.msg = _fmt; result.checkname = _CHECKING_NAME; \
+            result.testgroup = _TESTGROUP; result.checkname = _CHECKING_NAME; \
             if (((_TESTGROUP)->flags & TPF_BENCH_RESULTS) != 0) {           \
                 BENCH_TM_START(result.tm_bench);                            \
                 BENCH_START(result.cpu_bench);                              \
@@ -232,7 +234,7 @@ int                     tests_check(
                 LOG_ERROR((_TESTGROUP)->log, "%s: ERROR " _fmt "(" _CHECKING_NAME ")",\
                           (_TESTGROUP)->name, __VA_ARGS__);                 \
             }                                                               \
-            tests_check(&result, __func__, __FILE__, __LINE__);             \
+            tests_check(&result, __func__, __FILE__, __LINE__, _fmt, __VA_ARGS__); \
         } while(0)
 
 /* ************************************************************************ */
