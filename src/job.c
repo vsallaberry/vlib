@@ -111,15 +111,17 @@ static void * job_runner(void * vdata) {
 }
 
 /* ************************************************************************ */
-int vjob_free(vjob_t * job) {
+void * vjob_free(vjob_t * job) {
+    void * ret = VJOB_ERR_RESULT;
+
     if (job == NULL)
-        return -1;
+        return ret;
     vjob_kill(job);
-    vjob_wait(job);
+    ret = vjob_wait(job);
     pthread_mutex_destroy(&job->mutex);
     pthread_cond_destroy(&job->cond);
     free(job);
-    return 0;
+    return ret;
 }
 
 /* ************************************************************************ */
@@ -204,7 +206,8 @@ void * vjob_wait(vjob_t * job) {
         }
         retval = job->retval;
     } else {
-        if (pthread_join(job->tid, &retval) == 0) {
+        if (pthread_join(job->tid, &retval) == 0
+        && retval != PTHREAD_CANCELED) {
             job->retval = retval;
         } else {
             retval = job->retval;

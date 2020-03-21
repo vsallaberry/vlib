@@ -54,8 +54,9 @@ extern "C" {
 #endif
 /* ************************************************************************ */
 
-/** free a job (kill and wait for termination if running) */
-int             vjob_free(vjob_t * job);
+/** free a job (kill and wait for termination if running)
+ * @return job result or VJOB_ERR_RESULT or VJOB_NO_RESULT */
+void *          vjob_free(vjob_t * job);
 
 /** run a job in a new thread
  * @param fun the function to execute
