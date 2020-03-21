@@ -34,11 +34,22 @@
 /* ************************************************************************ */
 logpool_t * g_vlib_logpool = NULL;
 
+/* format of file path when FILE* is given instead of a file path */
+#define LOGPOOL_FDPATH_FMT          ";%d;%08lx;"
+#define LOGPOOL_FDPATH_ARGS(file)   fileno((file)), (unsigned long)((file))
+
 /** internal logpool flags */
 typedef enum {
     LPP_NONE            = 0,
     LPP_SILENT          = 1 << 0
 } logpool_priv_flag_t;
+
+/** internal logpool_file_t flags */
+typedef enum {
+    LFF_NONE            = 0,
+    LFF_NOCLOSE         = 1 << 0,
+    LFF_OPENFAILED      = 1 << 1,
+} logpool_file_flags_t;
 
 /** internal log_pool structure */
 struct logpool_s {
@@ -50,9 +61,10 @@ struct logpool_s {
 
 /** internal file structure (data of logpool->files) */
 typedef struct {
-    char *      path;
-    FILE *      file;
-    int         use_count;
+    char *          path;
+    FILE *          file;
+    int             use_count;
+    unsigned int    flags;
 } logpool_file_t;
 
 /** internal logpool entry (data of logpool->logs) */
@@ -127,13 +139,20 @@ static logpool_file_t * logpool_file_create(const char * path, FILE * file) {
         return NULL;
     }
     pool_file->use_count = 0;
+    pool_file->flags = LFF_NONE;
 
     if (path != NULL && file == NULL) {
         pool_file->file = fopen(path, "a");
+        if (pool_file->file == NULL) {
+            LOG_WARN(g_vlib_log, "logpool: cannot open file '%s': %s", path, strerror(errno));
+            pool_file->flags |= LFF_OPENFAILED; /* rfu: could be used to retry open */
+        }
     } else {
         pool_file->file = file;
     }
-
+    if (pool_file->file == NULL) {
+        pool_file->file = stderr;
+    }
     if (path != NULL) {
         pool_file->path = strdup(path);
     } else {
@@ -149,7 +168,8 @@ static void logpool_file_free(void * vfile) {
 
     if (pool_file != NULL) {
         if (pool_file->file != NULL) {
-            if (pool_file->file != stderr && pool_file->file != stdout)
+            if (pool_file->file != stderr && pool_file->file != stdout
+            && (pool_file->flags & LFF_NOCLOSE) == 0)
                 fclose(pool_file->file);
             else
                 fflush(pool_file->file);
@@ -511,12 +531,13 @@ static log_t *      logpool_add_unlocked(
     if (path == NULL) {
         if (logentry->log.out == NULL)
             logentry->log.out = stderr;
-        snprintf(abspath, sizeof(abspath), ";%d;%08lx;",
-                 fileno(logentry->log.out), (unsigned long) logentry->log.out);
+        snprintf(abspath, sizeof(abspath), LOGPOOL_FDPATH_FMT,
+                LOGPOOL_FDPATH_ARGS(logentry->log.out));
     } else {
         logentry->log.out = NULL;
         if (*path == ';') {
             str0cpy(abspath, path, sizeof(abspath));
+            path = NULL;
         } else {
             vabspath(abspath, sizeof(abspath), path, NULL);
         }
@@ -532,19 +553,18 @@ static log_t *      logpool_add_unlocked(
     tmpfile.path = abspath;
     tmpfile.file = log->out;
     if ((pfile = avltree_find(pool->files, &tmpfile)) == NULL) {
+        /* a new file has to be created (not found in pool->files) */
         pfile = logpool_file_create(tmpfile.path, tmpfile.file);
-        if (pfile == NULL || avltree_insert(pool->files, pfile) == NULL) { //TODO FIXME IGNDOUBLE
-            LOG_WARN(g_vlib_log, "%s(): **** error case TODO FIXME ******", __func__);
-            if (preventry != logentry) {
-                if (--preventry->file->use_count == 0
-                && avltree_remove(pool->files, preventry->file) != NULL) {
-                    logpool_file_free(preventry->file);
-                }
-                logpool_entry_free(preventry);
-            }
+        if (path == NULL && pfile != NULL)
+            pfile->flags |= LFF_NOCLOSE;
+        if (pfile == NULL || avltree_insert(pool->files, pfile) == NULL) {
+            LOG_DEBUG(g_vlib_log, "%s(): new file for new logentry creation error", __func__);
+            if (preventry == logentry /* the new logentry must be deleted */
+            && avltree_remove(pool->logs, logentry) != NULL) {
+                logpool_entry_free(logentry);
+            } /* otherwise we let the preventry unchanged */
+            /* need to delete new created file, it is not used and not inserted in pool->files */
             logpool_file_free(pfile);
-            avltree_remove(pool->logs, log);
-            logpool_entry_free(logentry);
             return NULL;
         }
     }
