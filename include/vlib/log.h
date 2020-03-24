@@ -86,6 +86,9 @@ typedef struct {
     char *          prefix;
 } log_t;
 
+# define    LOG_VLIB_PREFIX_DEFAULT         "vlib"
+# define    LOG_OPTIONS_PREFIX_DEFAULT      "options"
+
 # define    LOG_USE_VA_ARGS
 # define    LOG_CHECK_LVL_BEFORE_CALL
 /**

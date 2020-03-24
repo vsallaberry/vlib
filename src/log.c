@@ -42,7 +42,7 @@ static log_t s_vlib_log_default = {
     .level      = LOG_LVL_INFO,
     .out        = NULL,
     .flags      = LOG_FLAG_DEFAULT,
-    .prefix     = "vlib"
+    .prefix     = LOG_VLIB_PREFIX_DEFAULT
 };
 
 /** global internal vlib log instance, shared between vlib components */
