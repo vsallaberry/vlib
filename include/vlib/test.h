@@ -34,6 +34,7 @@
 #include "vlib/logpool.h"
 #include "vlib/time.h"
 #include "vlib/slist.h"
+#include "vlib/term.h"
 
 /* ************************************************************************ */
 
@@ -208,12 +209,13 @@ int                     tests_check(
 #define TEST_END2(_TESTGROUP, _fmt, ...)                                    \
     ( (_TESTGROUP) != NULL                                                  \
        && (LOG_INFO((_TESTGROUP)->log,                                      \
-                "<- %s (%s()): ending with %s%lu error%s%s" _fmt,           \
-                (_TESTGROUP)->name, __func__,                               \
-                vterm_color(TEST_LOGFD(_TESTGROUP),                         \
-                    (_TESTGROUP)->n_errors > 0 ? VCOLOR_RED : VCOLOR_GREEN),\
-                (_TESTGROUP)->n_errors, (_TESTGROUP)->n_errors > 1 ? "s" : "", \
-                vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_RESET), __VA_ARGS__) || 1) \
+            "<- %s (%s()): ending with %s%s%lu error%s%s." _fmt,            \
+            (_TESTGROUP)->name, __func__,                                   \
+            vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_BOLD),               \
+            vterm_color(TEST_LOGFD(_TESTGROUP),                             \
+                (_TESTGROUP)->n_errors > 0 ? VCOLOR_RED : VCOLOR_GREEN),    \
+            (_TESTGROUP)->n_errors, (_TESTGROUP)->n_errors > 1 ? "s" : "",  \
+            vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_RESET), __VA_ARGS__) || 1) \
         && (LOG_INFO((_TESTGROUP)->log, NULL) || 1)                         \
            ? tests_end(_TESTGROUP) : 1)
 
@@ -236,12 +238,20 @@ int                     tests_check(
                 if (LOG_CAN_LOG((_TESTGROUP)->log, (_TESTGROUP)->ok_loglevel)) { \
                     vlog((_TESTGROUP)->ok_loglevel, (_TESTGROUP)->log,      \
                     __FILE__, __func__, __LINE__,                           \
-                    "%s: OK: " _fmt "(" _CHECKING_NAME ")",                 \
-                    (_TESTGROUP)->name, __VA_ARGS__);                       \
+                    "%s: %s%sOK%s: " _fmt "(" _CHECKING_NAME ")",           \
+                    (_TESTGROUP)->name,                                     \
+                    vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_GREEN),      \
+                    vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_BOLD),       \
+                    vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_RESET),      \
+                    __VA_ARGS__);                                           \
                 }                                                           \
             } else {                                                        \
-                LOG_ERROR((_TESTGROUP)->log, "%s: ERROR " _fmt "(" _CHECKING_NAME ")",\
-                          (_TESTGROUP)->name, __VA_ARGS__);                 \
+                LOG_ERROR((_TESTGROUP)->log, "%s: %s%sERROR%s " _fmt "(" _CHECKING_NAME ")",\
+                    (_TESTGROUP)->name,                                     \
+                    vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_RED),        \
+                    vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_BOLD),       \
+                    vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_RESET),      \
+                    __VA_ARGS__);                                           \
             }                                                               \
             tests_check(&__result, __func__, __FILE__, __LINE__, _fmt, __VA_ARGS__); \
         } while(0)

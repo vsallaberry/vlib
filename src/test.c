@@ -161,8 +161,9 @@ static avltree_visit_status_t   tests_printgroup_visit(
 
             color_reset = vterm_color(fd, VCOLOR_RESET);
             color = vterm_color(fd, group->n_errors > 0 ? VCOLOR_RED : VCOLOR_GREEN);
-            LOG_INFO(data->log, "%-16s: %s%lu error%s%s, %lu/%lu, %lu.%03lus (cpu:%lu.%03lus)",
-                group->name, color, group->n_errors, group->n_errors > 1 ? "s" : "", color_reset,
+            LOG_INFO(data->log, "%-16s: %s%s%lu error%s%s, %lu/%lu, %lu.%03lus (cpus:%lu.%03lus)",
+                group->name, color, vterm_color(fd, VCOLOR_BOLD),
+                group->n_errors, group->n_errors > 1 ? "s" : "", color_reset,
                 group->n_ok, group->n_tests,
                 BENCH_TM_GET(group->tm_bench) / 1000UL, BENCH_TM_GET(group->tm_bench) % 1000UL,
                 BENCH_GET(group->cpu_bench) / 1000UL, BENCH_GET(group->cpu_bench) % 1000UL);
@@ -178,9 +179,10 @@ static avltree_visit_status_t   tests_printgroup_visit(
                         color_reset = vterm_color(fd, VCOLOR_RESET);
                         color = vterm_color(fd, result->success == 0 ? VCOLOR_RED : VCOLOR_GREEN);
 
-                        LOG_INFO(data->log, "  %s" "%s" "%s %s/%lu: %s(%s), "
-                                            "%lu.%03lus (cpu:%lu/%03lus), %s():%s:%u",
-                            color, result->success ? "[OK]    " : "[FAILED]", color_reset,
+                        LOG_INFO(data->log, "  [" "%s%s" "%s" "%s" "] %s/%lu: %s(%s), "
+                                            "%lu.%03lus (cpus:%lu/%03lus), %s():%s:%u",
+                            color, vterm_color(fd, VCOLOR_BOLD),
+                            result->success ? "  OK  " : "FAILED", color_reset,
                             result->testgroup->name, result->id, result->msg, result->checkname,
                             BENCH_TM_GET(result->tm_bench) / 1000UL,
                             BENCH_TM_GET(result->tm_bench) % 1000UL,
