@@ -161,10 +161,11 @@ static avltree_visit_status_t   tests_printgroup_visit(
 
             color_reset = vterm_color(fd, VCOLOR_RESET);
             color = vterm_color(fd, group->n_errors > 0 ? VCOLOR_RED : VCOLOR_GREEN);
-            LOG_INFO(data->log, "%-16s: %lu/%lu, %s%lu error%s%s, duration: %lums (cpu:%lums)",
-                group->name, group->n_ok, group->n_tests, color, group->n_errors,
-                group->n_errors > 1 ? "s" : "", color_reset,
-                BENCH_TM_GET(group->tm_bench), BENCH_GET(group->cpu_bench));
+            LOG_INFO(data->log, "%-16s: %s%lu error%s%s, %lu/%lu, %lu.%03lus (cpu:%lu.%03lus)",
+                group->name, color, group->n_errors, group->n_errors > 1 ? "s" : "", color_reset,
+                group->n_ok, group->n_tests,
+                BENCH_TM_GET(group->tm_bench) / 1000UL, BENCH_TM_GET(group->tm_bench) % 1000UL,
+                BENCH_GET(group->cpu_bench) / 1000UL, BENCH_GET(group->cpu_bench) % 1000UL);
             if (data->do_eol == 0) data->do_eol = 1;
         }
         if ((data->flags & (TPR_PRINT_ERRORS | TPR_PRINT_OK)) != 0) {
@@ -177,11 +178,15 @@ static avltree_visit_status_t   tests_printgroup_visit(
                         color_reset = vterm_color(fd, VCOLOR_RESET);
                         color = vterm_color(fd, result->success == 0 ? VCOLOR_RED : VCOLOR_GREEN);
 
-                        LOG_INFO(data->log, "  %s" "%s" "%s %s/%lu: %s(%s), duration: %lums (cpu:%lums), %s():%s:%u",
-                                color, result->success ? "[OK]    " : "[FAILED]", color_reset,
-                                result->testgroup->name, result->id, result->msg, result->checkname,
-                                BENCH_TM_GET(result->tm_bench), BENCH_GET(result->cpu_bench),
-                                result->func, result->file, result->line);
+                        LOG_INFO(data->log, "  %s" "%s" "%s %s/%lu: %s(%s), "
+                                            "%lu.%03lus (cpu:%lu/%03lus), %s():%s:%u",
+                            color, result->success ? "[OK]    " : "[FAILED]", color_reset,
+                            result->testgroup->name, result->id, result->msg, result->checkname,
+                            BENCH_TM_GET(result->tm_bench) / 1000UL,
+                            BENCH_TM_GET(result->tm_bench) % 1000UL,
+                            BENCH_GET(result->cpu_bench) / 1000UL,
+                            BENCH_GET(result->cpu_bench) % 1000UL,
+                            result->func, result->file, result->line);
                         if (data->do_eol == 0) data->do_eol = 1;
                 }
             }
@@ -258,7 +263,8 @@ testgroup_t *           tests_start(
     group->n_tests = group->n_ok = group->n_errors = 0;
     group->log = tests_getlog(tests, testname);
     group->name = strdup(testname);
-    group->ok_loglevel = LOG_LVL_VERBOSE;
+    group->ok_loglevel = (tests->flags & TPF_TESTOK_SCREAM) != 0
+                         ? LOG_LVL_SCREAM : LOG_LVL_VERBOSE;
 
     pthread_rwlock_wrlock(&(tests->rwlock));
 

@@ -75,6 +75,7 @@ typedef enum {
     TPF_STORE_RESULTS   = 1 << 1,
     TPF_STORE_ERRORS    = 1 << 2,
     TPF_BENCH_RESULTS   = 1 << 3,
+    TPF_TESTOK_SCREAM   = 1 << 4,
     TPF_DEFAULT         = (TPF_STORE_ERRORS | TPF_NONE),
     TPF_INTERNAL        = 1 << 16
 } testpool_flags_t;
@@ -193,6 +194,11 @@ int                     tests_check(
 #endif
 
 /* ************************************************************************ */
+#define TEST_LOGFD(_TESTGROUP)                                              \
+    ((_TESTGROUP) != NULL && (_TESTGROUP)->log != NULL                      \
+     && (_TESTGROUP)->log->out != NULL                                      \
+     ? fileno((_TESTGROUP)->log->out) : STDERR_FILENO)
+
 #define TEST_START2(_TESTPOOL, _TESTNAME, _fmt, ...)                        \
     ( (_TESTPOOL) != NULL && (_TESTNAME) != NULL                            \
       && (LOG_INFO(tests_getlog(_TESTPOOL, _TESTNAME), ">>> %s tests" _fmt, \
@@ -202,28 +208,31 @@ int                     tests_check(
 #define TEST_END2(_TESTGROUP, _fmt, ...)                                    \
     ( (_TESTGROUP) != NULL                                                  \
        && (LOG_INFO((_TESTGROUP)->log,                                      \
-                "<- %s (%s()): ending with %lu error%s" _fmt,               \
-                (_TESTGROUP)->name, __func__, (_TESTGROUP)->n_errors,       \
-                (_TESTGROUP)->n_errors > 1 ? "s" : "", __VA_ARGS__) || 1)   \
+                "<- %s (%s()): ending with %s%lu error%s%s" _fmt,           \
+                (_TESTGROUP)->name, __func__,                               \
+                vterm_color(TEST_LOGFD(_TESTGROUP),                         \
+                    (_TESTGROUP)->n_errors > 0 ? VCOLOR_RED : VCOLOR_GREEN),\
+                (_TESTGROUP)->n_errors, (_TESTGROUP)->n_errors > 1 ? "s" : "", \
+                vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_RESET), __VA_ARGS__) || 1) \
         && (LOG_INFO((_TESTGROUP)->log, NULL) || 1)                         \
            ? tests_end(_TESTGROUP) : 1)
 
 #define TEST_CHECK0(_TESTGROUP, _fmt, _CHECKING, _CHECKING_NAME, ...)       \
         do {                                                                \
-            testresult_t    result;                                         \
+            testresult_t    __result;                                       \
             if ((_TESTGROUP) == NULL) break ;                               \
-            memset(&(result), 0, sizeof(result));                           \
-            result.testgroup = _TESTGROUP; result.checkname = _CHECKING_NAME; \
+            memset(&(__result), 0, sizeof(__result));                       \
+            __result.testgroup = _TESTGROUP; __result.checkname = _CHECKING_NAME; \
             if (((_TESTGROUP)->flags & TPF_BENCH_RESULTS) != 0) {           \
-                BENCH_TM_START(result.tm_bench);                            \
-                BENCH_START(result.cpu_bench);                              \
+                BENCH_TM_START(__result.tm_bench);                          \
+                BENCH_START(__result.cpu_bench);                            \
             }                                                               \
-            result.success = (_CHECKING);                                   \
+            __result.success = (_CHECKING);                                 \
             if (((_TESTGROUP)->flags & TPF_BENCH_RESULTS) != 0) {           \
-                BENCH_STOP(result.cpu_bench);                               \
-                BENCH_TM_STOP(result.tm_bench);                             \
+                BENCH_STOP(__result.cpu_bench);                             \
+                BENCH_TM_STOP(__result.tm_bench);                           \
             }                                                               \
-            if (result.success) {                                           \
+            if (__result.success) {                                         \
                 if (LOG_CAN_LOG((_TESTGROUP)->log, (_TESTGROUP)->ok_loglevel)) { \
                     vlog((_TESTGROUP)->ok_loglevel, (_TESTGROUP)->log,      \
                     __FILE__, __func__, __LINE__,                           \
@@ -234,7 +243,7 @@ int                     tests_check(
                 LOG_ERROR((_TESTGROUP)->log, "%s: ERROR " _fmt "(" _CHECKING_NAME ")",\
                           (_TESTGROUP)->name, __VA_ARGS__);                 \
             }                                                               \
-            tests_check(&result, __func__, __FILE__, __LINE__, _fmt, __VA_ARGS__); \
+            tests_check(&__result, __func__, __FILE__, __LINE__, _fmt, __VA_ARGS__); \
         } while(0)
 
 /* ************************************************************************ */
