@@ -20,6 +20,7 @@
  * Simple unit tests utilities.
  */
 #include <stdlib.h>
+#include <stdio.h>
 #include <stdarg.h>
 #include <pthread.h>
 
@@ -174,16 +175,28 @@ static avltree_visit_status_t   tests_printgroup_visit(
                 if (result != NULL
                     &&  (   ((data->flags & TPR_PRINT_ERRORS) != 0  && result->success == 0)
                          || ((data->flags & TPR_PRINT_OK) != 0      && result->success != 0))) {
-                        const char * color, * color_reset;
+                        const char *    color, * color_reset;
+                        char            errno_msg[64] = { 0, };
 
                         color_reset = vterm_color(fd, VCOLOR_RESET);
                         color = vterm_color(fd, result->success == 0 ? VCOLOR_RED : VCOLOR_GREEN);
 
-                        LOG_INFO(data->log, "  [" "%s%s" "%s" "%s" "] %s/%lu: %s(%s), "
+                        if (result->checkerrno != TEST_ERRNO_UNCHANGED
+                        &&  result->checkerrno != TEST_ERRNO_DISABLED) {
+                            int ret;
+                            if ((ret = strerror_r(result->checkerrno, errno_msg,
+                                                  sizeof(errno_msg) / sizeof(*errno_msg))) != 0
+                            && ret != EINVAL && ret != ERANGE)
+                                *errno_msg = 0;
+                        }
+
+                        LOG_INFO(data->log, "  [" "%s%s" "%s" "%s" "] %s/%lu: %s%s%s [%s], "
                                             "%lu.%03lus (cpus:%lu/%03lus), %s():%s:%u",
                             color, vterm_color(fd, VCOLOR_BOLD),
                             result->success ? "  OK  " : "FAILED", color_reset,
-                            result->testgroup->name, result->id, result->msg, result->checkname,
+                            result->testgroup->name, result->id, result->msg,
+                            *errno_msg != 0 ? ", errno: " : "",
+                            errno_msg, result->checkname,
                             BENCH_TM_GET(result->tm_bench) / 1000UL,
                             BENCH_TM_GET(result->tm_bench) % 1000UL,
                             BENCH_GET(result->cpu_bench) / 1000UL,
@@ -304,37 +317,83 @@ int                     tests_check(
                             int                 line,
                             const char *        fmt,
                             ...) {
-    int         store_result;
+    int         store_result, log_result;
     va_list     valist;
+    char *      msg = NULL;
 
     if (result == NULL || result->testgroup == NULL) {
         return 0;
     }
+
+    /* Update Test counters, check whether storing and/or logging result needed */
     result->id = (result->testgroup->n_tests)++;
     if (result->success) {
         ++(result->testgroup->n_ok);
         store_result = ((result->testgroup->flags & TPF_STORE_RESULTS) != 0);
+        log_result = LOG_CAN_LOG(result->testgroup->log, result->testgroup->ok_loglevel);
     } else {
         ++(result->testgroup->n_errors);
         store_result = ((result->testgroup->flags & (TPF_STORE_ERRORS | TPF_STORE_RESULTS)) != 0);
+        log_result = LOG_CAN_LOG(result->testgroup->log, LOG_LVL_ERROR);
     }
-    if (store_result) {
-        testresult_t * newresult = malloc(sizeof(*result));
-        if (newresult != NULL) {
-            memcpy(newresult, result, sizeof(*result));
-            newresult->func = strdup(func);
-            newresult->file = strdup(file);
-            newresult->line = line;
-            newresult->msg = NULL;
-            va_start(valist, fmt);
-            if (vasprintf(&(newresult->msg), fmt, valist) < 0 || newresult->msg == NULL) {
-                newresult->msg = strdup("<VASPRINTF_ERROR> ");
+
+    if (log_result || store_result) {
+        /* translate fmt and __VA_ARGS__ */
+        va_start(valist, fmt);
+        if (fmt == NULL || vasprintf(&msg, fmt, valist) < 0 || msg == NULL) {
+            msg = strdup("<VASPRINTF_ERROR> ");
+        }
+        va_end(valist);
+
+        /* LOG RESULT */
+        if (log_result) {
+            int             fd = TEST_LOGFD(result->testgroup);
+            char            errno_msg[64] = { 0, };
+
+            /* prepare errno message in case it has been updated by the test */
+            if (result->checkerrno != TEST_ERRNO_UNCHANGED
+            && result->checkerrno != TEST_ERRNO_DISABLED) {
+                int ret;
+                if ((ret = strerror_r(result->checkerrno, errno_msg,
+                                      sizeof(errno_msg) / sizeof(*errno_msg))) != 0
+                && ret != EINVAL && ret != ERANGE)
+                    *errno_msg = 0;
             }
-            va_end(valist);
-            newresult->checkname = strdup(result->checkname);
-            result->testgroup->results = slist_prepend(result->testgroup->results, newresult);
+
+            if (result->success) {
+                vlog(result->testgroup->ok_loglevel, result->testgroup->log,
+                     file, func, line, "%s: %s%sOK%s: %s%s%s [%s]",
+                     result->testgroup->name,
+                     vterm_color(fd, VCOLOR_GREEN), vterm_color(fd, VCOLOR_BOLD),
+                     vterm_color(fd, VCOLOR_RESET), msg,
+                     *errno_msg != 0 ? ", errno: " : "", errno_msg, result->checkname);
+            } else {
+                vlog(LOG_LVL_ERROR, result->testgroup->log,
+                     file, func, line, "%s: %s%sERROR%s %s%s%s [%s]",
+                     result->testgroup->name,
+                     vterm_color(fd, VCOLOR_RED), vterm_color(fd, VCOLOR_BOLD),
+                     vterm_color(fd, VCOLOR_RESET), msg,
+                     *errno_msg != 0 ? ", errno: " : "", errno_msg, result->checkname);
+            }
+        }
+
+        /* STORE RESULT */
+        if (store_result) {
+            testresult_t * newresult = malloc(sizeof(*result));
+            if (newresult != NULL) {
+                memcpy(newresult, result, sizeof(*result));
+                newresult->func = strdup(func);
+                newresult->file = strdup(file);
+                newresult->line = line;
+                newresult->msg = msg;
+                newresult->checkname = strdup(result->checkname);
+                result->testgroup->results = slist_prepend(result->testgroup->results, newresult);
+            }
+        } else if (msg != NULL) {
+            free(msg);
         }
     }
+
     return result->success;
 }
 

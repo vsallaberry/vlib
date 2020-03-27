@@ -24,11 +24,18 @@
 
 #ifdef __cplusplus
 # include <cstdlib>
+# include <cstring>
+# include <cstdio>
 # include <cstdarg>
+# include <cerrno>
 #else
 # include <stdlib.h>
+# include <string.h>
+# include <stdio.h>
 # include <stdarg.h>
+# include <errno.h>
 #endif
+#include <unistd.h>
 
 #include "vlib/log.h"
 #include "vlib/logpool.h"
@@ -55,6 +62,9 @@ typedef struct {
     log_level_t     ok_loglevel;
 } testgroup_t;
 
+#define TEST_ERRNO_UNCHANGED    INT_MAX /* testresult_t.checkerrno value if unchanged */
+#define TEST_ERRNO_DISABLED     INT_MIN /* testresult_t.checkerrno value if not set */
+
 typedef struct {
     testgroup_t *   testgroup;
     char *          checkname;
@@ -64,6 +74,7 @@ typedef struct {
     char *          func;
     unsigned int    line;
     int             success;
+    int             checkerrno;
     BENCH_TM_DECL   (tm_bench);
     BENCH_DECL      (cpu_bench);
 } testresult_t;
@@ -77,7 +88,8 @@ typedef enum {
     TPF_STORE_ERRORS    = 1 << 2,
     TPF_BENCH_RESULTS   = 1 << 3,
     TPF_TESTOK_SCREAM   = 1 << 4,
-    TPF_DEFAULT         = (TPF_STORE_ERRORS | TPF_NONE),
+    TPF_CHECK_ERRNO     = 1 << 5,
+    TPF_DEFAULT         = (TPF_STORE_ERRORS | TPF_NONE | TPF_CHECK_ERRNO),
     TPF_INTERNAL        = 1 << 16
 } testpool_flags_t;
 
@@ -221,39 +233,31 @@ int                     tests_check(
 
 #define TEST_CHECK0(_TESTGROUP, _fmt, _CHECKING, _CHECKING_NAME, ...)       \
         do {                                                                \
-            testresult_t    __result;                                       \
-            if ((_TESTGROUP) == NULL) break ;                               \
+            int __errno_bak; testresult_t __result;                         \
+            int __do_errno = (_TESTGROUP) == NULL                           \
+                             || ((_TESTGROUP)->flags & TPF_CHECK_ERRNO) != 0;\
+            int __do_bench = (_TESTGROUP) == NULL                           \
+                             || ((_TESTGROUP)->flags & TPF_BENCH_RESULTS) != 0;\
+            if (__do_errno) __errno_bak = errno;                            \
             memset(&(__result), 0, sizeof(__result));                       \
-            __result.testgroup = _TESTGROUP; __result.checkname = _CHECKING_NAME; \
-            if (((_TESTGROUP)->flags & TPF_BENCH_RESULTS) != 0) {           \
+            __result.testgroup = _TESTGROUP;                                \
+            __result.checkname = _CHECKING_NAME;                            \
+            if (__do_bench) {                                               \
                 BENCH_TM_START(__result.tm_bench);                          \
                 BENCH_START(__result.cpu_bench);                            \
             }                                                               \
+            if (__do_errno) errno = TEST_ERRNO_UNCHANGED; /* to see if test changed errno */\
+            else __result.checkerrno = TEST_ERRNO_DISABLED;                 \
             __result.success = (_CHECKING);                                 \
-            if (((_TESTGROUP)->flags & TPF_BENCH_RESULTS) != 0) {           \
+            if (__do_errno) { if (errno != TEST_ERRNO_UNCHANGED) {          \
+                  __errno_bak = __result.checkerrno = errno;                \
+              } else __result.checkerrno = TEST_ERRNO_UNCHANGED; }          \
+            if (__do_bench) {                                               \
                 BENCH_STOP(__result.cpu_bench);                             \
                 BENCH_TM_STOP(__result.tm_bench);                           \
             }                                                               \
-            if (__result.success) {                                         \
-                if (LOG_CAN_LOG((_TESTGROUP)->log, (_TESTGROUP)->ok_loglevel)) { \
-                    vlog((_TESTGROUP)->ok_loglevel, (_TESTGROUP)->log,      \
-                    __FILE__, __func__, __LINE__,                           \
-                    "%s: %s%sOK%s: " _fmt "(" _CHECKING_NAME ")",           \
-                    (_TESTGROUP)->name,                                     \
-                    vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_GREEN),      \
-                    vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_BOLD),       \
-                    vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_RESET),      \
-                    __VA_ARGS__);                                           \
-                }                                                           \
-            } else {                                                        \
-                LOG_ERROR((_TESTGROUP)->log, "%s: %s%sERROR%s " _fmt "(" _CHECKING_NAME ")",\
-                    (_TESTGROUP)->name,                                     \
-                    vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_RED),        \
-                    vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_BOLD),       \
-                    vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_RESET),      \
-                    __VA_ARGS__);                                           \
-            }                                                               \
             tests_check(&__result, __func__, __FILE__, __LINE__, _fmt, __VA_ARGS__); \
+            if (__do_errno) errno = __errno_bak;                            \
         } while(0)
 
 /* ************************************************************************ */
