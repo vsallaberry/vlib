@@ -151,59 +151,68 @@ static avltree_visit_status_t   tests_printgroup_visit(
     testgroup_t *           group   = (testgroup_t *) node->data;
     int                     fd      = data != NULL && data->log != NULL
                                       && data->log->out != NULL
-                                      && (data->log->flags & LOG_FLAG_COLOR) != 0
-                                      ? fileno(data->log->out) : -1;
+                                      ? ((data->log->flags & LOG_FLAG_COLOR) != 0
+                                         ? fileno(data->log->out) : -1)
+                                      : STDERR_FILENO;
     (void) context;
     (void) tree;
 
-    if (group != NULL) {
-        if ((data->flags & TPR_PRINT_GROUPS) != 0) {
-            const char * color, * color_reset;
+    if (group == NULL) {
+        return AVS_CONTINUE;
+    }
 
-            color_reset = vterm_color(fd, VCOLOR_RESET);
-            color = vterm_color(fd, group->n_errors > 0 ? VCOLOR_RED : VCOLOR_GREEN);
-            LOG_INFO(data->log, "%-16s: %s%s%lu error%s%s, %lu/%lu, %lu.%03lus (cpus:%lu.%03lus)",
+    if ((data->flags & TPR_PRINT_GROUPS) != 0) {
+        const char * color, * color_reset;
+        int success = group->n_ok == group->n_tests && group->n_errors == 0
+            && (group->flags & TPF_FINISHED) != 0;
+
+        color_reset = vterm_color(fd, VCOLOR_RESET);
+        color = vterm_color(fd, success == 0 ? VCOLOR_RED : VCOLOR_GREEN);
+        LOG_INFO(data->log, "%-16s: %s%s" "%lu error%s%s%s, "
+                "%s" "%lu/%lu" "%s" ", %lu.%03lus (cpus:%lu.%03lus)",
                 group->name, color, vterm_color(fd, VCOLOR_BOLD),
                 group->n_errors, group->n_errors > 1 ? "s" : "", color_reset,
+                vterm_color(fd, success ? VCOLOR_EMPTY : VCOLOR_RED),
+                (group->flags & TPF_FINISHED) == 0 ? "not finished, " : "",
                 group->n_ok, group->n_tests,
+                vterm_color(fd, VCOLOR_RESET),
                 BENCH_TM_GET(group->tm_bench) / 1000UL, BENCH_TM_GET(group->tm_bench) % 1000UL,
                 BENCH_GET(group->cpu_bench) / 1000UL, BENCH_GET(group->cpu_bench) % 1000UL);
-            if (data->do_eol == 0) data->do_eol = 1;
-        }
-        if ((data->flags & (TPR_PRINT_ERRORS | TPR_PRINT_OK)) != 0) {
-            SLIST_FOREACH_DATA(group->results, result, testresult_t *) {
-                if (result != NULL
+        if (data->do_eol == 0) data->do_eol = 1;
+    }
+    if ((data->flags & (TPR_PRINT_ERRORS | TPR_PRINT_OK)) != 0) {
+        SLIST_FOREACH_DATA(group->results, result, testresult_t *) {
+            if (result != NULL
                     &&  (   ((data->flags & TPR_PRINT_ERRORS) != 0  && result->success == 0)
-                         || ((data->flags & TPR_PRINT_OK) != 0      && result->success != 0))) {
-                        const char *    color, * color_reset;
-                        char            errno_msg[64] = { 0, };
+                        || ((data->flags & TPR_PRINT_OK) != 0      && result->success != 0))) {
+                const char *    color, * color_reset;
+                char            errno_msg[64] = { 0, };
 
-                        color_reset = vterm_color(fd, VCOLOR_RESET);
-                        color = vterm_color(fd, result->success == 0 ? VCOLOR_RED : VCOLOR_GREEN);
+                color_reset = vterm_color(fd, VCOLOR_RESET);
+                color = vterm_color(fd, result->success == 0 ? VCOLOR_RED : VCOLOR_GREEN);
 
-                        if (result->checkerrno != TEST_ERRNO_UNCHANGED
+                if (result->checkerrno != TEST_ERRNO_UNCHANGED
                         &&  result->checkerrno != TEST_ERRNO_DISABLED) {
-                            int ret;
-                            if ((ret = strerror_r(result->checkerrno, errno_msg,
-                                                  sizeof(errno_msg) / sizeof(*errno_msg))) != 0
+                    int ret;
+                    if ((ret = strerror_r(result->checkerrno, errno_msg,
+                                    sizeof(errno_msg) / sizeof(*errno_msg))) != 0
                             && ret != EINVAL && ret != ERANGE)
-                                *errno_msg = 0;
-                        }
-
-                        LOG_INFO(data->log, "  [" "%s%s" "%s" "%s" "] %s/%lu: %s%s%s [%s], "
-                                            "%lu.%03lus (cpus:%lu/%03lus), %s():%s:%u",
-                            color, vterm_color(fd, VCOLOR_BOLD),
-                            result->success ? "  OK  " : "FAILED", color_reset,
-                            result->testgroup->name, result->id, result->msg,
-                            *errno_msg != 0 ? ", errno: " : "",
-                            errno_msg, result->checkname,
-                            BENCH_TM_GET(result->tm_bench) / 1000UL,
-                            BENCH_TM_GET(result->tm_bench) % 1000UL,
-                            BENCH_GET(result->cpu_bench) / 1000UL,
-                            BENCH_GET(result->cpu_bench) % 1000UL,
-                            result->func, result->file, result->line);
-                        if (data->do_eol == 0) data->do_eol = 1;
+                        *errno_msg = 0;
                 }
+
+                LOG_INFO(data->log, "  [" "%s%s" "%s" "%s" "] %s/%lu: %s%s%s [%s], "
+                        "%lu.%03lus (cpus:%lu/%03lus), %s():%s:%u",
+                        color, vterm_color(fd, VCOLOR_BOLD),
+                        result->success ? "  OK  " : "FAILED", color_reset,
+                        result->testgroup->name, result->id, result->msg,
+                        *errno_msg != 0 ? ", errno: " : "",
+                        errno_msg, result->checkname,
+                        BENCH_TM_GET(result->tm_bench) / 1000UL,
+                        BENCH_TM_GET(result->tm_bench) % 1000UL,
+                        BENCH_GET(result->cpu_bench) / 1000UL,
+                        BENCH_GET(result->cpu_bench) % 1000UL,
+                        result->func, result->file, result->line);
+                if (data->do_eol == 0) data->do_eol = 1;
             }
         }
     }
@@ -274,8 +283,8 @@ testgroup_t *           tests_start(
     }
 
     group->testpool = tests;
-    group->flags = tests->flags;
-    group->n_tests = group->n_ok = group->n_errors = 0;
+    group->flags = (tests->flags & (~(TPF_FINISHED)));
+    group->n_ok = group->n_tests = group->n_errors = 0;
     group->log = tests_getlog(tests, testname);
     group->name = strdup(testname);
     group->ok_loglevel = (tests->flags & TPF_TESTOK_SCREAM) != 0
@@ -306,6 +315,8 @@ unsigned long           tests_end(
     BENCH_STOP(testgroup->cpu_bench);
     BENCH_TM_STOP(testgroup->tm_bench);
 
+    testgroup->flags |= TPF_FINISHED;
+
     return testgroup->n_errors;
 }
 
@@ -322,6 +333,16 @@ int                     tests_check(
     char *      msg = NULL;
 
     if (result == NULL || result->testgroup == NULL) {
+        int fd = g_vlib_log && g_vlib_log->out ? fileno(g_vlib_log->out) : STDERR_FILENO;
+        LOG_WARN(g_vlib_log, "%s() NULL GROUP/RESULT (%s) {%s():%s:%d}",
+                 __func__, fmt, func, file, line);
+        if (result != NULL) {
+            vlog(result->success ? LOG_LVL_INFO : LOG_LVL_ERROR,
+                g_vlib_log, func, file, line, "%s%s%s%s: %s",
+                vterm_color(fd, result->success ? VCOLOR_GREEN : VCOLOR_RED),
+                vterm_color(fd, VCOLOR_BOLD), result->success ? "OK" : "ERROR",
+                vterm_color(fd, VCOLOR_RESET), fmt);
+        }
         return 0;
     }
 

@@ -90,6 +90,7 @@ typedef enum {
     TPF_TESTOK_SCREAM   = 1 << 4,
     TPF_CHECK_ERRNO     = 1 << 5,
     TPF_DEFAULT         = (TPF_STORE_ERRORS | TPF_NONE | TPF_CHECK_ERRNO),
+    TPF_FINISHED        = 1 << 15,
     TPF_INTERNAL        = 1 << 16
 } testpool_flags_t;
 
@@ -220,25 +221,25 @@ int                     tests_check(
 
 #define TEST_END2(_TESTGROUP, _fmt, ...)                                    \
     ( (_TESTGROUP) != NULL                                                  \
-       && (LOG_INFO((_TESTGROUP)->log,                                      \
+        && (LOG_INFO((_TESTGROUP)->log,                                     \
             "<- %s (%s()): ending with %s%s%lu error%s%s." _fmt,            \
             (_TESTGROUP)->name, __func__,                                   \
             vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_BOLD),               \
             vterm_color(TEST_LOGFD(_TESTGROUP),                             \
                 (_TESTGROUP)->n_errors > 0 ? VCOLOR_RED : VCOLOR_GREEN),    \
             (_TESTGROUP)->n_errors, (_TESTGROUP)->n_errors > 1 ? "s" : "",  \
-            vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_RESET), __VA_ARGS__) || 1) \
+            vterm_color(TEST_LOGFD(_TESTGROUP),VCOLOR_RESET),__VA_ARGS__) || 1) \
         && (LOG_INFO((_TESTGROUP)->log, NULL) || 1)                         \
-           ? tests_end(_TESTGROUP) : 1)
+        ? tests_end(_TESTGROUP) : 1)
 
 #define TEST_CHECK0(_TESTGROUP, _fmt, _CHECKING, _CHECKING_NAME, ...)       \
         do {                                                                \
             int __errno_bak; testresult_t __result;                         \
             int __do_errno = (_TESTGROUP) == NULL                           \
-                             || ((_TESTGROUP)->flags & TPF_CHECK_ERRNO) != 0;\
+                        || ((_TESTGROUP)->flags & TPF_CHECK_ERRNO) != 0;    \
             int __do_bench = (_TESTGROUP) == NULL                           \
-                             || ((_TESTGROUP)->flags & TPF_BENCH_RESULTS) != 0;\
-            if (__do_errno) __errno_bak = errno;                            \
+                        || ((_TESTGROUP)->flags & TPF_BENCH_RESULTS) != 0;  \
+            if (__do_errno) __errno_bak = errno; else __errno_bak = EFAULT; \
             memset(&(__result), 0, sizeof(__result));                       \
             __result.testgroup = _TESTGROUP;                                \
             __result.checkname = _CHECKING_NAME;                            \
@@ -248,10 +249,11 @@ int                     tests_check(
             }                                                               \
             if (__do_errno) errno = TEST_ERRNO_UNCHANGED; /* to see if test changed errno */\
             else __result.checkerrno = TEST_ERRNO_DISABLED;                 \
-            __result.success = (_CHECKING);                                 \
-            if (__do_errno) { if (errno != TEST_ERRNO_UNCHANGED) {          \
-                  __errno_bak = __result.checkerrno = errno;                \
-              } else __result.checkerrno = TEST_ERRNO_UNCHANGED; }          \
+            __result.success = (_CHECKING); /* THE TEST IS DONE HERE */     \
+            if (__do_errno) { __result.checkerrno = errno;                  \
+                              if (__result.checkerrno != TEST_ERRNO_UNCHANGED) { \
+                                  __errno_bak = __result.checkerrno;        \
+                            } }                                             \
             if (__do_bench) {                                               \
                 BENCH_STOP(__result.cpu_bench);                             \
                 BENCH_TM_STOP(__result.tm_bench);                           \
