@@ -25,9 +25,11 @@
 #ifdef __cplusplus
 # include <cstring>
 # include <cstdio>
+# include <cinttypes>
 #else
 # include <string.h>
 # include <stdio.h>
+# include <inttypes.h>
 #endif
 
 #ifdef __cplusplus
@@ -88,6 +90,24 @@ size_t      strn0cpy(char *dst, const char *src, size_t len, size_t maxlen);
 size_t      strtok_ro_r(const char ** token, const char * seps,
                         const char ** next, size_t * maxlen,
                         int flags);
+
+/** same as strtol() but returns 0 on success, and strict conv. if endptr NULL */
+int         vstrtol(const char * str, char ** endptr, int base, long * l);
+
+/** same as strtoul() but returns 0 on success, force >=0, and strict conv. if endptr NULL */
+int         vstrtoul(const char * str, char ** endptr, int base, unsigned long * ul);
+
+/** same as strtoimax() but returns 0 on success, and strict conv. if endptr NULL */
+int         vstrtoimax(const char * str, char ** endptr, int base, intmax_t * imax);
+
+/** same as strtoumax() but returns 0 on success, force >= 0 and strict conv. if endptr NULL */
+int         vstrtoumax(const char * str, char ** endptr, int base, uintmax_t * umax);
+
+/** same as strtod() but returns 0 on success, and strict conv. if endptr NULL */
+int         vstrtod(const char * str, char ** endptr, double * d);
+
+/** same as strtold() but returns 0 on success, and strict conv. if endptr NULL */
+int         vstrtold(const char * str, char ** endptr, long double * ld);
 
 /** vabspath: get file absolute path
  * @param dst where to store absolute path
