@@ -20,11 +20,13 @@
  * log utilities: structure holding a pool of log_t, sharing their files.
  * To see the full git history, some of theses functions were before in log.c.
  */
+#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
 #include <errno.h>
 #include <limits.h>
+#include <fnmatch.h>
 
 #include "vlib/logpool.h"
 #include "vlib/avltree.h"
@@ -148,10 +150,11 @@ static logpool_file_t * logpool_file_create(const char * path, FILE * file) {
             pool_file->flags |= LFF_OPENFAILED; /* rfu: could be used to retry open */
         }
     } else {
+        pool_file->flags |= LFF_NOCLOSE;
         pool_file->file = file;
     }
     if (pool_file->file == NULL) {
-        pool_file->file = stderr;
+        pool_file->file = LOG_FILE_DEFAULT;
     }
     if (path != NULL) {
         pool_file->path = strdup(path);
@@ -168,7 +171,8 @@ static void logpool_file_free(void * vfile) {
 
     if (pool_file != NULL) {
         if (pool_file->file != NULL) {
-            if (pool_file->file != stderr && pool_file->file != stdout
+            int fd = fileno(pool_file->file);
+            if (fd != STDERR_FILENO && fd != STDOUT_FILENO
             && (pool_file->flags & LFF_NOCLOSE) == 0)
                 fclose(pool_file->file);
             else
@@ -197,7 +201,7 @@ static void logpool_entry_free(void * ventry) {
 /* ************************************************************************ */
 logpool_t *         logpool_create() {
     logpool_t * pool    = malloc(sizeof(logpool_t));
-    log_t       log     = { LOG_LVL_INFO, LOG_FLAG_DEFAULT, stderr, NULL };
+    log_t       log     = { LOG_LVL_INFO, LOG_FLAG_DEFAULT, LOG_FILE_DEFAULT, NULL };
 
     if (pool == NULL) {
         return NULL;
@@ -429,11 +433,11 @@ logpool_t *         logpool_create_from_cmdline(
                 log.out = NULL;
                 mod_file = token;
             } else {
-                log.out = stderr;
+                log.out = LOG_FILE_DEFAULT;
             }
         } else {
             LOG_DEBUG_BUF(g_vlib_log, token, 0, "mod_file ");
-            log.out = stderr;
+            log.out = LOG_FILE_DEFAULT;
         }
 
         /* Get the Log flags */
@@ -530,7 +534,7 @@ static log_t *      logpool_add_unlocked(
     /* if path not given, use ';fd;fileptr;' as path, else get absolute path from given path. */
     if (path == NULL) {
         if (logentry->log.out == NULL)
-            logentry->log.out = stderr;
+            logentry->log.out = LOG_FILE_DEFAULT;
         snprintf(abspath, sizeof(abspath), LOGPOOL_FDPATH_FMT,
                 LOGPOOL_FDPATH_ARGS(logentry->log.out));
     } else {
@@ -555,8 +559,6 @@ static log_t *      logpool_add_unlocked(
     if ((pfile = avltree_find(pool->files, &tmpfile)) == NULL) {
         /* a new file has to be created (not found in pool->files) */
         pfile = logpool_file_create(tmpfile.path, tmpfile.file);
-        if (path == NULL && pfile != NULL)
-            pfile->flags |= LFF_NOCLOSE;
         if (pfile == NULL || avltree_insert(pool->files, pfile) == NULL) {
             LOG_DEBUG(g_vlib_log, "%s(): new file for new logentry creation error", __func__);
             if (preventry == logentry /* the new logentry must be deleted */
@@ -586,10 +588,12 @@ static log_t *      logpool_add_unlocked(
 
         if (preventry->file != pfile) { /* pointer comparison OK as doubles are forbiden. */
             /* the new logentry has a different file */
-            LOG_DEBUG(g_vlib_log, "LOGENTRY REPLACED: FILE <%s> replaced by <%s>",
+            LOG_DEBUG(g_vlib_log, "LOGENTRY %s REPLACED: FILE <%s> replaced by <%s>",
+                      preventry->log.prefix != NULL ? preventry->log.prefix : "(null)",
                       preventry->file->path, pfile->path);
             if (--preventry->file->use_count == 0) {
-                LOG_DEBUG(g_vlib_log, "LOGENTRY REPLACED: previous file <%s> is NO LONGER USED",
+                LOG_DEBUG(g_vlib_log, "LOGENTRY %s REPLACED: previous file <%s> is NO LONGER USED",
+                          preventry->log.prefix != NULL ? preventry->log.prefix : "(null)",
                           preventry->file->path);
                 /* the file of previous logentry is no longer used -> remove it. */
                 if (avltree_remove(pool->files, preventry->file) == NULL) {
@@ -600,7 +604,9 @@ static log_t *      logpool_add_unlocked(
                 }
             }
         } else {
-            LOG_DEBUG(g_vlib_log, "LOGENTRY REPLACED: SAME FILE <%s>", pfile->path);
+            LOG_DEBUG(g_vlib_log, "LOGENTRY %s REPLACED: SAME FILE <%s>",
+                      preventry->log.prefix != NULL ? preventry->log.prefix : "(null)",
+                      pfile->path);
             /* new log has the same file as previous: decrement because ++use_count below. */
             --preventry->file->use_count;
         }
@@ -657,7 +663,7 @@ log_t *             logpool_find(
                         const char *        prefix) {
     log_t *             result = NULL;
     logpool_entry_t *   entry;
-    log_t               ref;
+    logpool_entry_t     ref;
 
     if (pool == NULL) {
         return NULL;
@@ -665,7 +671,7 @@ log_t *             logpool_find(
 
     pthread_rwlock_rdlock(&pool->rwlock);
 
-    ref.prefix = (char *) prefix;
+    ref.log.prefix = (char *) prefix;
     if ((entry = avltree_find(pool->logs, &ref)) != NULL) {
         result = &(entry->log);
     }
@@ -682,12 +688,12 @@ log_t *             logpool_getlog(
                         int                 flags) {
     log_t *             result = NULL;
     logpool_entry_t *   entry;
-    log_t               ref;
+    logpool_entry_t     ref;
 
     if (pool == NULL) {
         return NULL;
     }
-    ref.prefix = (char *) prefix;
+    ref.log.prefix = (char *) prefix;
 
     //TODO: think about optimization here to acquire only a read lock in some cases
     if ((flags & LPG_TRUEPREFIX) == 0) {
@@ -704,7 +710,7 @@ log_t *             logpool_getlog(
             return NULL;
         }
         /* look for a default log instance */
-        ref.prefix = NULL;
+        ref.log.prefix = NULL;
         entry = avltree_find(pool->logs, &ref);
     }
     if (entry != NULL) {
@@ -715,9 +721,10 @@ log_t *             logpool_getlog(
     &&  result->prefix != prefix
     &&  (result->prefix == NULL || prefix == NULL || strcmp(result->prefix, prefix))) {
         /* duplicate log and put requested prefix */
-        memcpy(&ref, result, sizeof(ref));
-        ref.prefix = (char *) prefix;
-        result = logpool_add_unlocked(pool, &ref, entry->file->path);
+        log_t new;
+        memcpy(&new, result, sizeof(new));
+        new.prefix = (char *) prefix;
+        result = logpool_add_unlocked(pool, &new, entry->file->path);
     }
 
     pthread_rwlock_unlock(&pool->rwlock);
@@ -876,3 +883,180 @@ int                 logpool_print(
 }
 
 /* ************************************************************************ */
+static void        logpool_logpath_freeone(void * vdata) {
+    logpool_logpath_t * logpath = (logpool_logpath_t *) vdata;
+
+    if (logpath->path != NULL) {
+        free(logpath->path);
+    }
+    if (logpath->log != NULL) {
+        log_destroy(logpath->log);
+        if ((logpath->log->flags & LOG_FLAG_FREELOG) == 0)
+            free(logpath->log);
+    }
+    free(logpath);
+}
+/* ************************************************************************ */
+int                 logpool_logpath_free(
+                        logpool_t *         pool,
+                        slist_t *           list) {
+    (void) pool;
+    slist_free(list, logpool_logpath_freeone);
+    return 0;
+}
+
+typedef struct {
+    slist_t *       list;
+    char            path[PATH_MAX*2];
+} logpool_findbypath_visit_t;
+static avltree_visit_status_t logpool_findbypath_visit(
+                                    avltree_t *                         tree,
+                                    avltree_node_t *                    node,
+                                    const avltree_visit_context_t *     context,
+                                    void *                              user_data) {
+    logpool_findbypath_visit_t *    data = (logpool_findbypath_visit_t *) user_data;
+    logpool_entry_t *               logentry = (logpool_entry_t *) node->data;
+    int found = 0;
+    (void) tree;
+    (void) context;
+
+    if (logentry == NULL) {
+        return AVS_ERROR;
+    }
+    if (*(data->path) == 0) {
+        int fd = fileno(logentry->file->file);
+        found = (fd == STDOUT_FILENO || fd == STDERR_FILENO);
+    } else {
+        found = (fnmatch(data->path, logentry->file->path, 0) == 0);
+    }
+    if (found) {
+        logpool_logpath_t * logpath = malloc(sizeof(logpool_logpath_t));
+        if (logpath != NULL) {
+            logpath->log = log_create(&(logentry->log));
+            if ((logentry->file->flags & LFF_NOCLOSE) != 0) {
+                logpath->path = NULL;
+            } else {
+                logpath->path = strdup(data->path);
+            }
+            data->list = slist_prepend(data->list, logpath);
+        }
+    }
+
+    return AVS_CONTINUE;
+}
+static slist_t *    logpool_findbypath_unlocked(
+                        logpool_t *         pool,
+                        const char *        path) {
+    logpool_findbypath_visit_t data;
+
+    if (vabspath(data.path, sizeof(data.path) / sizeof(*(data.path)), path, NULL) <= 0) {
+        *(data.path) = 0;
+    }
+    data.list = NULL;
+
+    if (avltree_visit(pool->logs, logpool_findbypath_visit, &data, AVH_PREFIX)
+            != AVS_FINISHED) {
+        logpool_logpath_free(pool, data.list);
+        return NULL;
+    }
+
+    return data.list;
+}
+/* ************************************************************************ */
+slist_t *           logpool_findbypath(
+                        logpool_t *         pool,
+                        const char *        path) {
+    slist_t * list;
+
+    if (pool == NULL) {
+        return NULL;
+    }
+
+    pthread_rwlock_rdlock(&pool->rwlock);
+    list = logpool_findbypath_unlocked(pool, path);
+    pthread_rwlock_unlock(&pool->rwlock);
+
+    return list;
+}
+/* ************************************************************************ */
+int logpool_replacefile(
+                        logpool_t *         pool,
+                        slist_t *           logs,
+                        const char *        newpath,
+                        slist_t **          pbackup) {
+    slist_t *   logs_tofree = NULL;
+    char        abspath[PATH_MAX*2];
+    int         nerrors = 0;
+
+    if (pool == NULL
+    || (newpath != NULL && vabspath(abspath, sizeof(abspath) / sizeof(*abspath),
+                                    newpath, NULL) <= 0)
+    || (pbackup != NULL && logs != NULL && *pbackup == logs)) {
+        return -1;
+    }
+    if (pbackup != NULL) {
+        *pbackup = NULL;
+    }
+
+    /* LOG_VERBOSE(g_vlib_log, "%s(): about to replace logs with '%s'",
+                __func__, newpath ? newpath : "(null)"); */
+
+    pthread_rwlock_wrlock(&pool->rwlock);
+
+    /* create internal list of logs using stdout/stderr, if logs not given (NULL) */
+    if (logs == NULL) {
+        logs = logs_tofree = logpool_findbypath_unlocked(pool, NULL);
+        if (logs == NULL)
+            ++nerrors;
+    }
+
+    /* for each log matching, backup it if needed, and assign the new path */
+    SLIST_FOREACH_DATA(logs, logpath, logpool_logpath_t *) {
+        log_t               newlog = *(logpath->log);
+        logpool_entry_t *   preventry;
+        char *              tmppath = newpath != NULL ? abspath : logpath->path;
+
+        if (tmppath != NULL) {
+            FILE * tmpfile = fopen(tmppath, "a");
+            if (tmpfile == NULL) {
+                ++nerrors;
+            } else {
+                fclose(tmpfile);
+            }
+        }
+        if (pbackup != NULL) {
+            logpool_entry_t entry;
+            memcpy(&(entry.log), logpath->log, sizeof(*(logpath->log)));
+            if ((preventry = avltree_find(pool->logs, &entry)) != NULL) {
+                logpool_logpath_t * logpath_bak = malloc(sizeof(logpool_logpath_t));
+
+                if (logpath_bak != NULL) {
+                    logpath_bak->log = log_create(&(preventry->log));
+                    if ((preventry->file->flags & LFF_NOCLOSE) != 0) {
+                        logpath_bak->path = NULL;
+                    } else {
+                        logpath_bak->path = strdup(preventry->file->path);
+                    }
+                    *pbackup = slist_prepend(*pbackup, logpath_bak);
+                } else ++nerrors;
+            } else ++nerrors;
+        }
+        if (tmppath != NULL) {
+            newlog.out = NULL;
+        }
+        if (logpool_add_unlocked(pool, &newlog, tmppath) == NULL) {
+            ++nerrors;
+        }
+    }
+
+    pthread_rwlock_unlock(&pool->rwlock);
+
+    if (logs_tofree != NULL) {
+        logpool_logpath_free(pool, logs_tofree);
+    }
+
+    return nerrors;
+}
+
+/* ************************************************************************ */
+

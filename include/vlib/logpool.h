@@ -24,6 +24,7 @@
 #define VLIB_LOGPOOL_H
 
 #include "vlib/log.h"
+#include "vlib/slist.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -126,6 +127,44 @@ size_t              logpool_memorysize(
  int                 logpool_print(
                         logpool_t *         pool,
                         log_t *             log);
+
+/** struct used by logpool_findbypath and logpool_replacefile */
+typedef struct {
+    log_t *         log;
+    char *          path;
+} logpool_logpath_t;
+
+/** free list of logpool_logpath_t
+ * to be called after usage of logpool_findbypath() or logpool_replacefile() */
+int                 logpool_logpath_free(
+                        logpool_t *         pool,
+                        slist_t *           list);
+
+/** return list of logs using the specified file
+ * complexity O(n) (<number_of_matchs*4> malloc/free needed after call)
+ * @param pool the logpool
+ * @param path the pattern to match path of log file, NULL to find stdout/stderr
+ * @return slist_t * list (of logpool_logpath_t *),
+ *         to be freed with logpool_logpath_free() */
+slist_t *           logpool_findbypath(
+                        logpool_t *         pool,
+                        const char *        path);
+
+/** replace files of log in logs list
+ * complexity: O(number of logs to be replaced)
+ * @param pool the logpool
+ * @param logs the list of logs (logpool_logpath_t *),
+ *        or NULL to replace logs using stdout/stderr
+ * @param newpath the path to use for logs, or NULL to use paths stored in list
+ * @param [OUT] the pointer to backup list of logpool_logpath_t *,
+ *         to be freed with logpool_logpath_free(), or NULL to disable backup.
+ * @return 0 on success, negative value on fatal error,
+ *         or number of non-fatal errors (positive). */
+int                 logpool_replacefile(
+                        logpool_t *         pool,
+                        slist_t *           logs,
+                        const char *        newpath,
+                        slist_t **          pbackup);
 
 /*****************************************************************************/
 

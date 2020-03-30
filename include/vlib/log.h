@@ -88,7 +88,7 @@ typedef struct {
 
 # define    LOG_VLIB_PREFIX_DEFAULT         "vlib"
 # define    LOG_OPTIONS_PREFIX_DEFAULT      "options"
-
+# define    LOG_FILE_DEFAULT                stderr
 # define    LOG_USE_VA_ARGS
 # define    LOG_CHECK_LVL_BEFORE_CALL
 /**
