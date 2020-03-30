@@ -49,6 +49,13 @@ enum {
     TPF_FREE_LOGPOOL    = TPF_INTERNAL,
 };
 
+#define TEST_LOGFD(_TESTGROUP)                                              \
+    ((_TESTGROUP) != NULL && (_TESTGROUP)->log != NULL                      \
+     && (_TESTGROUP)->log->out != NULL                                      \
+     ? fileno((_TESTGROUP)->log->out) : STDERR_FILENO)
+
+#define TEST_STARTSTOP_LOGLEVEL LOG_LVL_INFO
+
 /* ************************************************************************ */
 static void tests_result_free(void * vdata) {
     testresult_t * result = (testresult_t *) vdata;
@@ -271,10 +278,37 @@ log_t *                 tests_getlog(
 /* ************************************************************************ */
 testgroup_t *           tests_start(
                             testpool_t *        tests,
-                            const char *        testname) {
-
+                            const char *        testname,
+                            const char *        func,
+                            const char *        file,
+                            int                 line,
+                            const char *        fmt,
+                            ...
+) {
     testgroup_t *   group;
+    log_t *         log;
 
+    log = (tests != NULL
+           ? tests_getlog(tests, testname != NULL ? testname : "(null)")
+           : g_vlib_log);
+
+    if (LOG_CAN_LOG(log, TEST_STARTSTOP_LOGLEVEL)) {
+        FILE * out = log_getfile_locked(log);
+        va_list valist;
+        int fd = fileno(out);
+
+        log_header(TEST_STARTSTOP_LOGLEVEL, log, func, file, line);
+        fprintf(out, ">>> %s%s%s tests",
+                vterm_color(fd, VCOLOR_BOLD), testname, vterm_color(fd, VCOLOR_RESET));
+        if (fmt != NULL) {
+            va_start(valist, fmt);
+            vfprintf(out, fmt, valist);
+            va_end(valist);
+        }
+        log_footer(TEST_STARTSTOP_LOGLEVEL, log, func, file, line);
+
+        funlockfile(out);
+    }
     if (tests == NULL) {
         return NULL;
     }
@@ -294,7 +328,8 @@ testgroup_t *           tests_start(
 
     if (avltree_insert(tests->tests, group) == NULL) {
         tests_group_free(group);
-        group = NULL;
+        pthread_rwlock_unlock(&(tests->rwlock));
+        return NULL;
     }
 
     pthread_rwlock_unlock(&(tests->rwlock));
@@ -307,9 +342,44 @@ testgroup_t *           tests_start(
 
 /* ************************************************************************ */
 unsigned long           tests_end(
-                            testgroup_t *       testgroup) {
+                            testgroup_t *       testgroup,
+                            const char *        func,
+                            const char *        file,
+                            int                 line,
+                            const char *        fmt,
+                            ...
+) {
+    log_t * log = testgroup != NULL ? testgroup->log : g_vlib_log;
+    unsigned long n_errors = testgroup != NULL ? testgroup->n_errors : 1;
+
+    if (LOG_CAN_LOG(log, TEST_STARTSTOP_LOGLEVEL)) {
+        FILE *          out = log_getfile_locked(log);
+        int             fd = fileno(out);
+        va_list         valist;
+
+        log_header(TEST_STARTSTOP_LOGLEVEL, log, func, file, line);
+        fprintf(out,
+                "<- %s%s%s (%s()): ending with %s%s%lu error%s%s.",
+                vterm_color(fd, VCOLOR_BOLD),
+                testgroup != NULL ? testgroup->name : "(null)",
+                vterm_color(fd, VCOLOR_RESET), func,
+                vterm_color(fd, VCOLOR_BOLD),
+                vterm_color(fd, n_errors > 0 ? VCOLOR_RED : VCOLOR_GREEN),
+                n_errors, n_errors > 1 ? "s" : "",
+                vterm_color(fd,VCOLOR_RESET));
+        if (fmt != NULL) {
+            va_start(valist, fmt);
+            vfprintf(out, fmt, valist);
+            va_end(valist);
+        }
+        log_footer(TEST_STARTSTOP_LOGLEVEL, log, func, file, line);
+        fputc('\n', out);
+
+        funlockfile(out);
+    }
+
     if (testgroup == NULL) {
-        return 1;
+        return n_errors;
     }
 
     BENCH_STOP(testgroup->cpu_bench);
@@ -342,6 +412,7 @@ int                     tests_check(
                 vterm_color(fd, result->success ? VCOLOR_GREEN : VCOLOR_RED),
                 vterm_color(fd, VCOLOR_BOLD), result->success ? "OK" : "ERROR",
                 vterm_color(fd, VCOLOR_RESET), fmt);
+            return result->success;
         }
         return 0;
     }

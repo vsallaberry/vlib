@@ -41,13 +41,13 @@
 #include "vlib/logpool.h"
 #include "vlib/time.h"
 #include "vlib/slist.h"
-#include "vlib/term.h"
 
 /* ************************************************************************ */
 
 /** opaque testpool_t */
 typedef struct testpool_s       testpool_t;
 
+/** testgroup_t */
 typedef struct {
     testpool_t *    testpool;
     unsigned int    flags;
@@ -62,9 +62,9 @@ typedef struct {
     log_level_t     ok_loglevel;
 } testgroup_t;
 
+/** testresult_t */
 #define TEST_ERRNO_UNCHANGED    INT_MAX /* testresult_t.checkerrno value if unchanged */
 #define TEST_ERRNO_DISABLED     INT_MIN /* testresult_t.checkerrno value if not set */
-
 typedef struct {
     testgroup_t *   testgroup;
     char *          checkname;
@@ -181,17 +181,27 @@ int                     tests_print(
                             unsigned int        flags);
 
 /* ************************************************************************ */
-/* INTERNAL */
+/* INTERNAL : for MACROS TEST_{START*,CHECK*,END*} */
 /* ************************************************************************ */
 
 /** code for TEST_START macro: use TEST_START rather than this */
 testgroup_t *           tests_start(
                             testpool_t *        tests,
-                            const char *        testname);
+                            const char *        testname,
+                            const char *        func,
+                            const char *        file,
+                            int                 line,
+                            const char *        fmt,
+                            ...) __attribute__((format(printf,6,7)));
 
 /** code for TEST_END macro: use TEST_END rather than this */
 unsigned long           tests_end(
-                            testgroup_t *       testgroup);
+                            testgroup_t *       testgroup,
+                            const char *        func,
+                            const char *        file,
+                            int                 line,
+                            const char *        fmt,
+                            ...) __attribute__((format(printf,5,6)));
 
 /** code for TEST_CHECK macro: use TEST_CHECK rather than this */
 int                     tests_check(
@@ -208,29 +218,11 @@ int                     tests_check(
 #endif
 
 /* ************************************************************************ */
-#define TEST_LOGFD(_TESTGROUP)                                              \
-    ((_TESTGROUP) != NULL && (_TESTGROUP)->log != NULL                      \
-     && (_TESTGROUP)->log->out != NULL                                      \
-     ? fileno((_TESTGROUP)->log->out) : STDERR_FILENO)
-
 #define TEST_START2(_TESTPOOL, _TESTNAME, _fmt, ...)                        \
-    ( (_TESTPOOL) != NULL && (_TESTNAME) != NULL                            \
-      && (LOG_INFO(tests_getlog(_TESTPOOL, _TESTNAME), ">>> %s tests" _fmt, \
-                   _TESTNAME, __VA_ARGS__) || 1)                            \
-          ? tests_start(_TESTPOOL, _TESTNAME) : NULL)
+    tests_start((_TESTPOOL), (_TESTNAME), __func__, __FILE__, __LINE__, _fmt, __VA_ARGS__)
 
 #define TEST_END2(_TESTGROUP, _fmt, ...)                                    \
-    ( (_TESTGROUP) != NULL                                                  \
-        && (LOG_INFO((_TESTGROUP)->log,                                     \
-            "<- %s (%s()): ending with %s%s%lu error%s%s." _fmt,            \
-            (_TESTGROUP)->name, __func__,                                   \
-            vterm_color(TEST_LOGFD(_TESTGROUP), VCOLOR_BOLD),               \
-            vterm_color(TEST_LOGFD(_TESTGROUP),                             \
-                (_TESTGROUP)->n_errors > 0 ? VCOLOR_RED : VCOLOR_GREEN),    \
-            (_TESTGROUP)->n_errors, (_TESTGROUP)->n_errors > 1 ? "s" : "",  \
-            vterm_color(TEST_LOGFD(_TESTGROUP),VCOLOR_RESET),__VA_ARGS__) || 1) \
-        && (LOG_INFO((_TESTGROUP)->log, NULL) || 1)                         \
-        ? tests_end(_TESTGROUP) : 1)
+    tests_end((_TESTGROUP), __func__, __FILE__, __LINE__, _fmt, __VA_ARGS__)
 
 #define TEST_CHECK0(_TESTGROUP, _fmt, _CHECKING, _CHECKING_NAME, ...)       \
         do {                                                                \
