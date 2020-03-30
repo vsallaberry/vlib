@@ -221,6 +221,9 @@ log_t *     log_create(log_t * from);
 /** Warning the log level is not checked inside, use before LOG_CAN_LOG(log, lvl) */
 int         log_header(log_level_t level, log_t * log,
                        const char * file, const char * func, int line);
+int         log_footer(log_level_t level, log_t * log,
+                       const char * file, const char * func, int line);
+
 void        log_close(log_t * log);
 void        log_destroy(void * vlog);
 

@@ -36,6 +36,7 @@
 #include "vlib/hash.h"
 #include "vlib/options.h"
 #include "vlib/term.h"
+#include "vlib/time.h"
 
 /** internal vlib log instance */
 static log_t s_vlib_log_default = {
@@ -47,6 +48,14 @@ static log_t s_vlib_log_default = {
 
 /** global internal vlib log instance, shared between vlib components */
 log_t * g_vlib_log = &s_vlib_log_default;
+
+/** internal log used when given log is NULL */
+static log_t s_vlib_log_null = {
+    .level      = LOG_LVL_NB,
+    .out        = NULL,
+    .flags      = LOG_FLAG_DEFAULT,
+    .prefix     = "*"
+};
 
 /** global vlib log state structure */
 #define LOG_DATETIME_SZ 18
@@ -214,15 +223,15 @@ static int log_location(FILE * out, log_flag_t flags, log_level_t level,
 static int xvlog(log_level_t level, log_t * log,
                  const char *fmt, va_list arg) {
     int n = 0;
+    if (log == NULL)
+        log = &s_vlib_log_null;
     if (LOG_CAN_LOG(log, level))
     {
         FILE *          out;
-        unsigned int    flags;
         const char *    file = "?", * func = "?";
         int             line = 0;
 
         out = log_getfile_locked(log);
-        flags = log ? log->flags : LOG_FLAG_DEFAULT;
 
         if (fmt == NULL) {
             line = fputc('\n', out) != EOF ? 1 : 0;
@@ -232,13 +241,8 @@ static int xvlog(log_level_t level, log_t * log,
 
         n += log_header(level, log, file, func, line);
         n += vfprintf(out, fmt, arg);
-        if ((flags & LOG_FLAG_LOC_TAIL) == 0) {
-            if (fputc(' ', out) != EOF)
-                ++n;
-            n += log_location(out, flags, level, file, func, line);
-        }
-        if (fputc('\n', out) != EOF)
-            ++n;
+        n += log_footer(level, log, func, file, line);
+
         funlockfile(out);
     }
     return n;
@@ -283,20 +287,17 @@ int log_scream(log_t * log, const char * fmt, ...) {
 
 int log_header(log_level_t level, log_t * log,
                const char * file, const char * func, int line) {
-    FILE *          out = NULL;
-    const char *    prefix = NULL;
-    log_flag_t      flags = LOG_FLAG_DEFAULT;
+    FILE *          out;
+    const char *    prefix;
+    log_flag_t      flags;
     int             n = 0, ret, log_colors, fd;
 
-    if (log) {
-        out = log->out;
-        prefix = log->prefix;
-        flags = log->flags;
+    if (log == NULL) {
+        log = &s_vlib_log_null;
     }
-    if (out == NULL)
-        out = stderr;
-    if (prefix == NULL)
-        prefix = "*";
+    out     = log->out != NULL      ? log->out      : LOG_FILE_DEFAULT;
+    prefix  = log->prefix != NULL   ? log->prefix   : s_vlib_log_null.prefix;
+    flags = log->flags;
 
     fd = fileno(out);
     log_colors = (flags & LOG_FLAG_COLOR) != 0 && vterm_has_colors(fd);
@@ -349,6 +350,15 @@ int log_header(log_level_t level, log_t * log,
                                (unsigned int)(tv.tv_usec/1000))) > 0)
                 n += ret;
         }
+    } else if ((flags & LOG_FLAG_ABS_TIME) != 0) {
+        struct timespec ts;
+        if (vclock_gettime(CLOCK_MONOTONIC_RAW, &ts) != 0) {
+            ts.tv_sec = 0;
+            ts.tv_nsec = 0;
+        }
+        if ((ret = fprintf(out, "|%10u.%03u| ", (unsigned int) (ts.tv_sec),
+                                                (unsigned int) (ts.tv_nsec / 1000000U))) > 0)
+            n += ret;
     }
     if ((flags & LOG_FLAG_LEVEL) != 0) {
         if (log_colors) {
@@ -399,21 +409,41 @@ int log_header(log_level_t level, log_t * log,
     return n;
 }
 
+int log_footer(log_level_t level, log_t * log,
+               const char * file, const char * func, int line) {
+    int total = 0;
+    FILE * out;
+
+    if (log == NULL) {
+        log = &s_vlib_log_null;
+    }
+    out = log->out != NULL ? log->out : LOG_FILE_DEFAULT;
+
+    if ((log->flags & LOG_FLAG_LOC_TAIL) != 0) {
+        if (fputc(' ', out) != EOF)
+            ++total;
+        total += log_location(out, log->flags, level, file, func, line);
+    }
+    if (fputc('\n', out) != EOF)
+        ++total;
+
+    return total;
+}
+
 int vlog(log_level_t level, log_t * log,
          const char * file, const char * func, int line,
          const char * fmt, ...)
 {
     int total = 0;
-
+    if (log == NULL)
+        log = &s_vlib_log_null;
     if (LOG_CAN_LOG(log, level))
     {
         FILE *          out;
-        unsigned int    flags;
         va_list         arg;
         int             n;
 
         out = log_getfile_locked(log);
-        flags = log ? log->flags : LOG_FLAG_DEFAULT;
 
         if (fmt == NULL) {
             n = fputc('\n', out) != EOF ? 1 : 0;
@@ -428,13 +458,8 @@ int vlog(log_level_t level, log_t * log,
             total += n;
         va_end(arg);
 
-        if ((flags & LOG_FLAG_LOC_TAIL) != 0) {
-            if (fputc(' ', out) != EOF)
-                ++total;
-            total += log_location(out, flags, level, file, func, line);
-        }
-        if (fputc('\n', out) != EOF)
-            ++total;
+        total += log_footer(level, log, file, func, line);
+
         funlockfile(out);
     }
     return total;
@@ -449,17 +474,17 @@ int log_buffer(log_level_t level, log_t * log,
 {
     int total = 0;
 
+    if (log == NULL)
+        log = &s_vlib_log_null;
     if (LOG_CAN_LOG(log, level))
     {
         FILE *          out;
         va_list         arg;
         const size_t    chars_per_line = 16;
         const char *    buffer = (const char *) pbuffer;
-        unsigned int    flags;
         int             n;
 
         out = log_getfile_locked(log);
-        flags = log ? log->flags : LOG_FLAG_DEFAULT;
 
         if (buffer == NULL || len == 0) {
             INCR_GE0(log_header(level, log, file, func, line), n, total);
@@ -469,13 +494,7 @@ int log_buffer(log_level_t level, log_t * log,
                 INCR_GE0(fprintf(out, "<empty>"), n, total);
                 va_end(arg);
             }
-            if ((flags & LOG_FLAG_LOC_TAIL) != 0) {
-                if (fputc(' ', out) != EOF)
-                    ++total;
-                total += log_location(out, flags, level, file, func, line);
-            }
-            if (fputc('\n', out) != EOF)
-                ++total;
+            total += log_footer(level, log, file, func, line);
             funlockfile(out);
             return total;
         }
@@ -503,13 +522,7 @@ int log_buffer(log_level_t level, log_t * log,
                     ch = '?';
                 INCR_GE0(fprintf(out, "%c", ch), n, total);
             }
-            if ((flags & LOG_FLAG_LOC_TAIL) != 0) {
-                if (fputc(' ', out) != EOF)
-                    ++total;
-                total += log_location(out, flags, level, file, func, line);
-            }
-            if (fputc('\n', out) != EOF)
-                ++total;
+            total += log_footer(level, log, func, file, line);
         }
         funlockfile(out);
     }
@@ -526,9 +539,9 @@ log_t * log_create(log_t * from) {
             }
         } else {
             log->level = LOG_LVL_INFO;
-            log->out = stderr;
-            log->flags = LOG_FLAG_DEFAULT | LOG_FLAG_FREEPREFIX;
-            log->prefix = strdup("main");
+            log->out = LOG_FILE_DEFAULT;
+            log->flags = s_vlib_log_null.flags & (~LOG_FLAG_FREEPREFIX);
+            log->prefix = NULL;
         }
     }
     return log;
@@ -536,8 +549,9 @@ log_t * log_create(log_t * from) {
 
 void log_close(log_t * log) {
     if (log && log->out) {
+        int fd = fileno(log->out);
         fflush(log->out);
-        if (log->out != stderr && log->out != stdout
+        if (fd != STDERR_FILENO && fd != STDOUT_FILENO
         &&  (log->flags & LOG_FLAG_CLOSEFILE) != 0) {
             fclose(log->out);
         }
@@ -563,8 +577,10 @@ void log_destroy(void * vlog) {
 FILE * log_getfile_locked(log_t * log) {
     FILE * file;
 
-    if (log == NULL || log->out == NULL) {
-        file = stderr;
+    if (log == NULL)
+        log = &s_vlib_log_null;
+    if (log->out == NULL) {
+        file = LOG_FILE_DEFAULT;
         flockfile(file);
         return file;
     }
