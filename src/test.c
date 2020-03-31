@@ -175,9 +175,10 @@ static avltree_visit_status_t   tests_printgroup_visit(
 
         color_reset = vterm_color(fd, VCOLOR_RESET);
         color = vterm_color(fd, success == 0 ? VCOLOR_RED : VCOLOR_GREEN);
-        LOG_INFO(data->log, "%-16s: %s%s" "%lu error%s%s%s, "
-                "%s" "%lu/%lu" "%s" ", %lu.%03lus (cpus:%lu.%03lus)",
-                group->name, color, vterm_color(fd, VCOLOR_BOLD),
+        LOG_INFO(data->log, "%s%-12s%s: %s%s" "%lu error%s%s%s, "
+                "%s" "%lu/%lu" "%s" " %lu.%03lus (cpus:%lu.%03lus)",
+                vterm_color(fd, VCOLOR_BOLD), group->name,
+                vterm_color(fd, VCOLOR_RESET), color, vterm_color(fd, VCOLOR_BOLD),
                 group->n_errors, group->n_errors > 1 ? "s" : "", color_reset,
                 vterm_color(fd, success ? VCOLOR_EMPTY : VCOLOR_RED),
                 (group->flags & TPF_FINISHED) == 0 ? "not finished, " : "",
@@ -248,6 +249,7 @@ int                     tests_print(
     if (data.do_eol != 0) {
         LOG_INFO(data.log, NULL);
     }
+    logpool_release(tests->logs, data.log);
     pthread_rwlock_unlock(&(tests->rwlock));
     /* ---------------------------------------------------------------------*/
 
@@ -260,16 +262,23 @@ log_t *                 tests_getlog(
                             const char *        testname) {
     unsigned int    flags;
     log_t *         log;
+    char            prefix[30];
 
     if (tests == NULL) {
         return NULL;
     }
     if ((tests->flags & TPF_LOGTRUEPREFIX) != 0) {
         flags = LPG_TRUEPREFIX;
+        if ((tests->flags & TPF_LOG_TESTPREFIX) != 0) {
+            snprintf(prefix, sizeof(prefix)/sizeof(*prefix), "%s/%s",
+                     TESTPOOL_LOG_PREFIX, testname);
+            testname = prefix;
+        }
     } else {
         flags = LPG_DEFAULT;
         testname = TESTPOOL_LOG_PREFIX;
     }
+
     log = logpool_getlog(tests->logs, testname, flags);
 
     return log;
@@ -319,7 +328,7 @@ testgroup_t *           tests_start(
     group->testpool = tests;
     group->flags = (tests->flags & (~(TPF_FINISHED)));
     group->n_ok = group->n_tests = group->n_errors = 0;
-    group->log = tests_getlog(tests, testname);
+    group->log = log;
     group->name = strdup(testname);
     group->ok_loglevel = (tests->flags & TPF_TESTOK_SCREAM) != 0
                          ? LOG_LVL_SCREAM : LOG_LVL_VERBOSE;
@@ -349,9 +358,21 @@ unsigned long           tests_end(
                             const char *        fmt,
                             ...
 ) {
-    log_t * log = testgroup != NULL ? testgroup->log : g_vlib_log;
-    unsigned long n_errors = testgroup != NULL ? testgroup->n_errors : 1;
+    log_t *         log;
+    unsigned long   n_errors;
 
+    if (testgroup == NULL) {
+        log = g_vlib_log;
+        n_errors = 1;
+    } else {
+        if ((testgroup->flags & TPF_FINISHED) != 0) {
+            LOG_WARN(g_vlib_log, "%s() called but test '%s' already finished!",
+                     __func__, testgroup->name);
+            return testgroup->n_errors;
+        }
+        log = testgroup->log;
+        n_errors = testgroup->n_errors;
+    }
     if (LOG_CAN_LOG(log, TEST_STARTSTOP_LOGLEVEL)) {
         FILE *          out = log_getfile_locked(log);
         int             fd = fileno(out);
@@ -386,6 +407,10 @@ unsigned long           tests_end(
     BENCH_TM_STOP(testgroup->tm_bench);
 
     testgroup->flags |= TPF_FINISHED;
+
+    if (testgroup->testpool != NULL) {
+        logpool_release(testgroup->testpool->logs, log);
+    }
 
     return testgroup->n_errors;
 }

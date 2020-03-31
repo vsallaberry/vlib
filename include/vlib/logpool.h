@@ -80,7 +80,19 @@ log_t *             logpool_add(
                         log_t *             log,
                         const char *        path);
 
+/** logpool_release()
+ * - log entry removed only when its use counter is 0 (erno EBUSY).
+ *   each call to logpool_getlog() increments the use counter.
+ * - Log entry templates (created with logpool_create_from_cmdline)
+ *   are not removed (errno EACCES).
+ * @return 0 on success, -1 on error, positive value (use counter) if not removed. */
+int                 logpool_release(
+                        logpool_t *         pool,
+                        log_t *             log);
+
 /** logpool_remove()
+ * @notes: Warning: log use counter and template flag are not checked.
+ *         use logpool_release() for a safe removal.
  * @return 0 on success, -1 otherwise */
 int                 logpool_remove(
                         logpool_t *         pool,
@@ -108,7 +120,9 @@ typedef enum {
  *        + LPG_NO_DEFAULT: return NULL rather than default log if not found
  *        + LPG_TRUEPREFIX: if matching log has not the same prefix, return a
  *                          copy of it, with updated prefix.
- * @return log entry if found, NULL otherwise */
+ * @return log entry if found, NULL otherwise
+ * @notes: each call to logpool_getlog() increments an internal use counter
+ *         which is decremented by logpool_release(). */
 log_t *             logpool_getlog(
                         logpool_t *         pool,
                         const char *        prefix,

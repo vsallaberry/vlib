@@ -37,12 +37,13 @@
 #include "vlib/options.h"
 #include "vlib/term.h"
 #include "vlib/time.h"
+#include "vlib/logpool.h"
 
 /** internal vlib log instance */
 static log_t s_vlib_log_default = {
     .level      = LOG_LVL_INFO,
     .out        = NULL,
-    .flags      = LOG_FLAG_DEFAULT,
+    .flags      = LOG_FLAG_DEFAULT | LOGPOOL_FLAG_TEMPLATE,
     .prefix     = LOG_VLIB_PREFIX_DEFAULT
 };
 
@@ -53,7 +54,7 @@ log_t * g_vlib_log = &s_vlib_log_default;
 static log_t s_vlib_log_null = {
     .level      = LOG_LVL_NB,
     .out        = NULL,
-    .flags      = LOG_FLAG_DEFAULT,
+    .flags      = LOG_FLAG_DEFAULT | LOGPOOL_FLAG_TEMPLATE,
     .prefix     = "*"
 };
 
@@ -356,7 +357,7 @@ int log_header(log_level_t level, log_t * log,
             ts.tv_sec = 0;
             ts.tv_nsec = 0;
         }
-        if ((ret = fprintf(out, "|%10u.%03u| ", (unsigned int) (ts.tv_sec),
+        if ((ret = fprintf(out, "%010u.%03u ", (unsigned int) (ts.tv_sec),
                                                 (unsigned int) (ts.tv_nsec / 1000000U))) > 0)
             n += ret;
     }

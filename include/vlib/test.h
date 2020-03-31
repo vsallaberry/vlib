@@ -83,13 +83,15 @@ typedef struct {
  * then the group can update its own flags independently */
 typedef enum {
     TPF_NONE            = 0,
-    TPF_LOGTRUEPREFIX   = 1 << 0,
-    TPF_STORE_RESULTS   = 1 << 1,
-    TPF_STORE_ERRORS    = 1 << 2,
-    TPF_BENCH_RESULTS   = 1 << 3,
-    TPF_TESTOK_SCREAM   = 1 << 4,
-    TPF_CHECK_ERRNO     = 1 << 5,
-    TPF_DEFAULT         = (TPF_STORE_ERRORS | TPF_NONE | TPF_CHECK_ERRNO),
+    TPF_LOGTRUEPREFIX   = 1 << 0,   /* same behavior as LPG_TRUEPREFIX */
+    TPF_STORE_RESULTS   = 1 << 1,   /* store all TEST_CHECK results */
+    TPF_STORE_ERRORS    = 1 << 2,   /* sto TEST_CHECK results on error */
+    TPF_BENCH_RESULTS   = 1 << 3,   /* bench each TEST_CHECK: warning cpu cost */
+    TPF_TESTOK_SCREAM   = 1 << 4,   /* display TEST_CHECK OK only with level SCREAM */
+    TPF_CHECK_ERRNO     = 1 << 5,   /* TEST_CHECK: check and display errno update */
+    TPF_LOG_TESTPREFIX  = 1 << 6,   /* getlog prefix = tests/<TESTNAME> */
+    TPF_DEFAULT         = (TPF_STORE_ERRORS | TPF_NONE | TPF_CHECK_ERRNO
+                           | TPF_LOG_TESTPREFIX),
     TPF_FINISHED        = 1 << 15,
     TPF_INTERNAL        = 1 << 16
 } testpool_flags_t;

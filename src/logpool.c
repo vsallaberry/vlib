@@ -73,13 +73,14 @@ typedef struct {
 typedef struct {
     log_t               log;
     logpool_file_t *    file;
+    int                 use_count;
 } logpool_entry_t;
 
 /* ************************************************************************ */
-static log_t *      logpool_add_unlocked(
-                        logpool_t *         pool,
-                        log_t *             log,
-                        const char *        path);
+static logpool_entry_t *logpool_add_unlocked(
+                            logpool_t *         pool,
+                            log_t *             log,
+                            const char *        path);
 
 /* ************************************************************************ */
 int logpool_prefixcmp(const void * vpool1_data, const void * vpool2_data) {
@@ -173,8 +174,15 @@ static void logpool_file_free(void * vfile) {
         if (pool_file->file != NULL) {
             int fd = fileno(pool_file->file);
             if (fd != STDERR_FILENO && fd != STDOUT_FILENO
-            && (pool_file->flags & LFF_NOCLOSE) == 0)
+            && (pool_file->flags & LFF_NOCLOSE) == 0) {
+                int bunlink = 0;
+                if (pool_file->path != NULL && fseek(pool_file->file, 0, SEEK_END) == 0) {
+                    bunlink = (ftell(pool_file->file) == 0);
+                }
                 fclose(pool_file->file);
+                if (bunlink)
+                    unlink(pool_file->path);
+            }
             else
                 fflush(pool_file->file);
         }
@@ -201,7 +209,8 @@ static void logpool_entry_free(void * ventry) {
 /* ************************************************************************ */
 logpool_t *         logpool_create() {
     logpool_t * pool    = malloc(sizeof(logpool_t));
-    log_t       log     = { LOG_LVL_INFO, LOG_FLAG_DEFAULT, LOG_FILE_DEFAULT, NULL };
+    log_t       log     = { LOG_LVL_INFO, LOG_FLAG_DEFAULT | LOGPOOL_FLAG_TEMPLATE,
+                            LOG_FILE_DEFAULT, NULL };
 
     if (pool == NULL) {
         return NULL;
@@ -450,7 +459,7 @@ logpool_t *         logpool_create_from_cmdline(
             log_flag_t      flag;
 
             token[len] = 0;
-            log.flags = LOG_FLAG_NONE;
+            log.flags = LOG_FLAG_NONE | LOGPOOL_FLAG_TEMPLATE;
             while (maxflaglen > 0) {
                 len = strtok_ro_r((const char **) &token, "|+", &next_flag, &maxflaglen, 0);
                 LOG_DEBUG_BUF(g_vlib_log, token, 0, "mod_flag ");
@@ -492,7 +501,7 @@ log_t *             logpool_add(
                         logpool_t *         pool,
                         log_t *             log,
                         const char *        path) {
-    log_t *     result;
+    logpool_entry_t *   entry;
 
     if (pool == NULL || log == NULL) {
         return NULL;
@@ -500,18 +509,18 @@ log_t *             logpool_add(
 
     pthread_rwlock_wrlock(&(pool->rwlock));
 
-    result = logpool_add_unlocked(pool, log, path);
+    entry = logpool_add_unlocked(pool, log, path);
 
     pthread_rwlock_unlock(&(pool->rwlock));
 
-    return result;
+    return entry == NULL ? NULL : &(entry->log);
 }
 
 /* ************************************************************************ */
-static log_t *      logpool_add_unlocked(
-                        logpool_t *         pool,
-                        log_t *             log,
-                        const char *        path) {
+static logpool_entry_t *logpool_add_unlocked(
+                            logpool_t *         pool,
+                            log_t *             log,
+                            const char *        path) {
     char                abspath[PATH_MAX*2];
     logpool_file_t      tmpfile, * pfile;
     logpool_entry_t *   logentry, * preventry;
@@ -530,6 +539,7 @@ static log_t *      logpool_add_unlocked(
     if ((pool->flags & LPP_SILENT) != 0)
         logentry->log.flags |= LOG_FLAG_SILENT;
     logentry->file = NULL;
+    logentry->use_count = 0;
 
     /* if path not given, use ';fd;fileptr;' as path, else get absolute path from given path. */
     if (path == NULL) {
@@ -616,6 +626,7 @@ static log_t *      logpool_add_unlocked(
             logentry->log.prefix = preventry->log.prefix;
         }
         /* copy new log entry data into previous entry (data changes, log pointer does not */
+        logentry->use_count = preventry->use_count;
         memcpy(preventry, logentry, sizeof(*logentry));
 
         /* we can now unlock the old file, and free it as updated log entry is ready to be used */
@@ -628,23 +639,16 @@ static log_t *      logpool_add_unlocked(
 
     /* finish initialization and return log instance */
     ++pfile->use_count;
-    log = &(preventry->log);
 
-    return log;
+    return preventry;
 }
 
 /* ************************************************************************ */
-int                 logpool_remove(
+static inline int   logpool_remove_unlocked(
                         logpool_t *         pool,
                         log_t *             log) {
     logpool_entry_t *   logentry;
 
-    if (pool == NULL || log == NULL) {
-        return -1;
-    }
-
-    pthread_rwlock_wrlock(&pool->rwlock);
-    //TODO: don't remove templates
     if ((logentry = avltree_remove(pool->logs, log)) != NULL) {
         if (logentry->file != NULL && --logentry->file->use_count == 0
         && avltree_remove(pool->files, logentry->file) != NULL) {
@@ -652,9 +656,67 @@ int                 logpool_remove(
         }
         logpool_entry_free(logentry);
     }
-    pthread_rwlock_unlock(&pool->rwlock);
 
     return logentry == NULL ? -1 : 0;
+}
+
+/* ************************************************************************ */
+int                 logpool_remove(
+                        logpool_t *         pool,
+                        log_t *             log) {
+    int ret;
+
+    if (pool == NULL || log == NULL) {
+        return -1;
+    }
+
+    pthread_rwlock_wrlock(&pool->rwlock);
+    ret = logpool_remove_unlocked(pool, log);
+    pthread_rwlock_unlock(&pool->rwlock);
+
+    return ret;
+}
+
+/* ************************************************************************ */
+int                 logpool_release(
+                        logpool_t *         pool,
+                        log_t *             log) {
+    int                 ret = -1;
+    logpool_entry_t *   entry;
+    logpool_entry_t     search;
+
+    if (pool == NULL || log == NULL) {
+        errno = EFAULT;
+        return ret;
+    }
+
+    search.log.prefix = log->prefix;
+
+    pthread_rwlock_wrlock(&pool->rwlock);
+
+    if ((entry = avltree_find(pool->logs, &search)) != NULL) {
+        if (entry->use_count > 0 && --(entry->use_count) > 0) {
+            LOG_DEBUG(g_vlib_log, "LOGPOOL entry %s NOT released (use_count %d).",
+                      entry->log.prefix, entry->use_count);
+            errno = EBUSY;
+            ret = entry->use_count;
+        } else if ((entry->log.flags & LOGPOOL_FLAG_TEMPLATE) != 0) {
+            errno = EACCES;
+            LOG_DEBUG(g_vlib_log, "LOGPOOL entry '%s' NOT released (template).",
+                      entry->log.prefix == NULL ? "(null)" : entry->log.prefix);
+        } else {
+            LOG_DEBUG(g_vlib_log, "LOGPOOL entry '%s' will be released.",
+                      search.log.prefix == NULL ? "(null)" : search.log.prefix);
+            ret = logpool_remove_unlocked(pool, log);
+        }
+    } else {
+        LOG_DEBUG(g_vlib_log, "warning: LOGPOOL entry '%s' not found",
+                  search.log.prefix == NULL ? "(null)" : search.log.prefix);
+    }
+
+    pthread_rwlock_unlock(&pool->rwlock);
+
+    return ret;
 }
 
 /* ************************************************************************ */
@@ -686,7 +748,6 @@ log_t *             logpool_getlog(
                         logpool_t *         pool,
                         const char *        prefix,
                         int                 flags) {
-    log_t *             result = NULL;
     logpool_entry_t *   entry;
     logpool_entry_t     ref;
 
@@ -696,11 +757,13 @@ log_t *             logpool_getlog(
     ref.log.prefix = (char *) prefix;
 
     //TODO: think about optimization here to acquire only a read lock in some cases
+    /* must always acquire wrlock because of ++(entry->use_count below
     if ((flags & LPG_TRUEPREFIX) == 0) {
         pthread_rwlock_rdlock(&pool->rwlock);
     } else {
         pthread_rwlock_wrlock(&pool->rwlock);
-    }
+    } */
+    pthread_rwlock_wrlock(&pool->rwlock);
 
     /* look for the requested log instance */
     if ((entry = avltree_find(pool->logs, &ref)) == NULL) {
@@ -713,23 +776,22 @@ log_t *             logpool_getlog(
         ref.log.prefix = NULL;
         entry = avltree_find(pool->logs, &ref);
     }
-    if (entry != NULL) {
-        result = &(entry->log);
-    }
 
     if (entry != NULL && (flags & LPG_TRUEPREFIX) != 0
-    &&  result->prefix != prefix
-    &&  (result->prefix == NULL || prefix == NULL || strcmp(result->prefix, prefix))) {
+    &&  entry->log.prefix != prefix
+    &&  (entry->log.prefix == NULL || prefix == NULL || strcmp(entry->log.prefix, prefix))) {
         /* duplicate log and put requested prefix */
-        log_t new;
-        memcpy(&new, result, sizeof(new));
-        new.prefix = (char *) prefix;
-        result = logpool_add_unlocked(pool, &new, entry->file->path);
+        memcpy(&(ref.log), &(entry->log), sizeof(ref.log));
+        ref.log.prefix = (char *) prefix;
+        ref.log.flags &= ~(LOGPOOL_FLAG_TEMPLATE);
+        entry = logpool_add_unlocked(pool, &(ref.log), entry->file->path);
     }
-
+    if (entry != NULL) {
+        ++(entry->use_count);
+    }
     pthread_rwlock_unlock(&pool->rwlock);
 
-    return result;
+    return entry == NULL ? NULL : &(entry->log);
 }
 
 /* ************************************************************************ */
