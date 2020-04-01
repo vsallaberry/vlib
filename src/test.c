@@ -31,6 +31,7 @@
 #include "vlib/time.h"
 #include "vlib/slist.h"
 #include "vlib/term.h"
+#include "vlib/util.h"
 
 #include "vlib/test.h"
 
@@ -202,7 +203,7 @@ static avltree_visit_status_t   tests_printgroup_visit(
                 if (result->checkerrno != TEST_ERRNO_UNCHANGED
                         &&  result->checkerrno != TEST_ERRNO_DISABLED) {
                     int ret;
-                    if ((ret = strerror_r(result->checkerrno, errno_msg,
+                    if ((ret = vstrerror_r(result->checkerrno, errno_msg,
                                     sizeof(errno_msg) / sizeof(*errno_msg))) != 0
                             && ret != EINVAL && ret != ERANGE)
                         *errno_msg = 0;
@@ -471,7 +472,7 @@ int                     tests_check(
             if (result->checkerrno != TEST_ERRNO_UNCHANGED
             && result->checkerrno != TEST_ERRNO_DISABLED) {
                 int ret;
-                if ((ret = strerror_r(result->checkerrno, errno_msg,
+                if ((ret = vstrerror_r(result->checkerrno, errno_msg,
                                       sizeof(errno_msg) / sizeof(*errno_msg))) != 0
                 && ret != EINVAL && ret != ERANGE)
                     *errno_msg = 0;
