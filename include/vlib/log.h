@@ -106,11 +106,13 @@ typedef struct {
      * the cast ((void*)(log) avoids &log==NULL warning on gcc */
 #   define   LOG_CHECK_LOG(log, lvl, ...)                                           \
                 ( LOG_CAN_LOG(log, lvl)                                             \
-                  ? vlog((lvl), (log), __FILE__, __func__, __LINE__, __VA_ARGS__)   \
+                  ? vlog_nocheck((lvl), (log),                                      \
+                                 __FILE__, __func__, __LINE__, __VA_ARGS__)         \
                   : 0)
 #   define   LOG_CHECK_LOGBUF(log, lvl, buf, sz, ...)                               \
                 ( LOG_CAN_LOG(log, lvl)                                             \
-                  ? log_buffer((lvl),(log),(buf),(sz),__FILE__,__func__,__LINE__,__VA_ARGS__) \
+                  ? log_buffer_nocheck((lvl),(log),(buf),(sz),                      \
+                                       __FILE__,__func__,__LINE__,__VA_ARGS__)      \
                   : 0)
 #  else
     /* let the function check the level */
@@ -184,8 +186,28 @@ int         vlog(
                 int             line,
                 const char * fmt, ...) __attribute__((format(printf,6,7)));
 
+/** same as vlog but without checking log->level and log->flags*/
+int         vlog_nocheck(
+                log_level_t     level,
+                log_t *         log,
+                const char *    file,
+                const char *    func,
+                int             line,
+                const char * fmt, ...) __attribute__((format(printf,6,7)));
+
 /** Log a buffer with hex and ascii data. See vlog() */
 int	        log_buffer(
+                log_level_t     level,
+                log_t *         log,
+                const void *    pbuffer,
+                size_t          len,
+                const char *    file,
+                const char *    func,
+                int             line,
+                const char *    fmt_header, ...) __attribute__((format(printf,8,9)));
+
+/** same as log_buffer but without checking log->level and log->flags*/
+int	        log_buffer_nocheck(
                 log_level_t     level,
                 log_t *         log,
                 const void *    pbuffer,

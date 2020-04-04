@@ -27,6 +27,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <fnmatch.h>
+#include <sys/stat.h>
 
 #include "vlib/logpool.h"
 #include "vlib/avltree.h"
@@ -43,7 +44,8 @@ logpool_t * g_vlib_logpool = NULL;
 /** internal logpool flags */
 typedef enum {
     LPP_NONE            = 0,
-    LPP_SILENT          = 1 << 0
+    LPP_SILENT          = 1 << 0,
+    LPP_PREFIX_CASEFOLD = 1 << 1
 } logpool_priv_flag_t;
 
 /** internal logpool_file_t flags */
@@ -83,7 +85,9 @@ static logpool_entry_t *logpool_add_unlocked(
                             const char *        path);
 
 /* ************************************************************************ */
-int logpool_prefixcmp(const void * vpool1_data, const void * vpool2_data) {
+static inline int logpool_prefixcmp_internal(
+                        const void * vpool1_data, const void * vpool2_data,
+                        int (*cmpfun)(const char *, const char *)) {
     const logpool_entry_t * log1 = (const logpool_entry_t *) vpool1_data;
     const logpool_entry_t * log2 = (const logpool_entry_t *) vpool2_data;
 
@@ -105,11 +109,19 @@ int logpool_prefixcmp(const void * vpool1_data, const void * vpool2_data) {
         }
         return 1;
     }
-    return strcmp(log1->log.prefix, log2->log.prefix);
+    return cmpfun(log1->log.prefix, log2->log.prefix);
+}
+int logpool_prefixcmp(const void * vpool1_data, const void * vpool2_data) {
+    return logpool_prefixcmp_internal(vpool1_data, vpool2_data, strcmp);
+}
+int logpool_prefixcasecmp(const void * vpool1_data, const void * vpool2_data) {
+    return logpool_prefixcmp_internal(vpool1_data, vpool2_data, strcasecmp);
 }
 
 /* ************************************************************************ */
-int logpool_pathcmp(const void * vpool1_data, const void * vpool2_data) {
+static inline int logpool_pathcmp_internal(
+                        const void * vpool1_data, const void * vpool2_data,
+                        int (*cmpfun)(const char *, const char *)) {
     const logpool_file_t * file1 = (const logpool_file_t *) vpool1_data;
     const logpool_file_t * file2 = (const logpool_file_t *) vpool2_data;
 
@@ -131,7 +143,13 @@ int logpool_pathcmp(const void * vpool1_data, const void * vpool2_data) {
         }
         return 1;
     }
-    return strcmp(file1->path, file2->path);
+    return cmpfun(file1->path, file2->path);
+}
+int logpool_pathcmp(const void * vpool1_data, const void * vpool2_data) {
+    return logpool_pathcmp_internal(vpool1_data, vpool2_data, strcmp);
+}
+int logpool_pathcasecmp(const void * vpool1_data, const void * vpool2_data) {
+    return logpool_pathcmp_internal(vpool1_data, vpool2_data, strcasecmp);
 }
 
 /* ************************************************************************ */
@@ -175,13 +193,15 @@ static void logpool_file_free(void * vfile) {
             int fd = fileno(pool_file->file);
             if (fd != STDERR_FILENO && fd != STDOUT_FILENO
             && (pool_file->flags & LFF_NOCLOSE) == 0) {
-                int bunlink = 0;
-                if (pool_file->path != NULL && fseek(pool_file->file, 0, SEEK_END) == 0) {
-                    bunlink = (ftell(pool_file->file) == 0);
-                }
+                struct stat stats;
+                sched_yield();
+                flockfile(pool_file->file);
+                funlockfile(pool_file->file);
                 fclose(pool_file->file);
-                if (bunlink)
+                if (pool_file->path != NULL
+                && stat(pool_file->path, &stats) == 0 && stats.st_size == 0) {
                     unlink(pool_file->path);
+                }
             }
             else
                 fflush(pool_file->file);
@@ -211,6 +231,7 @@ logpool_t *         logpool_create() {
     logpool_t * pool    = malloc(sizeof(logpool_t));
     log_t       log     = { LOG_LVL_INFO, LOG_FLAG_DEFAULT | LOGPOOL_FLAG_TEMPLATE,
                             LOG_FILE_DEFAULT, NULL };
+    avltree_cmpfun_t prefcmpfun;
 
     if (pool == NULL) {
         return NULL;
@@ -220,9 +241,13 @@ logpool_t *         logpool_create() {
         free(pool);
         return NULL;
     }
+    pool->flags = LPP_NONE;
+    prefcmpfun = (pool->flags & LPP_PREFIX_CASEFOLD) != 0
+                 ? logpool_prefixcasecmp : logpool_prefixcmp;
+
     if (NULL == (pool->logs = avltree_create(AFL_DEFAULT | AFL_SHARED_STACK
                                              | AFL_INSERT_IGNDOUBLE | AFL_REMOVE_NOFREE,
-                                             logpool_prefixcmp, logpool_entry_free))
+                                             prefcmpfun, logpool_entry_free))
     ||  NULL == (pool->files = avltree_create((AFL_DEFAULT & ~AFL_SHARED_STACK)
                                               | AFL_INSERT_NODOUBLE | AFL_REMOVE_NOFREE,
                                               logpool_pathcmp, logpool_file_free))) {
@@ -234,12 +259,12 @@ logpool_t *         logpool_create() {
         free(pool);
         return NULL;
     }
-    pool->flags = LPP_NONE;
+
 
     /* use the same stack for logs and files */
     pool->files->stack = pool->logs->stack;
 
-    /* add a default log instance */ //TODO
+    /* add a default log instance */
     logpool_add_unlocked(pool, &log, NULL);
 
     if (g_vlib_logpool == NULL) {
@@ -530,7 +555,7 @@ static logpool_entry_t *logpool_add_unlocked(
     }
     /* copy the log data to the allocated logentry. prefix is duplicated,
      * and the log_destroy will not free the log or close the file */
-    memcpy(&logentry->log, log, sizeof(logentry->log));
+    logentry->log = *log;
     logentry->log.flags &= ~(LOG_FLAG_CLOSEFILE | LOG_FLAG_FREELOG);
     logentry->log.flags |= LOG_FLAG_FREEPREFIX;
     if (log->prefix != NULL) {
@@ -594,7 +619,8 @@ static logpool_entry_t *logpool_add_unlocked(
                   preventry->log.prefix, logentry->log.prefix);
 
         /* lock log file before continuing, to not disturb threads owning this log entry */
-        logout = log_getfile_locked(&(preventry->log));
+        logout = preventry->log.out == NULL ? LOG_FILE_DEFAULT : preventry->log.out;
+        flockfile(logout);
 
         if (preventry->file != pfile) { /* pointer comparison OK as doubles are forbiden. */
             /* the new logentry has a different file */
@@ -627,14 +653,15 @@ static logpool_entry_t *logpool_add_unlocked(
         }
         /* copy new log entry data into previous entry (data changes, log pointer does not */
         logentry->use_count = preventry->use_count;
-        memcpy(preventry, logentry, sizeof(*logentry));
+        *preventry = *logentry;
+        logentry->log.prefix = NULL; /* logentry->log.prefix already freed */
+        logpool_entry_free(logentry);
 
         /* we can now unlock the old file, and free it as updated log entry is ready to be used */
         funlockfile(logout);
-        if (file_to_free != NULL)
+        if (file_to_free != NULL) {
             logpool_file_free(file_to_free);
-        logentry->log.prefix = NULL; /* logentry->log.prefix already freed */
-        logpool_entry_free(logentry);
+        }
     }
 
     /* finish initialization and return log instance */
