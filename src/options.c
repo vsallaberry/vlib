@@ -574,8 +574,7 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
                     break ;
             }
         }
-        LOG_DEBUG(g_vlib_log == NULL || g_vlib_log->out == out ? NULL : g_vlib_log,
-            "opt_usage: MAX_OPTLEN:%d", max_optlen);
+        LOG_DEBUG(g_vlib_log, "opt_usage: MAX_OPTLEN:%d", max_optlen);
         if (max_optlen == 0)
             max_optlen = opt_config->desc_align;
 

@@ -45,7 +45,8 @@ logpool_t * g_vlib_logpool = NULL;
 typedef enum {
     LPP_NONE            = 0,
     LPP_SILENT          = 1 << 0,
-    LPP_PREFIX_CASEFOLD = 1 << 1
+    LPP_PREFIX_CASEFOLD = 1 << 1,
+    LPP_DEFAULT         = LPP_NONE | LPP_PREFIX_CASEFOLD
 } logpool_priv_flag_t;
 
 /** internal logpool_file_t flags */
@@ -85,6 +86,30 @@ static logpool_entry_t *logpool_add_unlocked(
                             const char *        path);
 
 /* ************************************************************************ */
+static int logpool_ispattern(const char * prefix) {
+    size_t idx ;
+
+    if (prefix == NULL)
+        return 0;
+
+    idx = strcspn(prefix, "*[?");
+    if (prefix[idx] == 0)
+        return 0;
+
+    if (idx == 0 || prefix[idx - 1] != '\\')
+        return 1;
+
+    for (idx = 0; prefix[idx] != 0; ++idx) {
+        if (prefix[idx] == '\\' && prefix[idx + 1] != 0) {
+            ++idx;
+        } else if (prefix[idx] == '*' || prefix[idx] == '[' || prefix[idx] == '?') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* ************************************************************************ */
 static inline int logpool_prefixcmp_internal(
                         const void * vpool1_data, const void * vpool2_data,
                         int (*cmpfun)(const char *, const char *)) {
@@ -108,6 +133,9 @@ static inline int logpool_prefixcmp_internal(
             return -1;
         }
         return 1;
+    }
+    if ((log1->log.flags & LOGPOOL_FLAG_PATTERN) != (log2->log.flags & LOGPOOL_FLAG_PATTERN)) {
+        return (log1->log.flags & LOGPOOL_FLAG_PATTERN) != 0 ? -1 : 1;
     }
     return cmpfun(log1->log.prefix, log2->log.prefix);
 }
@@ -196,6 +224,8 @@ static void logpool_file_free(void * vfile) {
                 struct stat stats;
                 sched_yield();
                 flockfile(pool_file->file);
+                fflush(pool_file->file);
+                fsync(fileno(pool_file->file));
                 funlockfile(pool_file->file);
                 fclose(pool_file->file);
                 if (pool_file->path != NULL
@@ -241,7 +271,7 @@ logpool_t *         logpool_create() {
         free(pool);
         return NULL;
     }
-    pool->flags = LPP_NONE;
+    pool->flags = LPP_DEFAULT;
     prefcmpfun = (pool->flags & LPP_PREFIX_CASEFOLD) != 0
                  ? logpool_prefixcasecmp : logpool_prefixcmp;
 
@@ -259,7 +289,6 @@ logpool_t *         logpool_create() {
         free(pool);
         return NULL;
     }
-
 
     /* use the same stack for logs and files */
     pool->files->stack = pool->logs->stack;
@@ -563,6 +592,11 @@ static logpool_entry_t *logpool_add_unlocked(
     }
     if ((pool->flags & LPP_SILENT) != 0)
         logentry->log.flags |= LOG_FLAG_SILENT;
+    if (logpool_ispattern(log->prefix)) {
+        logentry->log.flags |= LOGPOOL_FLAG_PATTERN;
+    } else {
+        logentry->log.flags &= ~(LOGPOOL_FLAG_PATTERN);
+    }
     logentry->file = NULL;
     logentry->use_count = 0;
 
@@ -651,6 +685,8 @@ static logpool_entry_t *logpool_add_unlocked(
             free(logentry->log.prefix);
             logentry->log.prefix = preventry->log.prefix;
         }
+        /* template flag of previous logentry is kept */
+        logentry->log.flags |= (preventry->log.flags & LOGPOOL_FLAG_TEMPLATE);
         /* copy new log entry data into previous entry (data changes, log pointer does not */
         logentry->use_count = preventry->use_count;
         *preventry = *logentry;
@@ -673,10 +709,10 @@ static logpool_entry_t *logpool_add_unlocked(
 /* ************************************************************************ */
 static inline int   logpool_remove_unlocked(
                         logpool_t *         pool,
-                        log_t *             log) {
+                        logpool_entry_t *   search) {
     logpool_entry_t *   logentry;
 
-    if ((logentry = avltree_remove(pool->logs, log)) != NULL) {
+    if ((logentry = avltree_remove(pool->logs, search)) != NULL) {
         if (logentry->file != NULL && --logentry->file->use_count == 0
         && avltree_remove(pool->files, logentry->file) != NULL) {
             logpool_file_free(logentry->file);
@@ -691,14 +727,23 @@ static inline int   logpool_remove_unlocked(
 int                 logpool_remove(
                         logpool_t *         pool,
                         log_t *             log) {
-    int ret;
+    int             ret;
+    logpool_entry_t search;
 
     if (pool == NULL || log == NULL) {
         return -1;
     }
 
+    search.log.prefix = log->prefix;
+    search.log.flags = log->flags;
+    if (logpool_ispattern(search.log.prefix)) {
+        search.log.flags |= LOGPOOL_FLAG_PATTERN;
+    } else {
+        search.log.flags &= ~(LOGPOOL_FLAG_PATTERN);
+    }
+
     pthread_rwlock_wrlock(&pool->rwlock);
-    ret = logpool_remove_unlocked(pool, log);
+    ret = logpool_remove_unlocked(pool, &search);
     pthread_rwlock_unlock(&pool->rwlock);
 
     return ret;
@@ -718,6 +763,13 @@ int                 logpool_release(
     }
 
     search.log.prefix = log->prefix;
+    search.log.flags = log->flags;
+
+    if (logpool_ispattern(search.log.prefix)) {
+        search.log.flags |= LOGPOOL_FLAG_PATTERN;
+    } else {
+        search.log.flags &= ~(LOGPOOL_FLAG_PATTERN);
+    }
 
     pthread_rwlock_wrlock(&pool->rwlock);
 
@@ -734,7 +786,7 @@ int                 logpool_release(
         } else {
             LOG_DEBUG(g_vlib_log, "LOGPOOL entry '%s' will be released.",
                       search.log.prefix == NULL ? "(null)" : search.log.prefix);
-            ret = logpool_remove_unlocked(pool, log);
+            ret = logpool_remove_unlocked(pool, entry);
         }
     } else {
         LOG_DEBUG(g_vlib_log, "warning: LOGPOOL entry '%s' not found",
@@ -761,6 +813,14 @@ log_t *             logpool_find(
     pthread_rwlock_rdlock(&pool->rwlock);
 
     ref.log.prefix = (char *) prefix;
+    ref.log.flags = LOG_FLAG_NONE;
+
+    if (logpool_ispattern(ref.log.prefix)) {
+        ref.log.flags |= LOGPOOL_FLAG_PATTERN;
+    } else {
+        ref.log.flags &= ~(LOGPOOL_FLAG_PATTERN);
+    }
+
     if ((entry = avltree_find(pool->logs, &ref)) != NULL) {
         result = &(entry->log);
     }
@@ -770,6 +830,76 @@ log_t *             logpool_find(
     return result;
 }
 
+/* ************************************************************************ */
+typedef struct {
+    char *              prefix;
+    logpool_entry_t *   result;
+    int                 fnm_flag;
+    int                 bfirst_is_pattern;
+} logpool_findpattern_t;
+static avltree_visit_status_t   logpool_findpattern_visit(
+                                    avltree_t *                         tree,
+                                    avltree_node_t *                    node,
+                                    const avltree_visit_context_t *     context,
+                                    void *                              user_data) {
+    logpool_entry_t *       entry = (logpool_entry_t *) node->data;
+    logpool_findpattern_t * data = (logpool_findpattern_t *) user_data;
+    (void) tree;
+    (void) context;
+
+    if (entry->log.prefix == NULL) {
+        /* should not happen */
+        return AVS_ERROR;
+    }
+    if (fnmatch(entry->log.prefix, data->prefix, data->fnm_flag) == 0) {
+        data->result = entry;
+        return AVS_FINISHED;
+    }
+    if (data->bfirst_is_pattern && *(entry->log.prefix) != '*'
+    &&  *(entry->log.prefix) != '[' &&  *(entry->log.prefix) != '?') {
+       return AVS_FINISHED;
+    }
+    return AVS_CONTINUE;
+}
+static logpool_entry_t * logpool_findpattern(
+                            logpool_t *         pool,
+                            logpool_entry_t *   search) {
+
+    logpool_entry_t         min, max;
+    char                    minpref[2], maxpref[3];
+    logpool_findpattern_t   data = {
+        .result = NULL, .prefix = search->log.prefix, .bfirst_is_pattern = 0,
+        .fnm_flag = (pool->flags & LPP_PREFIX_CASEFOLD) != 0 ? FNM_CASEFOLD : 0 };
+
+    /* logpool_prefixcmp ensures that patterns are always smaller than regular strings
+     * then it is possible to fastly scan the patterns in the tree without visiting
+     * non-pattern strings and scan regular strings without visiting patterns.
+     * - first pass on patterns starting with first char of prefix to be found
+     * - second pass on patterns starting with a pattern */
+    minpref[0] = search->log.prefix[0];
+    minpref[1] = 0;
+    maxpref[0] = search->log.prefix[0];
+    maxpref[1] = 0x7f;
+    maxpref[2] = 0;
+    min.log.flags = LOGPOOL_FLAG_PATTERN;
+    min.log.prefix = minpref;
+    max.log.flags = LOGPOOL_FLAG_PATTERN;
+    max.log.prefix = maxpref;
+
+    for (int i = 0; i < 2; ++i) {
+        if (avltree_visit_range(pool->logs, &min, &max,
+                            logpool_findpattern_visit, &data, AVH_INFIX) == AVS_FINISHED
+        &&  data.result != NULL) {
+            return data.result;
+        }
+        /* empty patterns for second loop */
+        minpref[0] = 0;
+        maxpref[0] = 0x7f;
+        maxpref[1] = 0;
+        data.bfirst_is_pattern = 1;
+    }
+    return NULL;
+}
 /* ************************************************************************ */
 log_t *             logpool_getlog(
                         logpool_t *         pool,
@@ -782,6 +912,7 @@ log_t *             logpool_getlog(
         return NULL;
     }
     ref.log.prefix = (char *) prefix;
+    ref.log.flags = LOG_FLAG_NONE;
 
     //TODO: think about optimization here to acquire only a read lock in some cases
     /* must always acquire wrlock because of ++(entry->use_count below
@@ -794,14 +925,18 @@ log_t *             logpool_getlog(
 
     /* look for the requested log instance */
     if ((entry = avltree_find(pool->logs, &ref)) == NULL) {
-        if ((flags & LPG_NODEFAULT) != 0) {
-            /* don't use default if flag forbids it */
-            pthread_rwlock_unlock(&pool->rwlock);
-            return NULL;
+        /* look for a log entry pattern matching the requested log */
+        if ((flags & LPG_NO_PATTERN) != 0
+        ||  (entry = logpool_findpattern(pool, &ref)) == NULL) {
+            if ((flags & LPG_NODEFAULT) != 0) {
+                /* don't use default if flag forbids it */
+                pthread_rwlock_unlock(&pool->rwlock);
+                return NULL;
+            }
+            /* look for a default log instance */
+            ref.log.prefix = NULL;
+            entry = avltree_find(pool->logs, &ref);
         }
-        /* look for a default log instance */
-        ref.log.prefix = NULL;
-        entry = avltree_find(pool->logs, &ref);
     }
 
     if (entry != NULL && (flags & LPG_TRUEPREFIX) != 0
@@ -933,7 +1068,11 @@ static int avltree_print_logpool(FILE * out, const avltree_node_t * node) {
     const ssize_t       name_sz = sizeof(name) / sizeof(*name);
     ssize_t             len;
 
-    len = snprintf(name, name_sz, "%s", entry->log.prefix);
+    if ((entry->log.flags & LOGPOOL_FLAG_PATTERN) == 0)
+        len = snprintf(name, name_sz, "%s", entry->log.prefix);
+    else
+        len = snprintf(name, name_sz, "/%s/", entry->log.prefix);
+
     if (len < 0)  {
         str0cpy(name, "error", name_sz);
     }

@@ -56,6 +56,7 @@ enum {
      ? fileno((_TESTGROUP)->log->out) : STDERR_FILENO)
 
 #define TEST_STARTSTOP_LOGLEVEL LOG_LVL_INFO
+#define TEST_ERRNO_MSG_SZ       128
 
 /* ************************************************************************ */
 static void tests_result_free(void * vdata) {
@@ -195,7 +196,7 @@ static avltree_visit_status_t   tests_printgroup_visit(
                     &&  (   ((data->flags & TPR_PRINT_ERRORS) != 0  && result->success == 0)
                         || ((data->flags & TPR_PRINT_OK) != 0      && result->success != 0))) {
                 const char *    color, * color_reset;
-                char            errno_msg[64] = { 0, };
+                char            errno_msg[TEST_ERRNO_MSG_SZ] = { 0, };
 
                 color_reset = vterm_color(fd, VCOLOR_RESET);
                 color = vterm_color(fd, result->success == 0 ? VCOLOR_RED : VCOLOR_GREEN);
@@ -245,7 +246,9 @@ int                     tests_print(
 
     /* ---------------------------------------------------------------------*/
     pthread_rwlock_rdlock(&(tests->rwlock));
-    data.log = logpool_getlog(tests->logs, TESTPOOL_LOG_PREFIX, LPG_DEFAULT);
+    data.log = logpool_getlog(tests->logs, TESTPOOL_LOG_PREFIX,
+                              (tests->flags & TPF_LOGTRUEPREFIX) != 0
+                              ? LPG_DEFAULT | LPG_TRUEPREFIX : LPG_DEFAULT & ~(LPG_TRUEPREFIX));
     ret = avltree_visit(tests->tests, tests_printgroup_visit, &data, AVH_INFIX);
     if (data.do_eol != 0) {
         LOG_INFO(data.log, NULL);
@@ -268,19 +271,19 @@ log_t *                 tests_getlog(
     if (tests == NULL) {
         return NULL;
     }
-    if ((tests->flags & TPF_LOGTRUEPREFIX) != 0) {
-        flags = LPG_TRUEPREFIX;
-        if ((tests->flags & TPF_LOG_TESTPREFIX) != 0) {
-            snprintf(prefix, sizeof(prefix)/sizeof(*prefix), "%s/%s",
-                     TESTPOOL_LOG_PREFIX, testname);
-            testname = prefix;
-        }
-    } else {
-        flags = LPG_DEFAULT;
-        testname = TESTPOOL_LOG_PREFIX;
+
+    flags = (tests->flags & TPF_LOGTRUEPREFIX) != 0
+            ? LPG_DEFAULT | LPG_TRUEPREFIX : LPG_DEFAULT & ~(LPG_TRUEPREFIX);
+
+    if ((tests->flags & TPF_LOG_TESTPREFIX) != 0) {
+        snprintf(prefix, sizeof(prefix)/sizeof(*prefix), "%s/%s",
+                TESTPOOL_LOG_PREFIX, testname);
+        testname = prefix;
     }
 
-    log = logpool_getlog(tests->logs, testname, flags);
+    if ((log = logpool_getlog(tests->logs, testname, LPG_NODEFAULT | flags)) == NULL) {
+        log = logpool_getlog(tests->logs, TESTPOOL_LOG_PREFIX, flags);
+    }
 
     return log;
 }
@@ -323,6 +326,7 @@ testgroup_t *           tests_start(
         return NULL;
     }
     if ((group = calloc(1, sizeof(testgroup_t))) == NULL) {
+        logpool_release(tests->logs, log);
         return NULL;
     }
 
@@ -337,8 +341,9 @@ testgroup_t *           tests_start(
     pthread_rwlock_wrlock(&(tests->rwlock));
 
     if (avltree_insert(tests->tests, group) == NULL) {
-        tests_group_free(group);
+        logpool_release(tests->logs, log);
         pthread_rwlock_unlock(&(tests->rwlock));
+        tests_group_free(group);
         return NULL;
     }
 
@@ -466,7 +471,7 @@ int                     tests_check(
         /* LOG RESULT */
         if (log_result) {
             int             fd = TEST_LOGFD(result->testgroup);
-            char            errno_msg[64] = { 0, };
+            char            errno_msg[TEST_ERRNO_MSG_SZ] = { 0, };
 
             /* prepare errno message in case it has been updated by the test */
             if (result->checkerrno != TEST_ERRNO_UNCHANGED
@@ -479,14 +484,14 @@ int                     tests_check(
             }
 
             if (result->success) {
-                vlog(result->testgroup->ok_loglevel, result->testgroup->log,
+                vlog_nocheck(result->testgroup->ok_loglevel, result->testgroup->log,
                      file, func, line, "%s: %s%sOK%s: %s%s%s [%s]",
                      result->testgroup->name,
                      vterm_color(fd, VCOLOR_GREEN), vterm_color(fd, VCOLOR_BOLD),
                      vterm_color(fd, VCOLOR_RESET), msg,
                      *errno_msg != 0 ? ", errno: " : "", errno_msg, result->checkname);
             } else {
-                vlog(LOG_LVL_ERROR, result->testgroup->log,
+                vlog_nocheck(LOG_LVL_ERROR, result->testgroup->log,
                      file, func, line, "%s: %s%sERROR%s %s%s%s [%s]",
                      result->testgroup->name,
                      vterm_color(fd, VCOLOR_RED), vterm_color(fd, VCOLOR_BOLD),

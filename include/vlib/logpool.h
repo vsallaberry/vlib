@@ -34,6 +34,7 @@ extern "C" {
 typedef enum {
     LOGPOOL_FLAG_DEFAULT        = LOG_FLAG_CUSTOM << 0,
     LOGPOOL_FLAG_TEMPLATE       = LOG_FLAG_CUSTOM << 1,
+    LOGPOOL_FLAG_PATTERN        = LOG_FLAG_CUSTOM << 2,
 } logpool_flag_t;
 
 /*****************************************************************************/
@@ -70,7 +71,7 @@ int                 logpool_enable(
                         int *               prev_enable);
 
 /** logpool_add()
- * Add a copy of log to the pool.
+ * Add or replace a copy of log in the pool.
  * @param pool the logpool
  * @param log the log to duplicate and add in pool
  * @param path the file to be used for log or NULL to use log->out.
@@ -109,6 +110,7 @@ typedef enum {
     LPG_NONE        = 0,
     LPG_NODEFAULT   = 1 << 0,
     LPG_TRUEPREFIX  = 1 << 1,
+    LPG_NO_PATTERN  = 1 << 2,
     LPG_DEFAULT     = LPG_TRUEPREFIX
 } logpool_getlog_flags_t;
 
@@ -118,6 +120,7 @@ typedef enum {
  * @param prefix the log prefix to look for.
  * @param flags
  *        + LPG_NO_DEFAULT: return NULL rather than default log if not found
+ *        + LPG_NO_PATTERN: don't look for a matching pattern in the pool
  *        + LPG_TRUEPREFIX: if matching log has not the same prefix, return a
  *                          copy of it, with updated prefix.
  * @return log entry if found, NULL otherwise
