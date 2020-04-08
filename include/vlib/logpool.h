@@ -72,6 +72,8 @@ int                 logpool_enable(
 
 /** logpool_add()
  * Add or replace a copy of log in the pool.
+ * If new entry is added, its use_count is 1,
+ * otherwise the use_count of a replaced log entry is unchanged.
  * @param pool the logpool
  * @param log the log to duplicate and add in pool
  * @param path the file to be used for log or NULL to use log->out.
@@ -84,6 +86,7 @@ log_t *             logpool_add(
 /** logpool_release()
  * - log entry removed only when its use counter is 0 (erno EBUSY).
  *   each call to logpool_getlog() increments the use counter.
+ *   call to logpool_add() increments use counter ONLY if new entry is added.
  * - Log entry templates (created with logpool_create_from_cmdline)
  *   are not removed (errno EACCES).
  * @return 0 on success, -1 on error, positive value (use counter) if not removed. */

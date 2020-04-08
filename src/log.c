@@ -588,6 +588,49 @@ int log_buffer(log_level_t level, log_t * log,
     return 0;
 }
 
+int vlog_strings(log_level_t level, log_t * log,
+                 const char * file, const char * func, int line,
+                 const char * strings_fmt, ...) {
+
+    if (log == NULL)
+        log = &s_vlib_log_null;
+
+    if (LOG_CAN_LOG(log, level)) {
+        const char *    token, * next = strings_fmt;
+        size_t          len;
+        ssize_t         ret = 0, n;
+        FILE *          out;
+        va_list         valist;
+        char            buf[512];
+
+        if (strings_fmt == NULL) {
+            return vlog_nocheck(level, log, file, func, line, NULL);
+        }
+
+        out = log_getfile_locked(log);
+        va_start(valist, strings_fmt);
+
+        while ((len = strtok_ro_r(&token, "\n", &next, NULL, 0)) > 0 || *next != 0) {
+            ret += log_header2(level, log, out, file, func, line);
+
+            strn0cpy(buf, token, len, sizeof(buf));
+            if ((n = vfprintf(out, buf, valist)) > 0)
+                ret += n;
+
+            ret += log_footer2(level, log, out, file, func, line);
+
+            if (len >= sizeof(buf)) {
+                LOG_WARN(g_vlib_log, "%s(): buffer too small, aborting", __func__);
+                break ;
+            }
+        }
+        va_end(valist);
+        funlockfile(out);
+        return ret;
+    }
+    return 0;
+}
+
 log_t * log_create(log_t * from) {
     log_t * log = calloc(1, sizeof(log_t));
     if (log != NULL) {

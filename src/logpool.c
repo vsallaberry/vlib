@@ -409,6 +409,7 @@ logpool_t *         logpool_create_from_cmdline(
     log_t           log;
     size_t          argsz = PATH_MAX;
     char *          arg;
+    logpool_entry_t *entry;
 
     /* sanity checks and initializations */
     if (pool == NULL && (pool = logpool_create()) == NULL) {
@@ -532,7 +533,8 @@ logpool_t *         logpool_create_from_cmdline(
         }
 
         /* add the log to the pool */
-        if (logpool_add_unlocked(pool, &log, mod_file) == NULL) {
+        len = avltree_count(pool->logs);
+        if ((entry = logpool_add_unlocked(pool, &log, mod_file)) == NULL) {
             LOG_ERROR(g_vlib_log, "error: logpool_add(pref:%s,lvl:%s,flg:%d,path:%s) error.",
                                   log.prefix ? log.prefix : "<null>",
                                   log_level_name(log.level),
@@ -540,6 +542,9 @@ logpool_t *         logpool_create_from_cmdline(
                                   mod_file ? mod_file : "<null>");
         }
         else {
+            if (avltree_count(pool->logs) > len && entry->use_count == 1) {
+                entry->use_count = 0; /* if new entry created (not replaced), set counter = 0 */
+            }
             LOG_VERBOSE(g_vlib_log, "Log ADDED pref:<%s> lvl:%s flags:%x out=%p path:%s",
                         log.prefix, log_level_name(log.level),
                         log.flags, (void *) log.out, mod_file);
@@ -598,7 +603,7 @@ static logpool_entry_t *logpool_add_unlocked(
         logentry->log.flags &= ~(LOGPOOL_FLAG_PATTERN);
     }
     logentry->file = NULL;
-    logentry->use_count = 0;
+    logentry->use_count = 1;
 
     /* if path not given, use ';fd;fileptr;' as path, else get absolute path from given path. */
     if (path == NULL) {
@@ -947,8 +952,7 @@ log_t *             logpool_getlog(
         ref.log.prefix = (char *) prefix;
         ref.log.flags &= ~(LOGPOOL_FLAG_TEMPLATE);
         entry = logpool_add_unlocked(pool, &(ref.log), entry->file->path);
-    }
-    if (entry != NULL) {
+    } else if (entry != NULL) {
         ++(entry->use_count);
     }
     pthread_rwlock_unlock(&pool->rwlock);

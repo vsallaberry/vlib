@@ -38,6 +38,7 @@
 #include "vlib/log.h"
 #include "vlib/thread.h"
 #include "vlib/term.h"
+#include "vlib/test.h"
 
 #include "version.h"
 #include "vlib_private.h"
@@ -79,23 +80,29 @@
                                     vterm_color(fd, VCOLOR_GET_BACK(colors)), \
                                     vterm_color(fd, VCOLOR_GET_STYLE(colors))
 
+static int opt_filter_source_v(FILE * out, const char * filter, va_list valist);
+
 inline static int is_opt_end(const opt_options_desc_t * opt) {
     return opt == NULL || opt->short_opt == OPT_ID_END;
 }
 
 inline static int is_valid_short_opt(int c) {
+    c &= ~(OPT_BUILTIN_MASK);
     return c && isascii(c) && isgraph(c);
 }
 
 inline static int is_opt_section(int c) {
+    c &= ~(OPT_BUILTIN_MASK);
     return (c >= OPT_ID_SECTION && c <= OPT_ID_SECTION_MAX);
 }
 
 inline static int is_opt_arg(int c) {
+    c &= ~(OPT_BUILTIN_MASK);
     return (c >= OPT_ID_ARG && c <= OPT_ID_ARG_MAX);
 }
 
 inline static int is_opt_user(int c) {
+    c &= ~(OPT_BUILTIN_MASK);
     return (c >= OPT_ID_USER && c <= OPT_ID_USER_MAX);
 }
 
@@ -107,8 +114,9 @@ inline static int is_valid_opt(int c) {
 }
 
 static int get_registered_opt(int c, const opt_config_t * opt_config) {
+    c &= ~(OPT_BUILTIN_MASK);
     for (int i_opt = 0; !is_opt_end(&opt_config->opt_desc[i_opt]); i_opt++) {
-        if (opt_config->opt_desc[i_opt].short_opt == c) {
+        if ((opt_config->opt_desc[i_opt].short_opt & ~(OPT_BUILTIN_MASK)) == c) {
             return i_opt;
         }
     }
@@ -148,7 +156,8 @@ static int opt_alias(int i_opt, const opt_config_t * opt_config) {
     /* look for same short_opt defined before index i_opt in desc array */
     if (opt->desc == NULL && opt->long_opt != NULL && opt->arg == NULL) {
         for (int i = 0; i < i_opt; i++) {
-            if (opt_config->opt_desc[i].short_opt == opt->short_opt) {
+            if ((opt_config->opt_desc[i].short_opt & ~(OPT_BUILTIN_MASK))
+                   == (opt->short_opt & ~(OPT_BUILTIN_MASK))) {
                 return i;
             }
         }
@@ -263,7 +272,7 @@ static int opt_usage_filter(const char * filter, int i_opt, int i_section,
         return 1;
 
     longopt = is_opt_section(opt->short_opt) ? NULL : opt->long_opt;
-    *short_str = opt->short_opt;
+    *short_str = opt->short_opt & ~(OPT_BUILTIN_MASK);
 
     while ((len = strtok_ro_r(&token, ",|;&", &next, NULL, 0)) > 0 || *next) {
         if (!len)
@@ -280,7 +289,7 @@ static int opt_usage_filter(const char * filter, int i_opt, int i_section,
 
             i_descsz -= end;
             if (opt_config->callback == NULL || !OPT_IS_CONTINUE(
-                  opt_config->callback(OPT_DESCRIBE_OPTION | opt->short_opt,
+                opt_config->callback(OPT_DESCRIBE_OPTION | opt->short_opt,
                                        desc + end, &i_descsz, opt_config))) {
                 desc[end] = 0;
             }
@@ -293,7 +302,8 @@ static int opt_usage_filter(const char * filter, int i_opt, int i_section,
         /* check long-option alias */
         if (longopt && fnmatch(token0, longopt, FNM_CASEFOLD)) {
             for (const opt_options_desc_t * opt2 = opt + 1; !is_opt_end(opt2); ++opt2) {
-                if (opt2->short_opt == opt->short_opt && opt2->long_opt
+                if ((opt2->short_opt & ~(OPT_BUILTIN_MASK))
+                        == (opt->short_opt & ~(OPT_BUILTIN_MASK)) && opt2->long_opt
                 && !fnmatch(token0, opt2->long_opt, FNM_CASEFOLD)) {
                     token = opt->long_opt;
                     len = strlen(token);
@@ -395,7 +405,7 @@ static void opt_print_usage_summary(
             if (n_printed == pad)
                 n_printed += fprintf(out, "[-");
             vterm_putcolor(fd < 0 ? NULL : out, opt_config->color_short);
-            if (fputc(opt->short_opt, out) != EOF)
+            if (fputc(opt->short_opt & ~(OPT_BUILTIN_MASK), out) != EOF)
                 n_printed++;
             fputs(vterm_color(fd, VCOLOR_RESET), out);
         }
@@ -440,14 +450,14 @@ static void opt_print_usage_summary(
             } else if (*opt->arg != '[') {
                 n_printed += fprintf(out, " [-");
                 vterm_putcolor(fd < 0 ? NULL : out, opt_config->color_useshort);
-                if (fputc(opt->short_opt, out) != EOF)
+                if (fputc(opt->short_opt & ~(OPT_BUILTIN_MASK), out) != EOF)
                     n_printed++;
                 fputs(vterm_color(fd, VCOLOR_RESET), out);
                 n_printed += fprintf(out, "<%s>]", opt->arg);
             } else {
                 n_printed += fprintf(out, " [-");
                 vterm_putcolor(fd < 0 ? NULL : out, opt_config->color_useshort);
-                if (fputc(opt->short_opt, out) != EOF)
+                if (fputc(opt->short_opt& ~(OPT_BUILTIN_MASK), out) != EOF)
                     n_printed++;
                 fputs(vterm_color(fd, VCOLOR_RESET), out);
                 n_printed += fprintf(out, "%s]", opt->arg);
@@ -550,7 +560,8 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
                     curlen += strlen(opt->long_opt) + 2; /* '--<long>' */
                 }
                 for (const opt_options_desc_t * opt2 = opt + 1; !is_opt_end(opt2); ++opt2) {
-                    if (opt->short_opt == opt2->short_opt && opt2->long_opt != NULL) {
+                    if ((opt->short_opt & ~(OPT_BUILTIN_MASK))
+                            == (opt2->short_opt & ~(OPT_BUILTIN_MASK)) && opt2->long_opt != NULL) {
                         size_t opt2len = strlen (opt2->long_opt);
                         if (curlen + 2 /* ', ' */ + opt2len + 1
                             > 1 + (opt_config->desc_align))
@@ -594,6 +605,7 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
         const char *    next;
         int             is_section;
         int             colors = 0;
+        char            help_desc_buf[128];
 
         /* keep current section index, and stop if we should only print main section */
         if ((is_section = is_opt_section(opt->short_opt))) {
@@ -660,7 +672,7 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
                 if (fputc('-', out) != EOF)
                     n_printed++;
                 vterm_putcolor(fd < 0 ? NULL : out, opt_config->color_short);
-                if (fputc(opt->short_opt, out) != EOF)
+                if (fputc(opt->short_opt & ~(OPT_BUILTIN_MASK), out) != EOF)
                     n_printed++;
                 fputs(vterm_color(fd, VCOLOR_RESET), out);
             }
@@ -677,7 +689,8 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
             }
             /* look for long option aliases */
             for (const opt_options_desc_t *opt2 = opt + 1; !is_opt_end(opt2); ++opt2) {
-                if (opt2->short_opt == opt->short_opt && opt2->long_opt != NULL
+                if ((opt2->short_opt & ~(OPT_BUILTIN_MASK))
+                        == (opt->short_opt & ~(OPT_BUILTIN_MASK)) && opt2->long_opt != NULL
                 && opt2->desc == NULL) {
                     len = strlen(opt2->long_opt);
                     if (n_printed > opt_headsz) {
@@ -706,15 +719,29 @@ int opt_usage(int exit_status, opt_config_t * opt_config, const char * filter) {
         /* getting dynamic option description */
         if (opt_config->callback && is_valid_opt(opt->short_opt)) {
             int i_desc_size = sizeof(desc_buffer);
+            desc_buffer[0] = 0;
             if (!OPT_IS_CONTINUE(
                   opt_config->callback(OPT_DESCRIBE_OPTION | opt->short_opt,
-                                       (const char *) desc_buffer, &i_desc_size, opt_config))) {
+                                       (const char *) desc_buffer, &i_desc_size, opt_config))
+            || desc_buffer[0] == 0) {
                 i_desc_size = 0;
             }
             desc_size = i_desc_size;
         }
-        /* skip option description and process next option if no description */
+        /* prepare processing of description with special handling of builtin help option */
         next = opt->desc;
+        if ((opt->short_opt & OPT_BUILTIN_MASK) == OPT_BUILTIN_HELP) {
+            if (is_valid_short_opt(opt->short_opt)) {
+                char shortopt[2] = { (opt->short_opt & OPT_OPTION_FLAG_MASK), 0 };
+                snprintf(help_desc_buf, sizeof(help_desc_buf), opt->desc,
+                         "", shortopt, "", shortopt);
+            } else {
+                snprintf(help_desc_buf, sizeof(help_desc_buf), opt->desc,
+                         "-", opt->long_opt, "=", opt->long_opt);
+            }
+            next = help_desc_buf;
+        }
+        /* skip option description and process next option if no description */
         if ((!next || !*next) && desc_size <= 0) {
             opt_newline(out, opt_config, 1);
             continue ;
@@ -1045,6 +1072,199 @@ int opt_parse_options_2pass(opt_config_t * opt_config, opt_option_callback_t cal
     return ret;
 }
 
+/************************************************************************
+ * opt_parse_generic internal user_data */
+enum {
+    OPG_NONE                = 0,
+    OPG_LOG_OPT_ERROR       = 1 << 0,
+    OPG_COLOR_OPT_ERROR     = 1 << 1,
+};
+typedef struct {
+    void *                  user_data;
+    opt_option_callback_t   parse_pass_1;
+    opt_option_callback_t   parse_pass_2;
+    logpool_t **            plogpool;
+    const char *const*      log_modules;
+    unsigned int            flags;
+    vterm_flag_t            term_flags;
+} opt_generic_data_t;
+
+/*************************************************************************/
+/** opt_parse_generic_first_pass() : option callback of type opt_option_callback_t.
+ *                              see vlib/options.h */
+static int opt_parse_generic_pass_1(int opt, const char *arg, int *i_argv,
+                                    opt_config_t * opt_config) {
+    opt_generic_data_t * data = (opt_generic_data_t *) opt_config->user_data;
+    void * user_data_builtin = data;
+    int user_ret = OPT_CONTINUE(1);
+    (void) i_argv;
+
+    if (data == NULL) {
+        return OPT_ERROR(OPT_EFAULT);
+    }
+
+    /* call user callback with his user_data */
+    if (data->parse_pass_1 != NULL) {
+        opt_config->user_data = data->user_data;
+        user_ret = data->parse_pass_1(opt & ~(OPT_BUILTIN_MASK), arg, i_argv, opt_config);
+        opt_config->user_data = user_data_builtin;
+        if ((opt & OPT_DESCRIBE_OPTION) != 0) {
+            if (*arg != 0)
+                return user_ret;
+        } else if (!OPT_IS_CONTINUE(user_ret) || user_ret == OPT_SKIP_BUILTIN) {
+            return user_ret;
+        }
+    }
+
+    switch (opt) {
+        case OPT_ID_END:
+            if (data->plogpool != NULL) {
+                /* set vlib log instance if given explicitly in command line */
+                log_set_vlib_instance(logpool_getlog(*(data->plogpool), LOG_VLIB_PREFIX_DEFAULT,
+                                        LPG_NO_PATTERN | LPG_NODEFAULT | LPG_TRUEPREFIX));
+                /* set options log instance if given explicitly in command line */
+                opt_config->log = logpool_getlog(*(data->plogpool), LOG_OPTIONS_PREFIX_DEFAULT,
+                                        LPG_NO_PATTERN | LPG_NODEFAULT | LPG_TRUEPREFIX);
+            }
+            /* set terminal flags if requested (colors forced) */
+            if (data->term_flags != VTF_DEFAULT) {
+                vterm_free();
+                vterm_init(STDOUT_FILENO, data->term_flags);
+            }
+            break ;
+    }
+
+    switch (opt & OPT_BUILTIN_MASK) {
+        case 0:
+            break ;
+        case OPT_BUILTIN_LOGLEVEL:
+            if (data->plogpool == NULL) {
+                LOG_WARN(g_vlib_log, "loglevel option used but logpool is NULL !!");
+                data->flags |= OPG_LOG_OPT_ERROR;
+            } else if (NULL == (*(data->plogpool)
+                        = logpool_create_from_cmdline(*(data->plogpool), arg, NULL))) {
+                data->flags |= OPG_LOG_OPT_ERROR;
+            }
+            return OPT_CONTINUE(1);
+        case OPT_BUILTIN_COLOR:
+            if (arg == NULL || !strcasecmp(arg, "yes"))
+                data->term_flags = VTF_FORCE_COLORS;
+            else if (!strcasecmp(arg, "no"))
+                data->term_flags = VTF_NO_COLORS;
+            else
+                data->flags |= OPG_COLOR_OPT_ERROR;
+            return OPT_CONTINUE(1);
+    }
+
+    return user_ret;
+}
+
+/*************************************************************************/
+/** opt_parse_generic_pass_2() : option callback of type opt_option_callback_t. see vlib/options.h */
+static int opt_parse_generic_pass_2(int opt, const char *arg, int *i_argv,
+                                    opt_config_t * opt_config) {
+    opt_generic_data_t * data = (opt_generic_data_t *) opt_config->user_data;
+    void * user_data_builtin = data;
+    int user_ret = OPT_CONTINUE(1);
+
+    /* call user callback with his user_data */
+    if (data->parse_pass_2 != NULL) {
+        opt_config->user_data = data->user_data;
+        user_ret = data->parse_pass_2(opt & ~(OPT_BUILTIN_MASK), arg, i_argv, opt_config);
+        opt_config->user_data = user_data_builtin;
+        if ((opt & OPT_DESCRIBE_OPTION) != 0) {
+            if (*arg != 0)
+                return user_ret;
+        } else if (!OPT_IS_CONTINUE(user_ret) || user_ret == OPT_SKIP_BUILTIN) {
+            return user_ret;
+        }
+    }
+
+    if ((opt & OPT_DESCRIBE_OPTION) != 0) {
+        /* This is the option dynamic description for opt_usage() */
+        switch (opt & OPT_BUILTIN_MASK) {
+            case 0:
+                break ;
+            case OPT_BUILTIN_LOGLEVEL:
+                return log_describe_option((char *)arg, i_argv, data->log_modules, NULL, NULL);
+            case OPT_BUILTIN_HELP:
+                return opt_describe_filter(opt, arg, i_argv, opt_config);
+        }
+        return OPT_EXIT_OK(0);
+    } else switch (opt & OPT_BUILTIN_MASK) {  /* This is the option parsing */
+        /* error which occured in first pass */
+        case OPT_BUILTIN_LOGLEVEL:
+            if ((data->flags & OPG_LOG_OPT_ERROR) != 0)
+                return OPT_ERROR(OPT_EBADARG);
+            return OPT_CONTINUE(1);
+        case OPT_BUILTIN_COLOR:
+            if ((data->flags & OPG_COLOR_OPT_ERROR) != 0)
+               return OPT_ERROR(OPT_EBADARG);
+            return OPT_CONTINUE(1);
+        /* remaining options */
+        case OPT_BUILTIN_HELP:
+            return opt_usage(OPT_EXIT_OK(0), opt_config, arg);
+        case OPT_BUILTIN_VERSION:
+            fprintf(stdout, "%s\n* with %s\n", opt_config->version_string, vlib_get_version());
+            return OPT_EXIT_OK(0);
+        case OPT_BUILTIN_SOURCE:
+            return opt_filter_source(stdout, arg, vlib_get_source, NULL);
+    }
+
+    return user_ret;
+}
+
+int opt_parse_generic(opt_config_t * opt_config, opt_option_callback_t parse_pass_1,
+                      logpool_t ** plogpool, const char *const* log_modules) {
+    opt_generic_data_t data;
+    char shorthelp[2] = {0,0};
+    const char * opt_help_name_bak;
+    int ret;
+
+    static const char * const modules_default[] = {
+        "<app-name>" , LOG_VLIB_PREFIX_DEFAULT, LOG_OPTIONS_PREFIX_DEFAULT,
+        #ifdef _TEST
+        TESTPOOL_LOG_PREFIX, "<test-name>",
+        #endif
+        NULL
+    };
+
+    if (opt_config == NULL || opt_config->argv == NULL || *(opt_config->argv) == NULL) {
+        return OPT_ERROR(OPT_EFAULT);
+    }
+
+    opt_help_name_bak = opt_config->opt_help_name;
+    data.flags = OPG_NONE;
+    data.user_data = opt_config->user_data;
+    data.parse_pass_2 = opt_config->callback;
+    data.parse_pass_1 = parse_pass_1;
+    data.plogpool = plogpool;
+    data.term_flags = VTF_DEFAULT;
+    data.log_modules = log_modules == NULL ? modules_default : log_modules;
+
+    opt_config->user_data = &data;
+    opt_config->callback = opt_parse_generic_pass_1;
+
+    for (int i_opt = 0; !is_opt_end(&(opt_config->opt_desc[i_opt])); ++i_opt) {
+        if ((opt_config->opt_desc[i_opt].short_opt & OPT_BUILTIN_MASK) == OPT_BUILTIN_HELP) {
+            if (opt_config->opt_desc[i_opt].long_opt != NULL) {
+                opt_config->opt_help_name = opt_config->opt_desc[i_opt].long_opt;
+            } else {
+                *shorthelp = opt_config->opt_desc[i_opt].short_opt & OPT_OPTION_FLAG_MASK;
+                opt_config->opt_help_name = shorthelp;
+            }
+            break ;
+        }
+    }
+
+    ret = opt_parse_options_2pass(opt_config, opt_parse_generic_pass_2);
+
+    opt_config->user_data = data.user_data;
+    opt_config->callback = data.parse_pass_2;
+    opt_config->opt_help_name = opt_help_name_bak;
+    return ret;
+}
+
 int opt_describe_filter(int short_opt, const char * arg, int * i_argv,
                         const opt_config_t * opt_config) {
     int n = 0, ret;
@@ -1078,11 +1298,9 @@ void opt_set_source_filter_bufsz(size_t bufsz) {
 static const size_t s_opt_filter_bufsz = OPT_FILTER_BUFSZ_DEFAULT;
 #endif
 
-int opt_filter_source(FILE * out, const char * filter, ...) {
-    va_list         valist;
+static int opt_filter_source_v(FILE * out, const char * filter, va_list valist) {
     vdecode_fun_t getsource;
 
-    va_start(valist, filter);
     if (filter == NULL) {
         while ((getsource = va_arg(valist, vdecode_fun_t)) != NULL) {
             getsource(out, NULL, 0, NULL);
@@ -1137,10 +1355,12 @@ int opt_filter_source(FILE * out, const char * filter, ...) {
             }
             if (found)
                 fprintf(out, "%s", line);
+            if (ctx == NULL) {
+                break ;
+            }
         }
     }
 
-    va_end(valist);
     if (line)
         free(line);
     free(pattern);
@@ -1148,16 +1368,33 @@ int opt_filter_source(FILE * out, const char * filter, ...) {
     return OPT_EXIT_OK(0);
 }
 
-const char * vlib_get_version() {
-    return OPT_VERSION_STRING(BUILD_APPNAME, APP_VERSION, "git:" BUILD_GITREV);
+int opt_filter_source(FILE * out, const char * filter, ...) {
+    va_list         valist;
+    int             ret;
+
+    va_start(valist, filter);
+    ret = opt_filter_source_v(out, filter, valist);
+    va_end(valist);
+    return ret;
 }
 
+/************************************************************************** */
+static const char * s_vlib_version
+    = OPT_VERSION_STRING(BUILD_APPNAME, APP_VERSION, "git:" BUILD_GITREV);
+
+const char * vlib_get_version() {
+    return s_vlib_version;
+}
+
+/************************************************************************** */
 #ifndef APP_INCLUDE_SOURCE
-# define APP_NO_SOURCE_STRING "\n/* #@@# FILE #@@# " BUILD_APPNAME "/* */\n" \
-                              BUILD_APPNAME " source not included in this build.\n"
+static const char * s_vlib_no_source_string
+    = "\n/* #@@# FILE #@@# " BUILD_APPNAME "/* */\n" \
+      BUILD_APPNAME " source not included in this build.\n";
+
 int vlib_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx) {
     return vdecode_buffer(out, buffer, buffer_size, ctx,
-                          APP_NO_SOURCE_STRING, sizeof(APP_NO_SOURCE_STRING) - 1);
+                          s_vlib_no_source_string, strlen(s_vlib_no_source_string));
 }
 #endif
 

@@ -42,6 +42,7 @@
 struct testpool_s {
     avltree_t *         tests;
     logpool_t *         logs;
+    log_t *             log;
     unsigned int        flags;
     pthread_rwlock_t    rwlock;
 };
@@ -95,7 +96,7 @@ static int tests_group_cmp(const void * v1, const void * v2) {
     if (g1 == NULL || g2 == NULL) {
         return g1 - g2;
     }
-    return strcmp(g1->name, g2->name);
+    return strcasecmp(g1->name, g2->name);
 }
 
 /* ************************************************************************ */
@@ -104,6 +105,7 @@ testpool_t *            tests_create(
                             unsigned int        flags) {
     (void) flags;
     testpool_t * tests = calloc(1, sizeof(testpool_t));
+    int lpg_flags;
 
     if (tests == NULL) {
         return NULL;
@@ -117,6 +119,12 @@ testpool_t *            tests_create(
     } else {
         tests->logs = logs;
     }
+
+    lpg_flags = (tests->flags & TPF_LOGTRUEPREFIX) != 0
+            ? LPG_DEFAULT | LPG_TRUEPREFIX
+            : (LPG_DEFAULT & ~(LPG_TRUEPREFIX));
+    tests->log = logpool_getlog(tests->logs, TESTPOOL_LOG_PREFIX, lpg_flags);
+
     tests->tests = avltree_create(AFL_DEFAULT, tests_group_cmp, tests_group_free);
 
     if (tests->logs == NULL || tests->tests == NULL) {
@@ -134,6 +142,8 @@ int                     tests_free(
         pthread_rwlock_wrlock(&(tests->rwlock));
         if ((tests->flags & TPF_FREE_LOGPOOL) != 0) {
             logpool_free(tests->logs);
+        } else {
+            logpool_release(tests->logs, tests->log);
         }
         avltree_free(tests->tests);
         tests->tests = NULL;
@@ -246,14 +256,11 @@ int                     tests_print(
 
     /* ---------------------------------------------------------------------*/
     pthread_rwlock_rdlock(&(tests->rwlock));
-    data.log = logpool_getlog(tests->logs, TESTPOOL_LOG_PREFIX,
-                              (tests->flags & TPF_LOGTRUEPREFIX) != 0
-                              ? LPG_DEFAULT | LPG_TRUEPREFIX : LPG_DEFAULT & ~(LPG_TRUEPREFIX));
+    data.log = tests->log;
     ret = avltree_visit(tests->tests, tests_printgroup_visit, &data, AVH_INFIX);
     if (data.do_eol != 0) {
         LOG_INFO(data.log, NULL);
     }
-    logpool_release(tests->logs, data.log);
     pthread_rwlock_unlock(&(tests->rwlock));
     /* ---------------------------------------------------------------------*/
 
@@ -273,16 +280,24 @@ log_t *                 tests_getlog(
     }
 
     flags = (tests->flags & TPF_LOGTRUEPREFIX) != 0
-            ? LPG_DEFAULT | LPG_TRUEPREFIX : LPG_DEFAULT & ~(LPG_TRUEPREFIX);
+            ? LPG_DEFAULT | LPG_TRUEPREFIX
+            : (LPG_DEFAULT & ~(LPG_TRUEPREFIX));
 
     if ((tests->flags & TPF_LOG_TESTPREFIX) != 0) {
         snprintf(prefix, sizeof(prefix)/sizeof(*prefix), "%s/%s",
-                TESTPOOL_LOG_PREFIX, testname);
+                TESTPOOL_LOG_PREFIX, testname == NULL ? "(null)" : testname);
         testname = prefix;
     }
 
-    if ((log = logpool_getlog(tests->logs, testname, LPG_NODEFAULT | flags)) == NULL) {
-        log = logpool_getlog(tests->logs, TESTPOOL_LOG_PREFIX, flags);
+    /* use TESTPOOL_LOG_PREFIX rather than NULL as default logpool log instance */
+    if ((log = logpool_getlog(tests->logs, testname, flags | LPG_NODEFAULT)) == NULL) {
+        if (tests->log != NULL && (tests->flags & TPF_LOGTRUEPREFIX) != 0) {
+            log_t new = *(tests->log);
+            new.prefix = (char *) testname;
+            new.flags &= ~(LOGPOOL_FLAG_TEMPLATE);
+            return logpool_add(tests->logs, &new, NULL);
+        }
+        return logpool_getlog(tests->logs, TESTPOOL_LOG_PREFIX, flags);
     }
 
     return log;

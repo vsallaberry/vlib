@@ -46,6 +46,12 @@ extern "C" {
               || (size) == 0 ? 0 : ((ssize_t)(ret_var) >= (ssize_t)(size) \
                                     ? (ssize_t) ((size) - 1) : (ret_var)))
 
+/** see VLIB_SNPRINTF */
+#define VLIB_VSNPRINTF(ret_var, buffer, size, fmt, valist) \
+            (((ret_var) = vsnprintf(buffer, size, fmt, valist)) < 0 \
+              || (size) == 0 ? 0 : ((ssize_t)(ret_var) >= (ssize_t)(size) \
+                                    ? (ssize_t) ((size) - 1) : (ret_var)))
+
 /**
  * This will copy at maximum <maxlen-1> bytes of <src> in <dst>.
  * dst will always be terminated by 0, causing possibe src truncation.

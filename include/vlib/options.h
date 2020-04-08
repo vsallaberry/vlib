@@ -34,6 +34,7 @@
 
 #include "vlib/log.h"
 #include "vlib/term.h"
+#include "vlib/logpool.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,6 +45,13 @@ extern "C" {
 #endif
 
 #define OPT_DESCRIBE_OPTION     0x40000000              /* mask for option dynamic description */
+#define OPT_BUILTIN_MASK        0x00F00000              /* mask for option built-in options */
+#define OPT_BUILTIN_HELP        0x00100000              /* value for built-in help option */
+#define OPT_BUILTIN_VERSION     0x00200000              /* value for built-in version option */
+#define OPT_BUILTIN_LOGLEVEL    0x00300000              /* value for built-in loglevel option */
+#define OPT_BUILTIN_COLOR       0x00400000              /* value for built-in color option */
+#define OPT_BUILTIN_SOURCE      0x00500000              /* value for built-in source option */
+
 #define OPT_OPTION_FLAG_MIN     0x00020000              /* internal: first bit used for flags */
 #define OPT_OPTION_FLAG_MASK    (OPT_OPTION_FLAG_MIN - 1)/* mask to get OPT value without flags */
 
@@ -79,7 +87,8 @@ enum {
     OPT_ELONGID     = 106,  /* bad long option short_opt value */
     OPT_EOPTNOARG   = 107,  /* argument missing for option */
     OPT_EOPTARG     = 108,  /* unexpected argument for option */
-    OPT_EBADFLT     = 109   /* bad usage filter : usage not displayed */
+    OPT_EBADFLT     = 109,  /* bad usage filter : usage not displayed */
+    OPT_SKIP_BUILTIN= 200,  /* */
 };
 
 /**
@@ -116,6 +125,35 @@ typedef struct {
     const char *    arg;
     const char *    desc;
 } opt_options_desc_t;
+
+/** helper macros to declare generic opt_options_desc_t elements,
+ * such as --help,--version... */
+#define OPT_DESC_HELP(shortopt,longopt) \
+    { shortopt | OPT_BUILTIN_HELP, longopt, "[filter[,...]]", \
+      "summary or full usage of filter, use '-%s%s%s%s'\r" }
+
+#define OPT_DESC_VERSION(shortopt, longopt) \
+    { shortopt | OPT_BUILTIN_VERSION, longopt, NULL, "show version"  }
+
+#define OPT_DESC_LOGLEVEL(shortopt, longopt) \
+    { shortopt | OPT_BUILTIN_LOGLEVEL, longopt, "level", \
+      "log level [mod1=]lvl1[@file1][:flag1[|..]][,..]\r" }
+
+#define OPT_DESC_COLOR(shortopt, longopt) \
+    { shortopt | OPT_BUILTIN_COLOR, longopt, "[yes|no]", \
+      "force colors to 'yes' or 'no'" }
+
+#define OPT_DESC_SOURCE(shortopt, longopt) \
+    { shortopt | OPT_BUILTIN_SOURCE, longopt, "[[:]pattern]", \
+      "show source - pattern: <project/file> or :<text> " \
+      "(fnmatch(3) shell pattern)." }
+
+#define OPT_DESC_ALL_GENERIC() \
+    OPT_DESC_HELP       ('h', "help"), \
+    OPT_DESC_VERSION    ('V', "version"), \
+    OPT_DESC_LOGLEVEL   ('l', "log-level"), \
+    OPT_DESC_COLOR      ('C', "color"), \
+    OPT_DESC_SOURCE     ('s', "source")
 
 /** declaration for later definition */
 typedef struct opt_config_s opt_config_t;
@@ -259,6 +297,27 @@ int             opt_parse_options(opt_config_t * opt_config);
 int             opt_parse_options_2pass(
                         opt_config_t *          opt_config,
                         opt_option_callback_t   callback2);
+
+/* opt_parse_generic() : same as opt_parse_options_2pass(),
+ * + with 1 pass in silent mode with parse_pass_1 and opt_parse_generic_pass_1
+ * + and second pass without silent mode with opt_config->callback (user callback),
+ * and opt_parse_generic_pass_2().
+ * Builtin callback is called unless user callback returns OPT_CONITNUE(OPT_SKIP_BUILTIN)
+ * or a value different than OPT_CONITNUE.
+ * parse_pass_1(OPT_ID_END, NULL, NULL, opt_config) is called before second pass,
+ * if its return value is not OPT_IS_CONTINUE, second pass is not done.
+ * This functions is to be used with MACROS OPT_DESC_{HELP,VERSION,LOGLEVEL,SOURCE,COLOR}
+ * and handles automatically theses options, if declared in opt_desc with those MACROS.
+ * @param opt_config the options configuration with callback set to user callback
+ * @param parse_pass_1, the user callback for first pass, optional, can be NULL
+ * @param plogpool, the pointer to logpool, *plogpool = NULL recommanded.
+ * @param modules the list of log modules, can be NULL
+ * @return same as opt_parse_options() */
+int             opt_parse_generic(
+                        opt_config_t *          opt_config,
+                        opt_option_callback_t   parse_pass_1,
+                        logpool_t **            plogpool,
+                        const char *const*      log_modules);
 
 /** opt_describe_filter() : default function describing the filter of --help command-line
  * option to be called from opt_callback_t option handler - see OPT_DESCRIBE_OPTION */

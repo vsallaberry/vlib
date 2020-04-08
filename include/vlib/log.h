@@ -217,6 +217,15 @@ int	        log_buffer_nocheck(
                 int             line,
                 const char *    fmt_header, ...) __attribute__((format(printf,8,9)));
 
+/** split strings and log them line by line, return number of chars written. */
+int         vlog_strings(
+                log_level_t     level,
+                log_t *         log,
+                const char *    file,
+                const char *    func,
+                int             line,
+                const char *    strings_fmt, ...) __attribute__((format(printf, 6, 7)));
+
 /** get name of a given level */
 const char *log_level_name(log_level_t level);
 
