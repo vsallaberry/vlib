@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Vincent Sallaberry
+ * Copyright (C) 2017-2020 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -41,14 +41,14 @@ slist_t *       slist_insert_sorted(slist_t * list, void * data, slist_cmp_fun_t
 
 slist_t *       slist_concat(slist_t * list1, slist_t * list2);
 
-slist_t *       slist_find(slist_t * list, const void * data, slist_cmp_fun_t cmpfun);
-slist_t *       slist_find_ptr(slist_t * list, const void * data);
+const slist_t * slist_find(const slist_t * list, const void * data, slist_cmp_fun_t cmpfun);
+const slist_t * slist_find_ptr(const slist_t * list, const void * data);
 
 slist_t *       slist_remove(slist_t * list, const void * data,
                              slist_cmp_fun_t cmpfun, slist_free_fun_t freefun);
 slist_t *       slist_remove_ptr(slist_t * list, const void * data);
 
-unsigned int    slist_length(slist_t * list);
+unsigned int    slist_length(const slist_t * list);
 
 void            slist_free_1(slist_t * list, slist_free_fun_t freefun);
 void            slist_free(slist_t * list, slist_free_fun_t freefun);
@@ -66,11 +66,17 @@ void            slist_free(slist_t * list, slist_free_fun_t freefun);
  * Can be followed by { } block.
  * Eg: FOREACH_SLIST_DATA(list, str, char *) { printf("%s\n", str); }
  */
-#define SLIST_FOREACH_DATA(list, iter, type) \
-                for(slist_t * it_list = (list); it_list; ) \
+#define SLIST_FOREACH_DATA_T(TYPE, list, iter, type) \
+                for(TYPE it_list = (list); it_list; ) \
                     for(type iter; \
                         (it_list) && ((iter = (type)((it_list)->data))||1); \
                         it_list = (it_list)->next)
+
+#define SLIST_FOREACH_DATA(list, iter, type) \
+            SLIST_FOREACH_DATA_T(slist_t *, list, iter, type)
+
+#define SLISTC_FOREACH_DATA(list, iter, type) \
+            SLIST_FOREACH_DATA_T(const slist_t *, list, iter, type)
 
 #ifdef __cplusplus
 }

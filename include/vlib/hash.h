@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Vincent Sallaberry
+ * Copyright (C) 2017-2020 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -57,10 +57,10 @@ hash_t *        hash_alloc(unsigned int size, int flags,
 int             hash_insert(hash_t * hash, void * data);
 
 /** Hash Table Lookup : get first matching data */
-void *          hash_find(hash_t * hash, const void * data);
+void *          hash_find(const hash_t * hash, const void * data);
 
 /** Hash Table Lookup : get next matching element (first if prev_match is NULL) */
-slist_t *       hash_find_next(hash_t * hash, const void * data, slist_t * prev_match);
+const slist_t * hash_find_next(const hash_t * hash, const void * data, const slist_t * prev_match);
 
 /** Hash Table Remove element function */
 int             hash_remove(hash_t * hash, const void * data);
@@ -86,7 +86,7 @@ typedef struct {
 } hash_stats_t;
 
 /** Hash Table Statistics */
-int             hash_stats_get(hash_t * hash, hash_stats_t * stats);
+int             hash_stats_get(const hash_t * hash, hash_stats_t * stats);
 
 #ifdef __cplusplus
 }

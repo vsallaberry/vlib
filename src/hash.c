@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Vincent Sallaberry
+ * Copyright (C) 2017-2020 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -75,7 +75,7 @@ int hash_insert(hash_t * hash, void * data) {
     return HASH_ERROR;
 }
 
-slist_t * hash_find_next(hash_t * hash, const void * data, slist_t * prev_match) {
+const slist_t * hash_find_next(const hash_t * hash, const void * data, const slist_t * prev_match) {
     if (!hash) {
         return NULL;
     }
@@ -92,8 +92,8 @@ slist_t * hash_find_next(hash_t * hash, const void * data, slist_t * prev_match)
     return slist_find(prev_match, data, hash->cmpfun);
 }
 
-void * hash_find(hash_t * hash, const void * data) {
-    slist_t * elt;
+void * hash_find(const hash_t * hash, const void * data) {
+    const slist_t * elt;
 
     if ((elt = hash_find_next(hash, data, NULL)) != NULL) {
         return elt->data;
@@ -178,7 +178,7 @@ int hash_ptrcmp(const void * key1, const void * key2) {
     return ((long) key1 - (long) key2);
 }
 
-int hash_stats_get(hash_t * hash, hash_stats_t * stats) {
+int hash_stats_get(const hash_t * hash, hash_stats_t * stats) {
     unsigned int i;
     unsigned int list_len;
 

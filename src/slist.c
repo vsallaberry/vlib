@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Vincent Sallaberry
+ * Copyright (C) 2017-2020 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -86,7 +86,7 @@ slist_t * slist_concat(slist_t * list1, slist_t * list2) {
     return list1;
 }
 
-slist_t * slist_find_ptr(slist_t * list, const void * data) {
+const slist_t * slist_find_ptr(const slist_t * list, const void * data) {
     for ( ; list; list = list->next) {
         if (list->data == data) {
             return list;
@@ -95,7 +95,7 @@ slist_t * slist_find_ptr(slist_t * list, const void * data) {
     return NULL;
 }
 
-slist_t * slist_find(slist_t * list, const void * data, slist_cmp_fun_t cmpfun) {
+const slist_t * slist_find(const slist_t * list, const void * data, slist_cmp_fun_t cmpfun) {
     if (!cmpfun) {
         return NULL;
     }
@@ -138,7 +138,7 @@ slist_t * slist_remove_ptr(slist_t * list, const void * data) {
     return slist_remove(list, data, ptrcmp, NULL);
 }
 
-unsigned int    slist_length(slist_t * list) {
+unsigned int    slist_length(const slist_t * list) {
     unsigned int len = 0;
     for ( ; list; list = list->next) {
         len++;
