@@ -254,17 +254,28 @@ typedef enum {
                                Callback can return this at any moment to end the loop*/
 } vterm_screen_event_t;
 
-/** callback for vterm_screen_loop() */
-typedef int     (*vterm_screen_callback_t)(
+typedef enum {
+    VTERM_SCREEN_CB_OK          = 1 << 0,   /* callback ok */
+    VTERM_SCREEN_CB_EXIT        = 1 << 1,   /* exit requested by callback */
+    VTERM_SCREEN_CB_NEWTIMER    = 1 << 2,   /* timer update requested by callback */
+} vterm_screen_cb_result_t;
+
+/** callback for vterm_screen_loop()
+ * @param out_data depends on callback return value:
+ *    + VTERM_SCREEN_CB_NEWTIMER: (unsigned int) new_timer_ms
+ *    + others: ignored. */
+typedef unsigned int (*vterm_screen_callback_t)(
                     vterm_screen_event_t    event,
                     FILE *                  out,
                     struct timeval *        now,
                     fd_set *                fdset_in,
-                    void *                  data);
+                    void *                  data,
+                    void **                 out_data);
 
 /** run a screen loop on FILE out and call display_callback when events
- * of type vterm_screen_event_t occur. Usually the callback returns the given
- * event, or VTERM_SCREEN_END to end the screen loop.
+ * of type vterm_screen_event_t occur. Usually the callback returns
+ * VTERM_SCREEN_CB_OK, or a bit combination of vterm_screen_cb_result_t.
+ * (VTERM_SCREEN_CB_EXIT will end the loop, VTERM_SCREEN_CB_NEWTIMER will update timer).
  *  It is recommanded to call logpool_enable(0) on VTERM_SCREEN_START,
  * and logpool_enable(1) on VTERM_SCREEN_END to avoid logs disturbing display.
  *  Callback has to call fflush(out) to update terminal display.

@@ -1187,6 +1187,26 @@ static void vterm_sig_handler(int sig) {
 #endif
 
 /* ************************************************************************* */
+static inline void vterm_screen_handle_cb_result(
+                        unsigned int result, void * out_data,
+                        unsigned int * timer_ms, struct itimerval *timer) {
+    if ((result & VTERM_SCREEN_CB_NEWTIMER) != 0) {
+        unsigned int        new_timer_ms = (unsigned int)((unsigned long)out_data);
+        struct itimerval    newtimer = { .it_value = { .tv_sec = 0, .tv_usec= 1 } };
+
+        newtimer.it_interval = (struct timeval)
+        { .tv_sec = new_timer_ms / 1000, .tv_usec = (new_timer_ms % 1000) * 1000 };
+
+        if (setitimer(ITIMER_REAL, &newtimer, NULL) != 0) {
+            LOG_ERROR(g_vlib_log, "%s(): setitimer(): %s", __func__, strerror(errno));
+        } else {
+            LOG_VERBOSE(g_vlib_log, "%s(): timer updated to %u ms", __func__, new_timer_ms);
+            *timer = newtimer;
+            *timer_ms = new_timer_ms;
+        }
+    }
+}
+/* ************************************************************************* */
 int vterm_screen_loop(
         FILE *                  out,
         unsigned int            timer_ms,
@@ -1200,6 +1220,8 @@ int vterm_screen_loop(
     struct itimerval    timer_bak, timer = { .it_value = { .tv_sec = 0, .tv_usec= 1 } };
     struct sigaction    sa, sa_bak, sa_timer_bak;
     int                 ret = VTERM_ERROR;
+    unsigned int        cb_ret;
+    void *              cb_result;
     int                 fd;
     int                 goto_enabled = 0;
 
@@ -1272,18 +1294,20 @@ int vterm_screen_loop(
         ret = VTERM_OK;
 
         /* print header */
-        if (display_callback(VTERM_SCREEN_START, out, &elapsed, NULL, callback_data)
-                            == VTERM_SCREEN_END) {
+        if (((cb_ret = display_callback(VTERM_SCREEN_START, out, &elapsed, NULL,
+                                callback_data, &cb_result)) & VTERM_SCREEN_CB_EXIT) != 0) {
             break ;
         }
+        vterm_screen_handle_cb_result(cb_ret, cb_result, &timer_ms, &timer);
 
         while (1) {
 
-            if (display_callback(VTERM_SCREEN_LOOP, out, &elapsed, NULL, callback_data)
-                                == VTERM_SCREEN_END) {
+            if (((cb_ret = display_callback(VTERM_SCREEN_LOOP, out, &elapsed, NULL,
+                                    callback_data, &cb_result)) & VTERM_SCREEN_CB_EXIT) != 0) {
                 ret = VTERM_OK;
                 break ;
             }
+            vterm_screen_handle_cb_result(cb_ret, cb_result, &timer_ms, &timer);
 
             /* Wait for timeout or key pressed */
             if (fduserset_in != NULL)
@@ -1294,8 +1318,8 @@ int vterm_screen_loop(
 
             if ((ret = pselect(STDIN_FILENO+1, &fdset_in, NULL, NULL, NULL, &select_sigset)) > 0) {
                 // Check Key Pressed
-                if (display_callback(VTERM_SCREEN_INPUT, out, &elapsed, &fdset_in, callback_data)
-                                    == VTERM_SCREEN_END) {
+                if (((cb_ret = display_callback(VTERM_SCREEN_INPUT, out, &elapsed, &fdset_in,
+                                        callback_data, &cb_result)) & VTERM_SCREEN_CB_EXIT) != 0) {
                     ret = VTERM_OK;
                     break ;
                 }
@@ -1318,8 +1342,8 @@ int vterm_screen_loop(
                         elapsed.tv_usec %= 1000000;
                     }
 
-                    if (display_callback(VTERM_SCREEN_TIMER, out, &elapsed, NULL, callback_data)
-                                        == VTERM_SCREEN_END) {
+                    if (((cb_ret = display_callback(VTERM_SCREEN_TIMER, out, &elapsed, NULL,
+                                        callback_data, &cb_result)) & VTERM_SCREEN_CB_EXIT) != 0) {
                         ret = VTERM_OK;
                         break ;
                     }
@@ -1335,9 +1359,10 @@ int vterm_screen_loop(
                 ret = VTERM_ERROR;
                 break ;
             }
+            vterm_screen_handle_cb_result(cb_ret, cb_result, &timer_ms, &timer);
         }
         /* callback informing termination */
-        display_callback(VTERM_SCREEN_END, out, &elapsed, NULL, callback_data);
+        display_callback(VTERM_SCREEN_END, out, &elapsed, NULL, callback_data, &cb_result);
 
     } while (0);
 
