@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Vincent Sallaberry
+ * Copyright (C) 2018-2020 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -196,6 +196,23 @@ void *              avltree_insert(
         errno = EAGAIN;
     }
     return NULL;
+}
+
+/*****************************************************************************/
+int                avltree_clear(
+                        avltree_t *                 tree) {
+    avltree_visit_status_t ret;
+
+    if (tree == NULL) {
+        return AVS_ERROR;
+    }
+    if ((ret = avltree_visit(tree, avltree_visit_free, NULL, AVH_PREFIX)) != AVS_FINISHED) {
+        LOG_WARN(g_vlib_log, "warning avltree_visit_free() error");
+    }
+    tree->root = NULL;
+    tree->n_elements = 0;
+
+    return ret;
 }
 
 /*****************************************************************************/

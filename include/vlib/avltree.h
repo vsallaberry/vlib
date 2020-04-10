@@ -155,6 +155,12 @@ void *              avltree_insert(
                         avltree_t *                 tree,
                         void *                      data);
 
+/** avltree_clear()
+ * complexity: O(n)
+ * @return avltree_visit_status_t */
+int                avltree_clear(
+                        avltree_t *                 tree);
+
 /** avltree_free()
  * complexity: O(n) */
 void                avltree_free(
@@ -209,7 +215,8 @@ size_t              avltree_memorysize(
  * @param tree the tree to visit
  * @param visit the visit function (avltree_visitfun_t)
  * @param user_data the specific user_data to give to visit function
- * @param how a combination of avltree_visit_how_t, giving visit type(s) (prefix|infix|...) */
+ * @param how a combination of avltree_visit_how_t, giving visit type(s) (prefix|infix|...)
+ * @return avltree_visit_status_t */
 int                 avltree_visit(
                         avltree_t *                 tree,
                         avltree_visitfun_t          visit,
@@ -223,7 +230,8 @@ int                 avltree_visit(
  * @param max the maximum element of the range
  * @param visit the visit function (avltree_visitfun_t)
  * @param user_data the specific user_data to give to visit function
- * @param how_RFU RFU */
+ * @param how_RFU RFU
+ * @return avltree_visit_status_t */
 int                 avltree_visit_range(
                         avltree_t *                 tree,
                         void *                      min,

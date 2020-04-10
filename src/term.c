@@ -521,12 +521,19 @@ static inline int vterm_clear_manual(FILE * out) {
 }
 
 /* ************************************************************************* */
-int vterm_readline(FILE * in, FILE * out, char * buf, unsigned int maxsize) {
+static int vterm_readline_internal(
+                FILE * in,
+                FILE * out,
+                char * buf,
+                unsigned int inbuf_sz,
+                unsigned int maxsize,
+                vterm_readline_t * rl_data) {
     char            key[16];
     struct termios  tios_bak, tios;
     unsigned int    i;
     int             c = 0;
     int             fdin, fdout;
+    (void) rl_data;
 
     if (buf == NULL || in == NULL || out == NULL)
         return VTERM_ERROR;
@@ -549,7 +556,7 @@ int vterm_readline(FILE * in, FILE * out, char * buf, unsigned int maxsize) {
         tcsetattr(fdout, TCSANOW, &tios);
     }
 
-    for (i = 0; i < maxsize - 1; /* no incr */) {
+    for (i = inbuf_sz; i < maxsize - 1; /* no incr */) {
         if (read(fdin, key, sizeof(key) / sizeof(*key)) != 1)
             continue ;
         c = *key;
@@ -579,6 +586,12 @@ int vterm_readline(FILE * in, FILE * out, char * buf, unsigned int maxsize) {
     }
     buf[i] = 0;
     return (c == 27 || c == EOF) ? VTERM_ERROR : (int) i;
+}
+
+/* ************************************************************************* */
+int vterm_readline(FILE * in, FILE * out, char * buf,
+                   unsigned int maxsize, vterm_readline_t * rl_data) {
+    return vterm_readline_internal(in, out, buf, 0, maxsize, rl_data);
 }
 
 /* ************************************************************************* */
@@ -612,15 +625,17 @@ static size_t vterm_strlen(int fd, const char * str) {
 
 /* ************************************************************************* */
 int vterm_prompt(
-            const char *    prompt,
-            FILE *          in,
-            FILE *          out,
-            char *          buf,
-            unsigned int    maxsize,
-            int             flags) {
+            const char *        prompt,
+            FILE *              in,
+            FILE *              out,
+            char *              buf,
+            unsigned int        maxsize,
+            int                 flags,
+            vterm_readline_t *  rl_data) {
     int             res;
-    unsigned int    len, prompt_len;
+    unsigned int    len, prompt_len, default_len;
     int             fd;
+    (void) rl_data;
 
     if (out == NULL || buf == NULL || in == NULL || maxsize == 0)
         return VTERM_ERROR;
@@ -633,16 +648,25 @@ int vterm_prompt(
         prompt_len = vterm_strlen(fd, prompt);
         fputs(prompt, out);
     }
+    if ((flags & VTERM_PROMPT_WITH_DEFAULT) != 0) {
+        for (default_len = 0; buf[default_len] != 0
+                              && default_len < maxsize - 1; ++default_len) {
+            fputc(buf[default_len], out);
+        }
+        buf[default_len] = 0;
+    } else {
+        *buf = 0;
+        default_len = 0;
+    }
     if ((flags & VTERM_PROMPT_ERASE) != 0) {
-        for (len = 0; len < maxsize - 1; ++len)
+        for (len = default_len; len < maxsize - 1; ++len)
             fputc(' ', out);
-        for (len = 0; len < maxsize - 1; ++len)
+        for (len = default_len; len < maxsize - 1; ++len)
             fputc('\b', out);
     }
     fflush(out);
 
-    *buf = 0;
-    res = len = vterm_readline(in, out, buf, maxsize);
+    res = len = vterm_readline_internal(in, out, buf, default_len, maxsize, NULL);
 
     if (res < 0)
         for (len = 0; buf[len] != 0; ++len)
