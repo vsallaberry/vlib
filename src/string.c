@@ -26,6 +26,7 @@
 
 #include "vlib/util.h"
 
+/* ************************************************************************ */
 size_t str0cpy(char *dst, const char *src, size_t maxlen) {
     size_t len;
 
@@ -45,6 +46,7 @@ size_t str0cpy(char *dst, const char *src, size_t maxlen) {
     return len;
 }
 
+/* ************************************************************************ */
 size_t strn0cpy(char *dst, const char *src, size_t len, size_t maxlen) {
     if (maxlen == 0 || dst == NULL) {
         return 0;
@@ -65,6 +67,7 @@ size_t strn0cpy(char *dst, const char *src, size_t len, size_t maxlen) {
     return len;
 }
 
+/* ************************************************************************ */
 size_t strtok_ro_r(const char ** token, const char * seps,
                    const char ** next, size_t * maxlen,
                    int flags) {
@@ -108,6 +111,31 @@ size_t strtok_ro_r(const char ** token, const char * seps,
     return token_len;
 }
 
+/* ************************************************************************ */
+int fnmatch_patternidx(const char * str) {
+    size_t idx ;
+
+    if (str == NULL)
+        return -1;
+
+    idx = strcspn(str, "*[?");
+    if (str[idx] == 0)
+        return -1;
+
+    if (idx == 0 || str[idx - 1] != '\\')
+        return idx;
+
+    for (idx = 0; str[idx] != 0; ++idx) {
+        if (str[idx] == '\\' && str[idx + 1] != 0) {
+            ++idx;
+        } else if (str[idx] == '*' || str[idx] == '[' || str[idx] == '?') {
+            return idx;
+        }
+    }
+    return -1;
+}
+
+/* ************************************************************************ */
 #define VSTRTONUM_BODY(_str, _endptr, _base, _result, _TYPE, _FUN, _no_minus) \
     char * end;                                                     \
     _TYPE res;                                                      \

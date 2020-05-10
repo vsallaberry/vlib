@@ -53,6 +53,32 @@ slist_t * slist_append(slist_t * list, void * data) {
     return list;
 }
 
+slist_t * slist_appendto(slist_t * list, void * data, slist_t ** last) {
+    slist_t * new;
+
+    if (last == NULL) {
+        return slist_append(list, data);
+    }
+
+    new = slist_prepend(NULL, data);
+    if (new == NULL) {
+        return list;
+    }
+    if (list == NULL) {
+        *last = new;
+        return new;
+    }
+    if (*last == NULL) {
+        for (*last = list; (*last)->next != NULL; *last = (*last)->next)
+            ; /* nothing but loop */
+    }
+    new->next = (*last)->next;
+    (*last)->next = new;
+    *last = new;
+
+    return list;
+}
+
 slist_t * slist_insert_sorted(slist_t * list, void * data, slist_cmp_fun_t cmpfun) {
     slist_t * new = slist_alloc();
     if (new) {

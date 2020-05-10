@@ -52,6 +52,8 @@ extern "C" {
 #define OPT_BUILTIN_COLOR       0x00400000              /* value for built-in color option */
 #define OPT_BUILTIN_SOURCE      0x00500000              /* value for built-in source option */
 
+#define OPT_ID_START            0x00040000              /* used when starting pass 1 or 2 */
+
 #define OPT_OPTION_FLAG_MIN     0x00020000              /* internal: first bit used for flags */
 #define OPT_OPTION_FLAG_MASK    (OPT_OPTION_FLAG_MIN - 1)/* mask to get OPT value without flags */
 

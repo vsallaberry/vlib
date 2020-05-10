@@ -46,7 +46,8 @@ typedef enum {
     VJS_DONE            = 1 << 2,
     VJS_DETACHED        = 1 << 3,
     VJS_EXIT_REQUESTED  = 1 << 4,
-    VJS_INTERRUPTED     = 1 << 5
+    VJS_INTERRUPTED     = 1 << 5,
+    VJS_LOGPOOL_DISABLED= 1 << 6,
 } vjob_state_t;
 
 #ifdef __cplusplus
@@ -88,6 +89,11 @@ void *          vjob_wait(vjob_t * job);
  *   See below functions vjob_killmode(). */
 void *          vjob_kill(vjob_t * job);
 
+/** kill job without waiting. vjob_wait() or job_free() needed.
+ * see vjob_kill().
+ * @notes: warning logpool is disabled until vjob_{kill,wait,free) call. */
+void *          vjob_killnowait(vjob_t * job);
+
 /** wait job completion, get return value and free job.
  * @return result of vjob_wait() */
 void *          vjob_waitandfree(vjob_t * job);
@@ -119,6 +125,9 @@ int             vjob_killmode(
                     int             async,
                     int *           old_enable,
                     int *           old_async);
+
+/** @return number of available CPUs */
+unsigned int    vjob_cpu_nb();
 
 /* ************************************************************************ */
 #if 0

@@ -86,30 +86,6 @@ static logpool_entry_t *logpool_add_unlocked(
                             const char *        path);
 
 /* ************************************************************************ */
-static int logpool_ispattern(const char * prefix) {
-    size_t idx ;
-
-    if (prefix == NULL)
-        return 0;
-
-    idx = strcspn(prefix, "*[?");
-    if (prefix[idx] == 0)
-        return 0;
-
-    if (idx == 0 || prefix[idx - 1] != '\\')
-        return 1;
-
-    for (idx = 0; prefix[idx] != 0; ++idx) {
-        if (prefix[idx] == '\\' && prefix[idx + 1] != 0) {
-            ++idx;
-        } else if (prefix[idx] == '*' || prefix[idx] == '[' || prefix[idx] == '?') {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-/* ************************************************************************ */
 static inline int logpool_prefixcmp_internal(
                         const void * vpool1_data, const void * vpool2_data,
                         int (*cmpfun)(const char *, const char *)) {
@@ -248,6 +224,10 @@ static void logpool_entry_free(void * ventry) {
     logpool_entry_t * logentry = (logpool_entry_t *) ventry;
 
     if (logentry != NULL) {
+        if (logentry->log.out != NULL) {
+            LOG_DEBUG(g_vlib_log, "%s(): removing log '%s'", __func__,
+                      STR_CHECKNULL(logentry->log.prefix));
+        }
         if (&(logentry->log) == g_vlib_log) {
             log_set_vlib_instance(NULL);
         }
@@ -275,15 +255,15 @@ logpool_t *         logpool_create() {
     prefcmpfun = (pool->flags & LPP_PREFIX_CASEFOLD) != 0
                  ? logpool_prefixcasecmp : logpool_prefixcmp;
 
-    if (NULL == (pool->logs = avltree_create(AFL_DEFAULT | AFL_SHARED_STACK
-                                             | AFL_INSERT_IGNDOUBLE | AFL_REMOVE_NOFREE,
-                                             prefcmpfun, logpool_entry_free))
-    ||  NULL == (pool->files = avltree_create((AFL_DEFAULT & ~AFL_SHARED_STACK)
+    if (NULL == (pool->files = avltree_create((AFL_DEFAULT | AFL_SHARED_STACK)
                                               | AFL_INSERT_NODOUBLE | AFL_REMOVE_NOFREE,
-                                              logpool_pathcmp, logpool_file_free))) {
+                                              logpool_pathcmp, logpool_file_free))
+    ||  NULL == (pool->logs = avltree_create((AFL_DEFAULT & ~AFL_SHARED_STACK)
+                                             | AFL_INSERT_IGNDOUBLE | AFL_REMOVE_NOFREE,
+                                             prefcmpfun, logpool_entry_free))) {
         LOG_ERROR(g_vlib_log, "error avltree_create(logs | files) : %s", strerror(errno));
-        if (pool->logs != NULL) {
-            avltree_free(pool->logs);
+        if (pool->files != NULL) {
+            avltree_free(pool->files);
         }
         pthread_rwlock_destroy(&pool->rwlock);
         free(pool);
@@ -291,11 +271,22 @@ logpool_t *         logpool_create() {
     }
 
     /* use the same stack for logs and files */
-    pool->files->stack = pool->logs->stack;
+    pool->logs->shared = pool->files->shared;
 
     /* add a default log instance */
     logpool_add_unlocked(pool, &log, NULL);
-
+    /* add the vlib log instance if it is the first logpool */
+    if (g_vlib_log != NULL && g_vlib_logpool == NULL) {
+        logpool_entry_t * entry;
+        if (g_vlib_log->out == NULL) {
+            flockfile(LOG_FILE_DEFAULT);
+            g_vlib_log->out = LOG_FILE_DEFAULT;
+            funlockfile(LOG_FILE_DEFAULT);
+        }
+        entry = logpool_add_unlocked(pool, g_vlib_log, NULL);
+        log_set_vlib_instance(&(entry->log));
+    }
+    /* set the g_vlib_logpool */
     if (g_vlib_logpool == NULL) {
         g_vlib_logpool = pool;
     }
@@ -307,16 +298,27 @@ logpool_t *         logpool_create() {
 void                logpool_free(
                         logpool_t *         pool) {
     if (pool != NULL) {
+        size_t nf;
+        size_t nl;
+
         pthread_rwlock_wrlock(&pool->rwlock);
         if (pool == g_vlib_logpool) {
             g_vlib_logpool = NULL;
         }
-        avltree_free(pool->files);
-        avltree_free(pool->logs); /* must be last : it will free the rbuf stack */
+
+        nf = avltree_count(pool->files);
+        nl = avltree_count(pool->logs);
+        LOG_VERBOSE(g_vlib_log, "%s(): %zu file%s, %zu log%s.", __func__,
+                    nf, nf > 1 ? "s" : "",
+                    nl, nl > 1 ? "s" : "");
+
+        avltree_free(pool->logs);
+        avltree_free(pool->files); /* must be last : will free rbuf stack and close files */
         pthread_rwlock_unlock(&pool->rwlock);
         pthread_rwlock_destroy(&pool->rwlock);
         memset(pool, 0, sizeof(*pool));
         free(pool);
+        LOG_DEBUG(g_vlib_log, "%s(): done.", __func__);
     }
 }
 
@@ -464,6 +466,7 @@ logpool_t *         logpool_create_from_cmdline(
         LOG_DEBUG_BUF(g_vlib_log, token, len, "mod_name ");
 
         /* Get the Module Level that can be followed by '@', ':' or end of string. */
+        log.level = LOG_LVL_INFO;
         len = strtok_ro_r((const char **) &token, "@:", &next_tok, &maxlen, 0);
         LOG_DEBUG_BUF(g_vlib_log, token, len, "mod_lvl ");
         sep = token[len];
@@ -484,11 +487,10 @@ logpool_t *         logpool_create_from_cmdline(
             } else {
                 log.level = level;
             }
-        } else {
-            log.level = LOG_LVL_INFO;
         }
 
         /* Get the the Log File */
+        log.out = LOG_FILE_DEFAULT;
         if (sep == '@') {
             len = strtok_ro_r((const char **) &token, ":", &next_tok, &maxlen, 0);
             LOG_DEBUG_BUF(g_vlib_log, token, len, "mod_file ");
@@ -496,15 +498,13 @@ logpool_t *         logpool_create_from_cmdline(
                 token[len] = 0;
                 log.out = NULL;
                 mod_file = token;
-            } else {
-                log.out = LOG_FILE_DEFAULT;
             }
         } else {
             LOG_DEBUG_BUF(g_vlib_log, token, 0, "mod_file ");
-            log.out = LOG_FILE_DEFAULT;
         }
 
         /* Get the Log flags */
+        log.flags = LOG_FLAG_DEFAULT | LOGPOOL_FLAG_TEMPLATE;
         token = (char *) next_tok;
         len = maxlen;
         LOG_DEBUG_BUF(g_vlib_log, token, len, "mod_flags ");
@@ -512,24 +512,33 @@ logpool_t *         logpool_create_from_cmdline(
             const char *    next_flag   = token;
             size_t          maxflaglen  = maxlen;
             log_flag_t      flag;
+            char            nextsep = 0;
 
             token[len] = 0;
             log.flags = LOG_FLAG_NONE | LOGPOOL_FLAG_TEMPLATE;
-            while (maxflaglen > 0) {
-                len = strtok_ro_r((const char **) &token, "|+", &next_flag, &maxflaglen, 0);
+            for (char sep = 0; maxflaglen > 0; sep = nextsep) {
+                len = strtok_ro_r((const char **) &token, "|+-", &next_flag, &maxflaglen, 0);
                 LOG_DEBUG_BUF(g_vlib_log, token, 0, "mod_flag ");
                 if (len > 0) {
+                    nextsep = token[len];
                     token[len] = 0;
                     if ((flag = log_flag_from_name(token)) != LOG_FLAG_UNKNOWN) {
-                        log.flags |= flag;
+                        if (sep == '-') {
+                            log.flags &= ~flag;
+                        } else {
+                            static const unsigned int time_exclusive_flags
+                                = LOG_FLAG_ABS_TIME | LOG_FLAG_DATETIME;
+                            if ((flag & time_exclusive_flags) != 0) {
+                                log.flags &= ~(time_exclusive_flags);
+                            }
+                            log.flags |= flag;
+                        }
                     } else {
                         LOG_WARN(g_vlib_log, "warning: unknown log flag '%s'", token);
                         //FIXME: return error?
                     }
                 }
             }
-        } else {
-            log.flags = LOG_FLAG_DEFAULT | LOGPOOL_FLAG_TEMPLATE;
         }
 
         /* add the log to the pool */
@@ -545,9 +554,11 @@ logpool_t *         logpool_create_from_cmdline(
             if (avltree_count(pool->logs) > len && entry->use_count == 1) {
                 entry->use_count = 0; /* if new entry created (not replaced), set counter = 0 */
             }
-            LOG_VERBOSE(g_vlib_log, "Log ADDED pref:<%s> lvl:%s flags:%x out=%p path:%s",
-                        log.prefix, log_level_name(log.level),
-                        log.flags, (void *) log.out, mod_file);
+            LOG_VERBOSE(g_vlib_log, "logpool_cmdline: Log ADDED "
+                                    "pref:<%s> lvl:%s flags:%x out=%lx(fd %d) path:%s",
+                        STR_CHECKNULL(log.prefix), log_level_name(log.level),
+                        log.flags, (unsigned long) log.out,
+                        log.out != NULL ? fileno(log.out) : -1, STR_CHECKNULL(mod_file));
         }
     }
     pthread_rwlock_unlock(&pool->rwlock);
@@ -597,7 +608,7 @@ static logpool_entry_t *logpool_add_unlocked(
     }
     if ((pool->flags & LPP_SILENT) != 0)
         logentry->log.flags |= LOG_FLAG_SILENT;
-    if (logpool_ispattern(log->prefix)) {
+    if (fnmatch_patternidx(log->prefix) >= 0) {
         logentry->log.flags |= LOGPOOL_FLAG_PATTERN;
     } else {
         logentry->log.flags &= ~(LOGPOOL_FLAG_PATTERN);
@@ -654,8 +665,9 @@ static logpool_entry_t *logpool_add_unlocked(
         logpool_file_t *    file_to_free = NULL;
         FILE *              logout;
 
-        LOG_DEBUG(g_vlib_log, "LOGENTRY <%s> REPLACED by <%s>",
-                  preventry->log.prefix, logentry->log.prefix);
+        LOG_DEBUG(g_vlib_log, "LOGENTRY <%s> REPLACED by <%s> (%s%s)",
+                  STR_CHECKNULL(preventry->log.prefix), STR_CHECKNULL(logentry->log.prefix),
+                  preventry->file == pfile ? "same file:" : "", STR_CHECKNULL(pfile->path));
 
         /* lock log file before continuing, to not disturb threads owning this log entry */
         logout = preventry->log.out == NULL ? LOG_FILE_DEFAULT : preventry->log.out;
@@ -664,24 +676,20 @@ static logpool_entry_t *logpool_add_unlocked(
         if (preventry->file != pfile) { /* pointer comparison OK as doubles are forbiden. */
             /* the new logentry has a different file */
             LOG_DEBUG(g_vlib_log, "LOGENTRY %s REPLACED: FILE <%s> replaced by <%s>",
-                      preventry->log.prefix != NULL ? preventry->log.prefix : "(null)",
-                      preventry->file->path, pfile->path);
+                      STR_CHECKNULL(preventry->log.prefix), STR_CHECKNULL(preventry->file->path),
+                      STR_CHECKNULL(pfile->path));
             if (--preventry->file->use_count == 0) {
                 LOG_DEBUG(g_vlib_log, "LOGENTRY %s REPLACED: previous file <%s> is NO LONGER USED",
-                          preventry->log.prefix != NULL ? preventry->log.prefix : "(null)",
-                          preventry->file->path);
+                          STR_CHECKNULL(preventry->log.prefix), STR_CHECKNULL(preventry->file->path));
                 /* the file of previous logentry is no longer used -> remove it. */
                 if (avltree_remove(pool->files, preventry->file) == NULL) {
                     LOG_ERROR(g_vlib_log, "error: cannot remove file <%s> from logpool",
-                              preventry->file->path);
+                              STR_CHECKNULL(preventry->file->path));
                 } else {
                     file_to_free = preventry->file;
                 }
             }
         } else {
-            LOG_DEBUG(g_vlib_log, "LOGENTRY %s REPLACED: SAME FILE <%s>",
-                      preventry->log.prefix != NULL ? preventry->log.prefix : "(null)",
-                      pfile->path);
             /* new log has the same file as previous: decrement because ++use_count below. */
             --preventry->file->use_count;
         }
@@ -696,6 +704,7 @@ static logpool_entry_t *logpool_add_unlocked(
         logentry->use_count = preventry->use_count;
         *preventry = *logentry;
         logentry->log.prefix = NULL; /* logentry->log.prefix already freed */
+        logentry->log.out = NULL;
         logpool_entry_free(logentry);
 
         /* we can now unlock the old file, and free it as updated log entry is ready to be used */
@@ -741,7 +750,7 @@ int                 logpool_remove(
 
     search.log.prefix = log->prefix;
     search.log.flags = log->flags;
-    if (logpool_ispattern(search.log.prefix)) {
+    if (fnmatch_patternidx(search.log.prefix) >= 0) {
         search.log.flags |= LOGPOOL_FLAG_PATTERN;
     } else {
         search.log.flags &= ~(LOGPOOL_FLAG_PATTERN);
@@ -770,7 +779,7 @@ int                 logpool_release(
     search.log.prefix = log->prefix;
     search.log.flags = log->flags;
 
-    if (logpool_ispattern(search.log.prefix)) {
+    if (fnmatch_patternidx(search.log.prefix) >= 0) {
         search.log.flags |= LOGPOOL_FLAG_PATTERN;
     } else {
         search.log.flags &= ~(LOGPOOL_FLAG_PATTERN);
@@ -781,21 +790,21 @@ int                 logpool_release(
     if ((entry = avltree_find(pool->logs, &search)) != NULL) {
         if (entry->use_count > 0 && --(entry->use_count) > 0) {
             LOG_DEBUG(g_vlib_log, "LOGPOOL entry %s NOT released (use_count %d).",
-                      entry->log.prefix, entry->use_count);
+                      STR_CHECKNULL(entry->log.prefix), entry->use_count);
             errno = EBUSY;
             ret = entry->use_count;
         } else if ((entry->log.flags & LOGPOOL_FLAG_TEMPLATE) != 0) {
             errno = EACCES;
             LOG_DEBUG(g_vlib_log, "LOGPOOL entry '%s' NOT released (template).",
-                      entry->log.prefix == NULL ? "(null)" : entry->log.prefix);
+                      STR_CHECKNULL(entry->log.prefix));
         } else {
             LOG_DEBUG(g_vlib_log, "LOGPOOL entry '%s' will be released.",
-                      search.log.prefix == NULL ? "(null)" : search.log.prefix);
+                      STR_CHECKNULL(search.log.prefix));
             ret = logpool_remove_unlocked(pool, entry);
         }
     } else {
         LOG_DEBUG(g_vlib_log, "warning: LOGPOOL entry '%s' not found",
-                  search.log.prefix == NULL ? "(null)" : search.log.prefix);
+                  STR_CHECKNULL(search.log.prefix));
     }
 
     pthread_rwlock_unlock(&pool->rwlock);
@@ -820,7 +829,7 @@ log_t *             logpool_find(
     ref.log.prefix = (char *) prefix;
     ref.log.flags = LOG_FLAG_NONE;
 
-    if (logpool_ispattern(ref.log.prefix)) {
+    if (fnmatch_patternidx(ref.log.prefix) >= 0) {
         ref.log.flags |= LOGPOOL_FLAG_PATTERN;
     } else {
         ref.log.flags &= ~(LOGPOOL_FLAG_PATTERN);
@@ -891,6 +900,9 @@ static logpool_entry_t * logpool_findpattern(
     max.log.flags = LOGPOOL_FLAG_PATTERN;
     max.log.prefix = maxpref;
 
+    LOG_DEBUG(g_vlib_log, "%s(): looking for patterns matching '%s' (2 passes)", __func__,
+              STR_CHECKNULL(search->log.prefix));
+
     for (int i = 0; i < 2; ++i) {
         if (avltree_visit_range(pool->logs, &min, &max,
                             logpool_findpattern_visit, &data, AVH_INFIX) == AVS_FINISHED
@@ -952,6 +964,8 @@ log_t *             logpool_getlog(
         ref.log.prefix = (char *) prefix;
         ref.log.flags &= ~(LOGPOOL_FLAG_TEMPLATE);
         entry = logpool_add_unlocked(pool, &(ref.log), entry->file->path);
+        LOG_DEBUG(g_vlib_log, "LOGPOOL: created new entry '%s'",
+                  STR_CHECKNULL(entry->log.prefix));
     } else if (entry != NULL) {
         ++(entry->use_count);
     }
@@ -1030,15 +1044,15 @@ static avltree_visit_status_t   logpool_logprint_visit(
     if (entry != NULL) {
         LOG_INFO(log, "LOGPOOL: ENTRY %-15s out:%08lx,fd:%02d file:%08lx,"
                 "fd:%02d,used:%d,path:%s",
-                entry->log.prefix ? entry->log.prefix : "(null)",
+                STR_CHECKNULL(entry->log.prefix),
                 (unsigned long) entry->log.out,
                 entry->log.out ? fileno(entry->log.out) : -1,
                 (unsigned long) (entry->file ? entry->file->file : NULL),
                 entry->file && entry->file->file ? fileno(entry->file->file) : -1,
                 entry->file ? entry->file->use_count : -1,
-                entry->file && entry->file->path ? entry->file->path : "(null)");
+                entry->file && entry->file->path ? entry->file->path : STR_NULL);
     } else {
-        LOG_INFO(log, "LOGPOOL: ENTRY (null)");
+        LOG_INFO(log, "LOGPOOL: ENTRY " STR_NULL);
     }
     return AVS_CONTINUE;
 }
@@ -1055,11 +1069,11 @@ static avltree_visit_status_t   logpool_fileprint_visit(
 
     if (file != NULL) {
         LOG_INFO(log, "LOGPOOL: FILE %16s out:%08lx fd:%02d used:%d FILE <%s>",
-                "", (unsigned long) (file->file),
-                file->file ? fileno(file->file) : -1, file->use_count,
-                file->path ? file->path : "(null)");
+                 "", (unsigned long) (file->file),
+                 file->file ? fileno(file->file) : -1, file->use_count,
+                 STR_CHECKNULL(file->path));
     } else {
-        LOG_INFO(log, "LOGPOOL: FILE (null)");
+        LOG_INFO(log, "LOGPOOL: FILE " STR_NULL);
     }
 
     return AVS_CONTINUE;
@@ -1073,10 +1087,9 @@ static int avltree_print_logpool(FILE * out, const avltree_node_t * node) {
     ssize_t             len;
 
     if ((entry->log.flags & LOGPOOL_FLAG_PATTERN) == 0)
-        len = snprintf(name, name_sz, "%s", entry->log.prefix);
+        len = snprintf(name, name_sz, "%s", STR_CHECKNULL(entry->log.prefix));
     else
-        len = snprintf(name, name_sz, "/%s/", entry->log.prefix);
-
+        len = snprintf(name, name_sz, "/%s/", STR_CHECKNULL(entry->log.prefix));
     if (len < 0)  {
         str0cpy(name, "error", name_sz);
     }
@@ -1231,7 +1244,7 @@ int logpool_replacefile(
     }
 
     /* LOG_VERBOSE(g_vlib_log, "%s(): about to replace logs with '%s'",
-                __func__, newpath ? newpath : "(null)"); */
+                __func__, STR_CHECKNULL(newpath)); */
 
     pthread_rwlock_wrlock(&pool->rwlock);
 

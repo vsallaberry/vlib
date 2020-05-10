@@ -128,6 +128,24 @@ void            refresh();
 # undef VTERM_IOCTL_GETWINSZ
 #endif
 
+/** historical setf/setb
+ * black     COLOR_BLACK       0     0, 0, 0
+ * blue      COLOR_BLUE        1     0,0,max
+ * green     COLOR_GREEN       2     0,max,0
+ * cyan      COLOR_CYAN        3     0,max,max
+ * red       COLOR_RED         4     max,0,0
+ * magenta   COLOR_MAGENTA     5     max,0,max
+ * yellow    COLOR_YELLOW      6     max,max,0
+ * white     COLOR_WHITE       7     max,max,max */
+#define COLOR_HIST_BLACK        0
+#define COLOR_HIST_BLUE         1
+#define COLOR_HIST_GREEN        2
+#define COLOR_HIST_CYAN         3
+#define COLOR_HIST_RED          4
+#define COLOR_HIST_MAGENTA      5
+#define COLOR_HIST_YELLOW       6
+#define COLOR_HIST_WHITE        7
+
 /* ************************************************************************* */
 
 #define VTERM_FD_FREE   (-1)
@@ -166,52 +184,104 @@ static struct {
 #  endif
 };
 
-/* Default colors strings corresponding to vterm_color_t */
+/* Default colors strings corresponding to vterm_color_t
+ * !!! must be in same order as enum vterm_color_t */
 enum {
     VCOLOR_STATIC = 0,
     VCOLOR_ALLOC = 1,
 };
-typedef struct { char * str; int libcolor; unsigned int size; } vterm_colors_t;
-static const vterm_colors_t s_vterm_colors_default[VCOLOR_EMPTY+1] = {
-    /* Foreground Colors */
-    { "\x1b[30m", COLOR_BLACK, 0 },      /* black */
-    { "\x1b[31m", COLOR_RED, 0 },        /* red */
-    { "\x1b[32m", COLOR_GREEN, 0 },      /* green */
-    { "\x1b[33m", COLOR_YELLOW, 0 },     /* yellow */
-    { "\x1b[34m", COLOR_BLUE, 0 },       /* blue */
-    { "\x1b[35m", COLOR_MAGENTA, 0 },    /* magenta */
-    { "\x1b[36m", COLOR_CYAN, 0 },       /* cyan */
-    { "\x1b[37m", COLOR_WHITE, 0 },      /* white */
-    /* Background Colors */
-    { "\x1b[40m", COLOR_BLACK, 0 },      /* black */
-    { "\x1b[41m", COLOR_RED, 0 },        /* red */
-    { "\x1b[42m", COLOR_GREEN, 0 },      /* green */
-    { "\x1b[43m", COLOR_YELLOW, 0 },     /* yellow */
-    { "\x1b[44m", COLOR_BLUE, 0 },       /* blue */
-    { "\x1b[45m", COLOR_MAGENTA, 0 },    /* magenta */
-    { "\x1b[46m", COLOR_CYAN, 0 },       /* cyan */
-    { "\x1b[47m", COLOR_WHITE, 0 },      /* white */
-    /* Styles */
-    { "\x1b[00m", 0, 0 }, /* Normal */
-    { "\x1b[01m", 0, 0 }, /* Bold */
-    { "\x1b[02m", 0, 0 }, /* Dark */
-    { "\x1b[03m", 0, 0 }, /* Italic */
-    { "\x1b[04m", 0, 0 }, /* Underlined */
-    { "\x1b[05m", 0, 0 }, /* Blinking */
-    { "\x1b[07m", 0, 0 }, /* Standout */
-    /* Reserved internal values */
-    { "\x1b[00m", VCOLOR_STATIC, 0 }, /* Reset */
-    { "",         VCOLOR_STATIC, 0 }  /* empty */
+enum {              /* indexes of libcolor */
+    VCOLOR_SETAF    = 0,
+    VCOLOR_SETF     = 1,
 };
-static vterm_colors_t s_vterm_colors[VCOLOR_EMPTY+1] = { { NULL, 0, 0 }, };
+typedef struct { char * str; int libcolor[5]; unsigned int size; int alloc; } vterm_colorinfo_t;
+static const vterm_colorinfo_t s_vterm_colors_default[VCOLOR_EMPTY+1] = {
+    /* Foreground Colors */
+    { "\x1b[30m", { COLOR_BLACK, COLOR_HIST_BLACK,},    0, VCOLOR_STATIC },
+    { "\x1b[31m", { COLOR_RED, COLOR_HIST_RED,},        0, VCOLOR_STATIC },
+    { "\x1b[32m", { COLOR_GREEN, COLOR_HIST_GREEN,},    0, VCOLOR_STATIC },
+    { "\x1b[33m", { COLOR_YELLOW, COLOR_HIST_YELLOW,},  0, VCOLOR_STATIC },
+    { "\x1b[34m", { COLOR_BLUE, COLOR_HIST_BLUE,},      0, VCOLOR_STATIC },
+    { "\x1b[35m", { COLOR_MAGENTA, COLOR_HIST_MAGENTA,},0, VCOLOR_STATIC },
+    { "\x1b[36m", { COLOR_CYAN, COLOR_HIST_CYAN,},      0, VCOLOR_STATIC },
+    { "\x1b[37m", { COLOR_WHITE, COLOR_HIST_WHITE,},    0, VCOLOR_STATIC },
+    /* Background Colors */
+    { "\x1b[40m", { COLOR_BLACK, COLOR_HIST_BLACK,},    0, VCOLOR_STATIC },
+    { "\x1b[41m", { COLOR_RED, COLOR_HIST_RED,},        0, VCOLOR_STATIC },
+    { "\x1b[42m", { COLOR_GREEN, COLOR_HIST_GREEN,},    0, VCOLOR_STATIC },
+    { "\x1b[43m", { COLOR_YELLOW, COLOR_HIST_YELLOW,},  0, VCOLOR_STATIC },
+    { "\x1b[44m", { COLOR_BLUE, COLOR_HIST_BLUE,},      0, VCOLOR_STATIC },
+    { "\x1b[45m", { COLOR_MAGENTA, COLOR_HIST_MAGENTA,},0, VCOLOR_STATIC },
+    { "\x1b[46m", { COLOR_CYAN, COLOR_HIST_CYAN,},      0, VCOLOR_STATIC },
+    { "\x1b[47m", { COLOR_WHITE, COLOR_HIST_WHITE,},    0, VCOLOR_STATIC },
+    /* Styles */
+    { "\x1b[00m", {0,}, 0, VCOLOR_STATIC }, /* Normal */
+    { "\x1b[01m", {0,}, 0, VCOLOR_STATIC }, /* Bold */
+    { "\x1b[02m", {0,}, 0, VCOLOR_STATIC }, /* Dark */
+    { "\x1b[03m", {0,}, 0, VCOLOR_STATIC }, /* Italic */
+    { "\x1b[04m", {0,}, 0, VCOLOR_STATIC }, /* Underlined */
+    { "\x1b[05m", {0,}, 0, VCOLOR_STATIC }, /* Blinking */
+    { "\x1b[07m", {0,}, 0, VCOLOR_STATIC }, /* Standout */
+    /* Reserved internal values */
+    { "\x1b[00m", {0,}, 0, VCOLOR_STATIC }, /* Reset */
+    { "",         {0,}, 0, VCOLOR_STATIC }  /* empty */
+};
+static vterm_colorinfo_t s_vterm_colors[VCOLOR_EMPTY+1] = { { NULL, {0,}, 0, 0 }, };
+
+/** various terminal capabilty strings such as keys, ...
+ * !!! must be in same order as enum vterm_cap_t */
+typedef struct { char * str; char * caps[5];
+                 int id; int alloc; unsigned int size; } vterm_caps_t;
+static vterm_caps_t s_vterm_caps_default[VTERM_CAPS_NB + 1] = {
+    { "",                   { NULL,},       VTERM_CAP_EMPTY,    VCOLOR_STATIC, 0 },
+    { "\x1b\x5b\x41",       {"cuu1",NULL},  VTERM_CAP_UP,       VCOLOR_STATIC, 0 },
+    { "\x1b\x5b\x42",       {"cud1",NULL},  VTERM_CAP_DOWN,     VCOLOR_STATIC, 0 },
+    { "\x1b\x5b\x44",       {"cub1",NULL},  VTERM_CAP_LEFT,     VCOLOR_STATIC, 0 },
+    { "\x1b\x5b\x43",       {"cuf1",NULL},  VTERM_CAP_RIGHT,    VCOLOR_STATIC, 0 },
+    { "\x1b\x5b\x3f\x31\x68\x1b\x3d",{"smkx",NULL},VTERM_CAP_KB_KEYCODE,VCOLOR_STATIC,0 },
+    { "\x1b\x5b\x3f\x31\x6c\x1b\x3e",{"rmkx",NULL},VTERM_CAP_NO_KEYCODE,VCOLOR_STATIC,0 },
+    { "",                   { NULL,},       VTERM_KEY_UNKNOWN,  VCOLOR_STATIC, 0 },
+    { "\x1b\x5b\x41",       {"kcuu1",NULL}, VTERM_KEY_UP,       VCOLOR_STATIC, 0 },
+    { "\x1b\x5b\x42",       {"kcud1",NULL}, VTERM_KEY_DOWN,     VCOLOR_STATIC, 0 },
+    { "\x1b\x5b\x44",       {"kcub1",NULL}, VTERM_KEY_LEFT,     VCOLOR_STATIC, 0 },
+    { "\x1b\x5b\x43",       {"kcuf1",NULL}, VTERM_KEY_RIGHT,    VCOLOR_STATIC, 0 },
+    { "\x1b\x5b\x31\x3b\x32\x44",{"kLFT",NULL},VTERM_KEY_SH_LEFT,VCOLOR_STATIC, 0 },
+    { "\x1b\x5b\x31\x3b\x32\x43",{"kRIT",NULL},VTERM_KEY_SH_RIGHT,VCOLOR_STATIC, 0 },
+    { "\x8",                {"kbs",NULL},   VTERM_KEY_BACKSPACE,VCOLOR_STATIC, 0 },
+    { "\x1b\x5b\x33\x7e",   {"kdch1",NULL}, VTERM_KEY_DEL,      VCOLOR_STATIC, 0 },
+    { "\x9",                {"ktab",NULL},  VTERM_KEY_TAB,      VCOLOR_STATIC, 0 },
+    { "\x1b",               {"kext",NULL},  VTERM_KEY_ESC,      VCOLOR_STATIC, 0 },
+    { "\x1b\x5b\x48",       {"khome",NULL}, VTERM_KEY_HOME,     VCOLOR_STATIC, 0 },
+    { "\x1b\x5b\x46",       {"kend",NULL},  VTERM_KEY_END,      VCOLOR_STATIC, 0 },
+    { "\x1b\x5b\x35\x7e",   {"kpp",NULL},   VTERM_KEY_PAGEUP,   VCOLOR_STATIC, 0 },
+    { "\x1b\x5b\x36\x7e",   {"knp",NULL},   VTERM_KEY_PAGEDOWN, VCOLOR_STATIC, 0 },
+    { "\x1b\x4f\x50",       {"kf1",NULL},   VTERM_KEY_F1,       VCOLOR_STATIC, 0 },
+    { "\x1b\x4f\x51",       {"kf2",NULL},   VTERM_KEY_F2,       VCOLOR_STATIC, 0 },
+    { "\x1b\x4f\x52",       {"kf3",NULL},   VTERM_KEY_F3,       VCOLOR_STATIC, 0 },
+    { "\x1b\x4f\x53",       {"kf4",NULL},   VTERM_KEY_F4,       VCOLOR_STATIC, 0 },
+    { "\x1b\x5b\x31\x35\x7e",{"kf5",NULL},  VTERM_KEY_F5,       VCOLOR_STATIC, 0 },
+    { "\x1b\x4f\x31\x37\x7e",{"kf6",NULL},  VTERM_KEY_F6,       VCOLOR_STATIC, 0 },
+    { "\x1b\x4f\x31\x38\x7e",{"kf7",NULL},  VTERM_KEY_F7,       VCOLOR_STATIC, 0 },
+    { "\x1b\x4f\x31\x39\x7e",{"kf8",NULL},  VTERM_KEY_F8,       VCOLOR_STATIC, 0 },
+    { "\x1b\x4f\x32\x30\x7e",{"kf9",NULL},  VTERM_KEY_F9,       VCOLOR_STATIC, 0 },
+    { "\x1b\x4f\x32\x31\x7e",{"kf10",NULL}, VTERM_KEY_F10,      VCOLOR_STATIC, 0 },
+    { "\x1b\x4f\x32\x33\x7e",{"kf11",NULL}, VTERM_KEY_F11,      VCOLOR_STATIC, 0 },
+    { "\x1b\x4f\x32\x34\x7e",{"kf12",NULL}, VTERM_KEY_F12,      VCOLOR_STATIC, 0 },
+    /* TODO: use struct termios.c_cc[] */
+    { "\x1a"                ,{"kspd",NULL}, VTERM_KEY_STOP,     VCOLOR_STATIC, 0 },
+    { "\x4"                 ,{NULL},        VTERM_KEY_EOF,      VCOLOR_STATIC, 0 },
+    { "\x3"                 ,{"kcan",NULL}, VTERM_KEY_INT,      VCOLOR_STATIC, 0 },
+    { "", { NULL, }, 0, 0, 0 }
+};
+static vterm_caps_t s_vterm_caps[VTERM_CAPS_NB+1] = { { NULL, {NULL,}, 0, 0, 0 }, };
 
 /* ************************************************************************* */
 static int vterm_init_default_colors(int set_static) {
-    memcpy(s_vterm_colors, s_vterm_colors_default, sizeof(s_vterm_colors_default));
     for (unsigned int i = 0; i <= VCOLOR_EMPTY; ++i) {
+        s_vterm_colors[i] = s_vterm_colors_default[i];
         s_vterm_colors[i].size = strlen(s_vterm_colors[i].str);
         if (set_static)
-            s_vterm_colors[i].libcolor = VCOLOR_STATIC;
+            s_vterm_colors[i].alloc = VCOLOR_STATIC;
     }
     s_vterm_info.term_fgbg = VCOLOR_NULL;
     s_vterm_info.fixedwinsz = -1;
@@ -221,11 +291,36 @@ static int vterm_init_default_colors(int set_static) {
 /* ************************************************************************* */
 static int vterm_free_colors() {
     for (unsigned int i = 0; i <= VCOLOR_EMPTY; ++i) {
-        if (s_vterm_colors[i].libcolor != VCOLOR_STATIC
+        if (s_vterm_colors[i].alloc != VCOLOR_STATIC
         &&  s_vterm_colors[i].str != NULL) {
             free(s_vterm_colors[i].str);
-            s_vterm_colors[i].libcolor = VCOLOR_STATIC;
+            s_vterm_colors[i].alloc = VCOLOR_STATIC;
             s_vterm_colors[i].str = NULL;
+        }
+    }
+    return VTERM_OK;
+}
+
+/* ************************************************************************* */
+static int vterm_init_default_caps(int set_static) {
+    for (unsigned int i = 0; i <= VTERM_CAPS_NB; ++i) {
+        s_vterm_caps[i] = s_vterm_caps_default[i];
+        s_vterm_caps[i].size = strlen(s_vterm_caps[i].str);
+        s_vterm_caps_default[i].size = s_vterm_caps[i].size;
+        if (set_static)
+            s_vterm_caps[i].alloc = VCOLOR_STATIC;
+    }
+    return VTERM_OK;
+}
+
+/* ************************************************************************* */
+static int vterm_free_caps() {
+    for (unsigned int i = 0; i <= VTERM_CAPS_NB; ++i) {
+        if (s_vterm_caps[i].alloc != VCOLOR_STATIC
+        &&  s_vterm_caps[i].str != NULL) {
+            free(s_vterm_caps[i].str);
+            s_vterm_caps[i].alloc = VCOLOR_STATIC;
+            s_vterm_caps[i].str = NULL;
         }
     }
     return VTERM_OK;
@@ -256,39 +351,66 @@ int vterm_has_colors(int fd) {
 /* ************************************************************************* */
 vterm_colorset_t vterm_termfgbg(int fd) {
     static const vterm_colorset_t termfgbg_default
-        = VCOLOR_BUILD(VCOLOR_WHITE, VCOLOR_BLACK, VCOLOR_EMPTY);
+        = VCOLOR_BUILD(VCOLOR_WHITE, VCOLOR_BG_BLACK, VCOLOR_EMPTY);
     const char *    env;
     const char *    token;
     size_t          len;
-    int             fg, bg;
+    unsigned long   fg, bg;
 
     if (vterm_init(fd, s_vterm_info.flags) != VTERM_OK) {
+        LOG_DEBUG(g_vlib_log, "%s(): no tty or init failed, using default (%u,%u,%u)",
+                  __func__, VCOLOR_GET_FORE(termfgbg_default),
+                  VCOLOR_GET_BACK(termfgbg_default),
+                  VCOLOR_GET_STYLE(termfgbg_default));
         return termfgbg_default;
     }
+
     if (s_vterm_info.term_fgbg != VCOLOR_NULL) {
+        LOG_DEBUG(g_vlib_log, "%s(): reusing termfgbg: (%u,%u,%u)",
+                  __func__, VCOLOR_GET_FORE(s_vterm_info.term_fgbg),
+                  VCOLOR_GET_BACK(s_vterm_info.term_fgbg),
+                  VCOLOR_GET_STYLE(s_vterm_info.term_fgbg));
         return s_vterm_info.term_fgbg;
     }
+
     if ((env = getenv("COLORFGBG")) == NULL) {
+        LOG_DEBUG(g_vlib_log, "%s(): no COLORFGBG, using default (%u,%u,%u)",
+                  __func__, VCOLOR_GET_FORE(termfgbg_default),
+                  VCOLOR_GET_BACK(termfgbg_default),
+                  VCOLOR_GET_STYLE(termfgbg_default));
         s_vterm_info.term_fgbg = termfgbg_default;
         return s_vterm_info.term_fgbg;
     }
+
     len = strtok_ro_r(&token, ";", &env, NULL, 0);
     // TODO COLOR CONVERSION NOT 100% accurate
-    fg = (len > 0) ? strtol(token, NULL, 10) : 7;
-    bg = (len > 0 && env && *env) ? strtol(env, NULL, 10) : 0;
-    if (fg > 7)
-        fg = fg < 16 ? fg - 8 : 0;
-    if (bg > 7)
-        bg = bg < 16 ? bg - 8 : 7;
+    if (len > 0) {
+        fg = strtol(token, NULL, 10);
+        fg = (fg % (VCOLOR_BG - VCOLOR_FG)) + VCOLOR_FG;
+    } else {
+        fg = VCOLOR_GET_FORE(termfgbg_default);
+    }
+    if (len > 0 && env && *env) {
+        bg = strtol(env, NULL, 10);
+        bg = (bg % (VCOLOR_STYLE - VCOLOR_BG)) + VCOLOR_BG;
+    } else {
+        bg = VCOLOR_GET_BACK(termfgbg_default);
+    }
 
     s_vterm_info.term_fgbg = VCOLOR_BUILD(fg, bg, VCOLOR_EMPTY);
+
+    LOG_DEBUG(g_vlib_log, "%s(): set (%u,%u,%u)", __func__,
+              VCOLOR_GET_FORE(s_vterm_info.term_fgbg),
+              VCOLOR_GET_BACK(s_vterm_info.term_fgbg),
+              VCOLOR_GET_STYLE(s_vterm_info.term_fgbg));
+
     return s_vterm_info.term_fgbg;
 }
 
 /* ************************************************************************* */
 static inline unsigned int vterm_color_index(int fd, vterm_color_t color) {
     if (vterm_has_colors(fd)) {
-        if ((int)color < 0 || color >= sizeof(s_vterm_colors) / sizeof(*s_vterm_colors)) {
+        if ((unsigned int)color >= sizeof(s_vterm_colors) / sizeof(*s_vterm_colors)) {
             return VCOLOR_RESET;
         } else {
             return color;
@@ -354,16 +476,21 @@ ssize_t vterm_putcolor(FILE * out, vterm_colorset_t colors) {
 char * vterm_buildcolor(int fd, vterm_colorset_t colors, char * buffer, size_t * psize) {
     ssize_t             n;
     vterm_colorset_t    fg, bg, s; /* could be vterm_color_t, no pb as bounds are checked */
+    int ret;
 
-    if (buffer == NULL || (psize != NULL && *psize <= 1) || ! vterm_has_colors(fd)) {
+    if ((buffer != NULL && psize == NULL)
+    ||  (psize != NULL && *psize <= 1) || ! vterm_has_colors(fd)) {
         if (psize != NULL) {
-            if (*psize == 0)
-                return NULL;
+            if (*psize == 0) {
+                return buffer == NULL ? strdup("") : NULL;
+            }
             *psize = 0;
         }
-        if (buffer != NULL)
+        if (buffer != NULL) {
             *buffer = 0;
-        return buffer;
+            return buffer;
+        }
+        return strdup("");
     }
 
     if ((fg = VCOLOR_GET_FORE(colors)) >= VCOLOR_BG && fg != VCOLOR_RESET)
@@ -375,28 +502,98 @@ char * vterm_buildcolor(int fd, vterm_colorset_t colors, char * buffer, size_t *
     if ((s = VCOLOR_GET_STYLE(colors)) > VCOLOR_EMPTY || s < VCOLOR_STYLE)
         s = VCOLOR_EMPTY;
 
-    if (psize == NULL) {
-        n = sprintf(buffer, "%s%s%s",
-                    s_vterm_colors[fg].str,
-                    s_vterm_colors[bg].str,
-                    s_vterm_colors[s].str);
+    if (buffer == NULL) {
+        n = s_vterm_colors[fg].size + s_vterm_colors[bg].size
+          + s_vterm_colors[s].size + 1;
+        if ((buffer = malloc(n)) == NULL) {
+            if (psize != NULL)
+                *psize = 0;
+            return NULL;
+        }
+    } else
+        n = *psize;
 
-    } else {
-        n = VLIB_SNPRINTF(n, buffer, *psize, "%s%s%s",
-                    s_vterm_colors[fg].str,
-                    s_vterm_colors[bg].str,
-                    s_vterm_colors[s].str);
-    }
+    n = VLIB_SNPRINTF(ret, buffer, n, "%s%s%s",
+            s_vterm_colors[fg].str,
+            s_vterm_colors[bg].str,
+            s_vterm_colors[s].str);
+
     if (n <= 0) {
         *buffer = 0;
         if (psize != NULL)
             *psize = 0;
-    } else {
-        if (psize)
-            *psize = n;
+    } else if (psize != NULL) {
+        *psize = n;
     }
 
     return buffer;
+}
+
+/* ************************************************************************* */
+static inline unsigned int vterm_cap_index(int fd, vterm_cap_t cap) {
+    int ret = vterm_init(fd, s_vterm_info.flags);
+    if (ret == VTERM_OK) {
+        if ((unsigned int)cap >= VTERM_CAPS_NB) {
+            return VTERM_CAP_EMPTY;
+        } else {
+            return cap;
+        }
+    } else if (s_vterm_caps[0].str == NULL) {
+        vterm_init_default_caps(0);
+    }
+    return VTERM_CAP_EMPTY;
+}
+
+/* ************************************************************************* */
+const char * vterm_cap(int fd, vterm_cap_t cap) {
+    return s_vterm_caps[vterm_cap_index(fd, cap)].str;
+}
+
+/* ************************************************************************* */
+unsigned int vterm_cap_size(int fd, vterm_cap_t cap) {
+    return s_vterm_caps[vterm_cap_index(fd, cap)].size;
+}
+
+/* ************************************************************************* */
+unsigned int vterm_cap_maxsize(int fd) {
+    unsigned int i, size, max = 0;
+
+    for (i = 0; i < VTERM_CAPS_NB; ++i) {
+        if ((size = s_vterm_caps[vterm_cap_index(fd, i)].size) > max)
+            max = size;
+    }
+    return max;
+}
+
+/* ************************************************************************* */
+int vterm_cap_check(int fd, vterm_cap_t cap,
+                    const char * buffer, unsigned int buf_size) {
+    unsigned int    idx = vterm_cap_index(fd, cap);
+    int             ret;
+
+    if ((ret = (buf_size == s_vterm_caps[idx].size
+                && 0 == memcmp(buffer, s_vterm_caps[idx].str, buf_size)))) {
+        return ret;
+    }
+    /* this is a bad hack, very very bad */
+    if (cap >= VTERM_KEY_UP && cap <= VTERM_KEY_RIGHT) {
+        if ((ret = (buf_size == s_vterm_caps[idx-VTERM_KEY_UP+VTERM_CAP_UP].size
+                    && 0 == memcmp(buffer,
+                                   s_vterm_caps[idx-VTERM_KEY_UP+VTERM_CAP_UP].str,
+                                   buf_size)))) {
+            return ret;
+        }
+        return (buf_size == s_vterm_caps_default[idx].size
+                && 0 == memcmp(buffer, s_vterm_caps_default[idx].str, buf_size));
+    } else if (cap >= VTERM_KEY_HOME && cap <= VTERM_KEY_PAGEDOWN) {
+        return (buf_size == s_vterm_caps_default[idx].size
+                && 0 == memcmp(buffer, s_vterm_caps_default[idx].str, buf_size));
+    } else if (cap == VTERM_KEY_STOP || cap == VTERM_KEY_INT || cap == VTERM_KEY_EOF) {
+        return (buf_size == s_vterm_caps_default[idx].size
+                && 0 == memcmp(buffer, s_vterm_caps_default[idx].str, buf_size));
+    } else {
+        return 0;
+    }
 }
 
 /* ************************************************************************* */
@@ -500,24 +697,37 @@ int vterm_get_columns(int fd) {
 }
 
 /* ************************************************************************* */
-static inline int vterm_clear_manual(FILE * out) {
-    char * buf;
-    unsigned int row, cols = 0, rows = 0;
+int vterm_clear_rect(FILE * out, int row, int col, int end_row, int end_col) {
+    char *  buf;
+    int     cols    = end_col - col + 1;
+
+    if (end_row - row + 1 <= 0 || cols <= 0
+    || (buf = malloc(cols + 3)) == NULL) {
+        return VTERM_ERROR;
+    }
+
+    memset(buf, ' ', cols);
+    buf[cols] = '\r';
+    buf[cols+1] = '\n';
+    buf[cols+2] = 0;
+    flockfile(out);
+    vterm_goto(out, row, col);
+    for (int i = row; i <= end_row; ++i) {
+        fwrite(buf, 1, cols + 2, out);
+    }
+    fflush(out);
+    funlockfile(out);
+    free(buf);
+    return VTERM_OK;
+}
+
+/* ************************************************************************* */
+static int vterm_clear_manual(FILE * out) {
+    unsigned int cols = 0, rows = 0;
     int fd = out != NULL ? fileno(out) : -1;
 
     vterm_get_winsize(fd, &rows, &cols);
-    if ((buf = malloc(cols + 3)) != NULL) {
-        memset(buf, ' ', cols);
-        buf[cols] = '\r';
-        buf[cols+1] = '\n';
-        buf[cols+2] = 0;        buf[cols+1] = '\n';
-        vterm_goto(out, 0, 0);
-        for (row = 0; row < rows; ++row) {
-            fwrite(buf, 1, cols + 2, out);
-        }
-        free(buf);
-    }
-    return VTERM_OK;
+    return vterm_clear_rect(out, 0, 0, rows - 1, cols - 1);
 }
 
 /* ************************************************************************* */
@@ -560,7 +770,7 @@ static int vterm_readline_internal(
         if (read(fdin, key, sizeof(key) / sizeof(*key)) != 1)
             continue ;
         c = *key;
-        if (c == EOF || c == 27 || c == '\n' || c == '\r')
+        if (c == EOF || c == 27 || c == '\n' || c == '\r' || c == 0x03 || c == 0x04)
             break ;
         if (c == 0x7f || c == 8) { //TODO use terminfo
             if (i > 0) {
@@ -585,7 +795,7 @@ static int vterm_readline_internal(
         tcsetattr(fdout, TCSANOW, &tios_bak);
     }
     buf[i] = 0;
-    return (c == 27 || c == EOF) ? VTERM_ERROR : (int) i;
+    return (c == 27 || c == EOF || c == 0x03) ? VTERM_ERROR : (int) i;
 }
 
 /* ************************************************************************* */
@@ -595,31 +805,39 @@ int vterm_readline(FILE * in, FILE * out, char * buf,
 }
 
 /* ************************************************************************* */
-static size_t vterm_strlen(int fd, const char * str) {
-    size_t len = 0;
+size_t vterm_strlen(int fd, const char * str, size_t * size, size_t maxlen) {
+    size_t len = 0, ntrunc = 0;
 
     if (str == NULL)
         return 0;
     vterm_init(fd, s_vterm_info.flags);
 
-    for (int j = 0; str[j] != 0; /* no incr */) {
-        int i_col, i_found = -1;
-        for (i_col = 0; i_col < VCOLOR_EMPTY; ++i_col) {
+    for (size_t j = 0; (size == NULL || j < *size) && str[j] != 0; /* no incr */) {
+        int i_found = -1;
+        for (int i_col = 0; i_col < VCOLOR_EMPTY; ++i_col) {
             if (((i_found < 0 && s_vterm_colors[i_col].size > 0)
-                        || s_vterm_colors[i_col].size > s_vterm_colors[i_found].size)
-                    &&  strncmp(str + j, s_vterm_colors[i_col].str,
-                        s_vterm_colors[i_col].size) == 0) {
+                  || s_vterm_colors[i_col].size > s_vterm_colors[i_found].size)
+                &&  (size == NULL || j + s_vterm_colors[i_col].size <= *size)
+                &&  strncmp(str + j, s_vterm_colors[i_col].str,
+                            s_vterm_colors[i_col].size) == 0) {
                 i_found = i_col;
             }
         }
         if (i_found >= 0) {
+            if (ntrunc == j) {
+                ntrunc += s_vterm_colors[i_found].size;
+            }
             j += s_vterm_colors[i_found].size;
         } else {
             ++j;
-            ++len;
+            if (maxlen == 0 || len < maxlen) {
+                ++len;
+                ntrunc = j;
+            }
         }
     }
-
+    if (size != NULL)
+        *size = ntrunc;
     return len;
 }
 
@@ -645,7 +863,7 @@ int vterm_prompt(
     if (prompt == NULL)
         prompt_len = 0;
     else {
-        prompt_len = vterm_strlen(fd, prompt);
+        prompt_len = vterm_strlen(fd, prompt, NULL, 0);
         fputs(prompt, out);
     }
     if ((flags & VTERM_PROMPT_WITH_DEFAULT) != 0) {
@@ -684,6 +902,25 @@ int vterm_prompt(
     return res;
 }
 
+/* ************************************************************************* */
+int vterm_printxy(FILE * out, int row, int col, const char * fmt, ...) {
+    int         ret;
+    va_list     valist;
+
+    flockfile(out);
+    if ((ret = vterm_goto(out, row, col)) < 0) {
+        funlockfile(out);
+        return ret;
+    }
+
+    va_start(valist, fmt);
+    ret = vfprintf(out, fmt, valist);
+    va_end(valist);
+
+    funlockfile(out);
+    return ret;
+}
+
 #if ! CONFIG_CURSES
 /*******************************************************************
  * vterm implementation WITHOUT ncurses.
@@ -699,18 +936,19 @@ int vterm_init(int fd, unsigned int flags) {
 
     s_vterm_info.fd = VTERM_FD_BUSY;
 
-    LOG_DEBUG(g_vlib_log, "vterm: initializing (flags=%u)", flags);
+    LOG_DEBUG(g_vlib_log, "vterm: initializing (fd=%d flags=%u)", fd, flags);
 
     s_vterm_info.has_colors = (flags & VTF_FORCE_COLORS) != 0
                               && (flags & VTF_NO_COLORS) == 0;
 
     vterm_init_default_colors(1);
+    vterm_init_default_caps(1);
 
     s_vterm_info.flags = flags;
     s_vterm_info.fd = fd; /* must be last */
 
-    LOG_VERBOSE(g_vlib_log, "vterm: initialized (flags:%u has_colors:%d)",
-                flags, s_vterm_info.has_colors);
+    LOG_VERBOSE(g_vlib_log, "vterm: initialized (fd:%d flags:%u has_colors:%d)",
+                fd, flags, s_vterm_info.has_colors);
 
     return VTERM_OK;
 }
@@ -725,6 +963,8 @@ int vterm_free() {
 
     if (s_vterm_info.has_colors)
         vterm_free_colors();
+
+    vterm_free_caps();
 
     LOG_VERBOSE(g_vlib_log, "%s(): done.", __func__);
     s_vterm_info.fd = VTERM_FD_FREE; /*must be last or LOG_* or other calls could redo vterm_init*/
@@ -741,8 +981,11 @@ int             vterm_clear(FILE * out) {
     if (ret != VTERM_OK) {
         return VTERM_ERROR;
     }
+
+    flockfile(out);
     vterm_clear_manual(out);
     fflush(out);
+    funlockfile(out);
 
     return VTERM_OK;
 }
@@ -783,26 +1026,30 @@ static void vterm_init_colors(int flags) {
     char *          capstr;
     char *          str;
     unsigned int    caplen;
+    int             bcolor = VCOLOR_EMPTY, fcolor = VCOLOR_EMPTY;
 
     /* first set default colors */
     vterm_init_default_colors(0);
 
     //cap = set_a_foreground ? set_a_foreground : set_foreground;
-    if (((capstr = tigetstr("setaf")) == NULL || capstr == (char*) -1)
-    &&  (capstr = tigetstr("setf")) == (char*)-1)
+    if ((capstr = tigetstr("setaf")) != NULL && capstr != (char*) -1)
+        fcolor = VCOLOR_SETAF; /* index of s_vterm_colors[].libcolor */
+    else if ((capstr = tigetstr("setf")) != NULL && capstr != (char*)-1)
+        fcolor = VCOLOR_SETF; /* index of s_vterm_colors[].libcolor */
+    else
         capstr = NULL;
 
     for (i = VCOLOR_FG; i < VCOLOR_BG; i++) {
         if (capstr != NULL
-        &&  (str = tparm (capstr, s_vterm_colors[i].libcolor)) != NULL) {
+        &&  (str = tparm (capstr, s_vterm_colors[i].libcolor[fcolor])) != NULL) {
             caplen = strlen(str);
             s_vterm_colors[i].str = strdup(str);
             s_vterm_colors[i].size = caplen;
-            s_vterm_colors[i].libcolor = VCOLOR_ALLOC;
+            s_vterm_colors[i].alloc = VCOLOR_ALLOC;
         } else if ((flags & VTF_FORCE_COLORS) == 0) {
             s_vterm_colors[i] = s_vterm_colors[VCOLOR_EMPTY];
         } else {
-            s_vterm_colors[i].libcolor = VCOLOR_STATIC;
+            s_vterm_colors[i].alloc = VCOLOR_STATIC;
         }
         LOG_DEBUG_BUF(g_vlib_log,
                    &(s_vterm_colors[i].str[0]), strlen(&s_vterm_colors[i].str[0]),
@@ -810,21 +1057,24 @@ static void vterm_init_colors(int flags) {
     }
 
     //capstr = set_a_background ? set_a_background : set_background;
-    if (((capstr = tigetstr("setab")) == NULL || capstr == (char*) -1)
-    &&  (capstr = tigetstr("setb")) == (char*)-1)
+    if ((capstr = tigetstr("setab")) != NULL && capstr != (char*) -1)
+        bcolor = VCOLOR_SETAF; /* index of s_vterm_colors[].libcolor */
+    else if ((capstr = tigetstr("setb")) != NULL && capstr != (char*)-1)
+        bcolor = VCOLOR_SETF; /* index of s_vterm_colors[].libcolor */
+    else
         capstr = NULL;
 
     for (i = VCOLOR_BG; i < VCOLOR_STYLE; i++) {
         if (capstr != NULL
-        &&  (str = tparm (capstr, s_vterm_colors[i].libcolor)) != NULL) {
+        &&  (str = tparm (capstr, s_vterm_colors[i].libcolor[bcolor])) != NULL) {
             caplen = strlen(str);
             s_vterm_colors[i].str = strdup(str);
             s_vterm_colors[i].size = caplen;
-            s_vterm_colors[i].libcolor = VCOLOR_ALLOC;
+            s_vterm_colors[i].alloc = VCOLOR_ALLOC;
         } else if ((flags & VTF_FORCE_COLORS) == 0) {
             s_vterm_colors[i] = s_vterm_colors[VCOLOR_EMPTY];
         } else {
-            s_vterm_colors[i].libcolor = VCOLOR_STATIC;
+            s_vterm_colors[i].alloc = VCOLOR_STATIC;
         }
         LOG_DEBUG_BUF(g_vlib_log,
                    s_vterm_colors[i].str, strlen(s_vterm_colors[i].str),
@@ -848,7 +1098,7 @@ static void vterm_init_colors(int flags) {
                 caplen = strlen(capstr);
                 s_vterm_colors[cap->idx].str = strdup(capstr);
                 s_vterm_colors[cap->idx].size = caplen;
-                s_vterm_colors[cap->idx].libcolor = VCOLOR_ALLOC;
+                s_vterm_colors[cap->idx].alloc = VCOLOR_ALLOC;
                 break ;
             } else {
                 LOG_DEBUG(g_vlib_log, "vterm: cap '%s' not found for vcolor index %d",
@@ -856,7 +1106,7 @@ static void vterm_init_colors(int flags) {
                 if ((flags & VTF_FORCE_COLORS) == 0)
                     s_vterm_colors[cap->idx] = s_vterm_colors[VCOLOR_EMPTY];
                 else
-                    s_vterm_colors[cap->idx].libcolor = VCOLOR_STATIC;
+                    s_vterm_colors[cap->idx].alloc = VCOLOR_STATIC;
             }
         }
     }
@@ -868,6 +1118,40 @@ static void vterm_init_colors(int flags) {
                        "vterm: style[%02d] ", i);
     }
 #   endif
+}
+
+/* ************************************************************************* */
+static void vterm_init_caps(int flags) {
+    int             i;
+    char *          capstr;
+    unsigned int    caplen;
+
+    /* first set default caps */
+    vterm_init_default_caps(0);
+
+    for (i = VTERM_CAP_EMPTY+1; i < VTERM_CAPS_NB; ++i) {
+        char ** cap;
+        for (cap = s_vterm_caps[i].caps; *cap != NULL; ++cap) {
+            if ((capstr = tigetstr(*cap)) != NULL && capstr != (char*)-1) {
+                caplen = strlen(capstr);
+                s_vterm_caps[i].str = strdup(capstr);
+                s_vterm_caps[i].size = caplen;
+                s_vterm_caps[i].alloc = VCOLOR_ALLOC;
+                break ;
+            }
+        }
+        if (*cap == NULL) {
+            if ((flags & VTF_FORCE_COLORS) == 0) {
+                s_vterm_caps[i] = s_vterm_caps[VTERM_CAP_EMPTY];
+                s_vterm_caps[i].id = i;
+            } else {
+                s_vterm_caps[i].alloc = VCOLOR_STATIC;
+            }
+        }
+        LOG_DEBUG_BUF(g_vlib_log,
+                   &(s_vterm_caps[i].str[0]), strlen(&s_vterm_caps[i].str[0]),
+                   "vterm: cap[%02d] ", i);
+    }
 }
 
 /* ************************************************************************* */
@@ -890,6 +1174,7 @@ int vterm_free() {
     s_vterm_info.ti_clr = NULL;
     if (s_vterm_info.has_colors)
         vterm_free_colors();
+    vterm_free_caps();
 #   if CONFIG_CURSES_SCR
     if ((s_vterm_info.flags & VTF_INITSCR) != 0) { //TODO
         if (s_vterm_info.screen != NULL) {
@@ -915,7 +1200,11 @@ int vterm_free() {
 /* ************************************************************************* */
 int vterm_init(int fd, unsigned int flags) {
     /* checking tty and BUSY must be first thing to be done here */
-    if (s_vterm_info.fd == VTERM_FD_BUSY || !isatty(fd)) {
+    if (s_vterm_info.fd == VTERM_FD_BUSY || (
+#if CONFIG_CURSES
+        (s_vterm_info.ti_cup == NULL || s_vterm_info.fd != fd) &&
+#endif
+         !isatty(fd))) {
         return VTERM_NOTTY;
     }
     if (s_vterm_info.fd != VTERM_FD_FREE) {
@@ -933,7 +1222,7 @@ int vterm_init(int fd, unsigned int flags) {
     char *          ti_col;
     char *          setf;
 
-    LOG_DEBUG(g_vlib_log, "vterm: initializing (flags=%u)", flags);
+    LOG_DEBUG(g_vlib_log, "vterm: initializing (fd=%d flags=%u)", fd, flags);
 
     #if CONFIG_CURSES_SCR
     struct termios  term_conf, term_conf_bak;
@@ -969,6 +1258,9 @@ int vterm_init(int fd, unsigned int flags) {
             return VTERM_ERROR;
         }
     }
+
+    /* init vterm caps */
+    vterm_init_caps(flags);
 
     if ((ti_col = tigetstr("clear")) != NULL && ti_col != (char *) -1) {
         s_vterm_info.ti_clr = strdup(ti_col);
@@ -1026,8 +1318,8 @@ int vterm_init(int fd, unsigned int flags) {
     } else
     #endif
     {
-        LOG_VERBOSE(g_vlib_log, "vterm: initialized (flags:%u has_colors:%d)",
-                    flags, s_vterm_info.has_colors);
+        LOG_VERBOSE(g_vlib_log, "vterm: initialized (fd:%d flags:%u has_colors:%d)",
+                    fd, flags, s_vterm_info.has_colors);
     }
     return VTERM_OK;
 }
@@ -1116,6 +1408,7 @@ int vterm_goto_enable(int fd, int enable) {
                       __func__, (int)((unsigned long)cupcap));
             return VTERM_ERROR;
         }
+        s_vterm_info.fd = fd; /* goto will be enabled, force the fd to avoid isatty calls */
         tcgetattr(fd, &s_vterm_info.termio_bak);
         memcpy(&termio, &s_vterm_info.termio_bak, sizeof(termio));
         cfmakeraw(&termio);
@@ -1143,6 +1436,13 @@ int vterm_goto_enable(int fd, int enable) {
                 }*/
             }
         }
+        /* enter keyboard-transmit mode */
+        if (s_vterm_caps[VTERM_CAP_KB_KEYCODE].size > 0) {
+            while (write(fd, s_vterm_caps[VTERM_CAP_KB_KEYCODE].str,
+                             s_vterm_caps[VTERM_CAP_KB_KEYCODE].size) < 0 && errno == EINTR)
+                ; /* loop */
+        }
+        /* end set goto ok */
         s_vterm_info.ti_cup = cupcap;
     } else {
         if (s_vterm_info.ti_cup == NULL)
@@ -1153,6 +1453,12 @@ int vterm_goto_enable(int fd, int enable) {
                                             vterm_get_columns(fd) - 1);
         if (cupcap) {
             while (write(fd, cupcap, strlen(cupcap)) < 0 && errno == EINTR) ;/* loop */
+        }
+
+        if (s_vterm_caps[VTERM_CAP_NO_KEYCODE].size > 0) {
+            while (write(fd, s_vterm_caps[VTERM_CAP_NO_KEYCODE].str,
+                             s_vterm_caps[VTERM_CAP_NO_KEYCODE].size) < 0 && errno == EINTR)
+                ; /* loop */
         }
 
         if ((cap = tigetstr("rmcup")) != NULL && cap != (char*) -1) {
@@ -1180,7 +1486,7 @@ int vterm_goto(FILE * out, int r, int c) {
     if (out == NULL)
         return VTERM_ERROR;
     fd = fileno(out);
-    if (!isatty(fd))
+    if ((fd != s_vterm_info.fd || s_vterm_info.ti_cup == NULL) &&!isatty(fd))
         return VTERM_NOTTY;
     if (s_vterm_info.ti_cup == NULL)
         return VTERM_ERROR;
@@ -1212,10 +1518,10 @@ static void vterm_sig_handler(int sig) {
 
 /* ************************************************************************* */
 static inline void vterm_screen_handle_cb_result(
-                        unsigned int result, void * out_data,
+                        unsigned int result, vterm_screen_ev_data_t * evdata,
                         unsigned int * timer_ms, struct itimerval *timer) {
     if ((result & VTERM_SCREEN_CB_NEWTIMER) != 0) {
-        unsigned int        new_timer_ms = (unsigned int)((unsigned long)out_data);
+        unsigned int        new_timer_ms = evdata->newtimer_ms;
         struct itimerval    newtimer = { .it_value = { .tv_sec = 0, .tv_usec= 1 } };
 
         newtimer.it_interval = (struct timeval)
@@ -1238,16 +1544,22 @@ int vterm_screen_loop(
         vterm_screen_callback_t display_callback,
         void *                  callback_data
 ) {
+    const unsigned int  buffer_size = 32;
+    vterm_screen_ev_data_t * evdata = NULL;
+    char *              buffer = NULL;
+    struct timeval *    elapsed = NULL;
     fd_set              fdset_in;
-    struct timeval      elapsed;
     sigset_t            select_sigset, sigset_bak;
     struct itimerval    timer_bak, timer = { .it_value = { .tv_sec = 0, .tv_usec= 1 } };
-    struct sigaction    sa, sa_bak, sa_timer_bak;
+    struct sigaction    sa;
     int                 ret = VTERM_ERROR;
-    unsigned int        cb_ret;
-    void *              cb_result;
+    int                 got_sig_tstp = 0;
+    unsigned int        i, cb_ret;
     int                 fd;
-    int                 goto_enabled = 0;
+    int                 goto_enabled = 0, userinit_done = 0;
+    struct { int sig; struct sigaction sa_bak; int done; } sigs[] = {
+        { .sig = SIGALRM, }, { .sig = SIGINT, }, { .sig = SIGCONT, }, { .sig = SIGTSTP, }
+    };
 
     /* sanity checks */
     if (out == NULL || display_callback == NULL) {
@@ -1263,12 +1575,29 @@ int vterm_screen_loop(
         return VTERM_ERROR;
     }
 
+    /* alloc vterm_screen_ev_data_t */
+    if ((evdata = malloc(sizeof(*evdata))) == NULL
+    ||  (elapsed = malloc(sizeof(*elapsed))) == NULL
+    ||  (buffer = malloc(sizeof(*buffer) * buffer_size)) == NULL) {
+        LOG_ERROR(g_vlib_log, "%s(): malloc(evdata/timval/buf): %s", __func__, strerror(errno));
+        if (evdata != NULL)
+            free(evdata);
+        if (elapsed != NULL)
+            free(elapsed);
+        return VTERM_ERROR;
+    }
+
     /* block signals handled by pselect */
     sigemptyset(&select_sigset);
-    sigaddset(&select_sigset, SIGINT);
-    sigaddset(&select_sigset, SIGALRM);
+    for (i = 0; i < PTR_COUNT(sigs); ++i) {
+        sigaddset(&select_sigset, sigs[i].sig);
+        sigs[i].done = 0;
+    }
     if (sigprocmask(SIG_BLOCK, &select_sigset, &sigset_bak) < 0) {
         LOG_ERROR(g_vlib_log, "%s(): sigprocmask(): %s", __func__, strerror(errno));
+        free(evdata);
+        free(elapsed);
+        free(buffer);
         return VTERM_ERROR;
     }
 
@@ -1277,11 +1606,9 @@ int vterm_screen_loop(
                 { .tv_sec = timer_ms / 1000, .tv_usec = (timer_ms % 1000) * 1000 };
 
     /* set start time 0 for sensor_update_get */
-    memset(&elapsed, 0, sizeof(elapsed));
+    memset(elapsed, 0, sizeof(*elapsed));
 
     /* init backups to know what to restore */
-    sa_bak.sa_handler = NULL;
-    sa_timer_bak.sa_handler = NULL;
     timer_bak.it_value.tv_sec = INT_MAX;
 
     do {
@@ -1293,14 +1620,17 @@ int vterm_screen_loop(
         sa.sa_flags = SA_RESTART;
         sa.sa_handler = vterm_sig_handler;
         sigfillset(&sa.sa_mask);
-        if (sigaction(SIGALRM, &sa, &sa_timer_bak) < 0) {
-            LOG_ERROR(g_vlib_log, "%s(): sigaction(): %s", __func__, strerror(errno));
-            break ;
+        for (i = 0; i < PTR_COUNT(sigs); ++i) {
+            if (sigaction(sigs[i].sig, &sa, &(sigs[i].sa_bak)) < 0) {
+                LOG_ERROR(g_vlib_log, "%s(): sigaction(%d): %s", __func__,
+                          sigs[i].sig, strerror(errno));
+                break ;
+            }
+            sigs[i].done = 1;
         }
-        if (sigaction(SIGINT, &sa, &sa_bak) < 0) {
-            LOG_ERROR(g_vlib_log, "%s(): sigaction(): %s", __func__, strerror(errno));
+        if (i < PTR_COUNT(sigs))
             break ;
-        }
+
         /* Setup timer */
         if (setitimer(ITIMER_REAL, &timer, &timer_bak) < 0) {
             LOG_ERROR(g_vlib_log, "%s(): setitimer(): %s", __func__, strerror(errno));
@@ -1308,6 +1638,14 @@ int vterm_screen_loop(
         }
 
         LOG_INFO(g_vlib_log, "%s(): initializing screen...", __func__);
+
+        /* prepare init */
+        if (((cb_ret = display_callback(VTERM_SCREEN_INIT, out, elapsed, evdata,
+                                callback_data)) & VTERM_SCREEN_CB_EXIT) != 0) {
+            break ;
+        }
+        vterm_screen_handle_cb_result(cb_ret, evdata, &timer_ms, &timer);
+        userinit_done = 1;
 
         if (vterm_goto_enable(fd, 1) != VTERM_OK) {
             LOG_ERROR(g_vlib_log, "%s(): vterm_goto_enable() failed", __func__);
@@ -1318,20 +1656,20 @@ int vterm_screen_loop(
         ret = VTERM_OK;
 
         /* print header */
-        if (((cb_ret = display_callback(VTERM_SCREEN_START, out, &elapsed, NULL,
-                                callback_data, &cb_result)) & VTERM_SCREEN_CB_EXIT) != 0) {
+        if (((cb_ret = display_callback(VTERM_SCREEN_START, out, elapsed, evdata,
+                                callback_data)) & VTERM_SCREEN_CB_EXIT) != 0) {
             break ;
         }
-        vterm_screen_handle_cb_result(cb_ret, cb_result, &timer_ms, &timer);
+        vterm_screen_handle_cb_result(cb_ret, evdata, &timer_ms, &timer);
 
         while (1) {
 
-            if (((cb_ret = display_callback(VTERM_SCREEN_LOOP, out, &elapsed, NULL,
-                                    callback_data, &cb_result)) & VTERM_SCREEN_CB_EXIT) != 0) {
+            if (((cb_ret = display_callback(VTERM_SCREEN_LOOP, out, elapsed, evdata,
+                                    callback_data)) & VTERM_SCREEN_CB_EXIT) != 0) {
                 ret = VTERM_OK;
                 break ;
             }
-            vterm_screen_handle_cb_result(cb_ret, cb_result, &timer_ms, &timer);
+            vterm_screen_handle_cb_result(cb_ret, evdata, &timer_ms, &timer);
 
             /* Wait for timeout or key pressed */
             if (fduserset_in != NULL)
@@ -1341,9 +1679,11 @@ int vterm_screen_loop(
             FD_SET(STDIN_FILENO, &fdset_in);
 
             if ((ret = pselect(STDIN_FILENO+1, &fdset_in, NULL, NULL, NULL, &select_sigset)) > 0) {
-                // Check Key Pressed
-                if (((cb_ret = display_callback(VTERM_SCREEN_INPUT, out, &elapsed, &fdset_in,
-                                        callback_data, &cb_result)) & VTERM_SCREEN_CB_EXIT) != 0) {
+                /* Check Key Pressed */
+                FD_COPY(&fdset_in, &(evdata->input.fdset_in));
+                evdata->input.key = VTERM_KEY_EMPTY;
+                if (((cb_ret = display_callback(VTERM_SCREEN_INPUT, out, elapsed, evdata,
+                                        callback_data)) & VTERM_SCREEN_CB_EXIT) != 0) {
                     ret = VTERM_OK;
                     break ;
                 }
@@ -1356,18 +1696,61 @@ int vterm_screen_loop(
                         /* this is sigint */
                         ret = VTERM_OK;
                         break ;
+                    } else if (last_signal == SIGTSTP) {
+                        sigset_t sigset, sigset_bak;
+                        flockfile(out);
+                        vterm_goto(out, vterm_get_lines(fd) - 1, 0);
+                        fputs("\r\n\r\n", out);
+                        got_sig_tstp = 1;
+                        vterm_goto_enable(fd, 0);
+                        funlockfile(out);
+                        sigemptyset(&sigset);
+                        sigaddset(&sigset, SIGCONT);
+                        sigprocmask(SIG_SETMASK, &sigset, &sigset_bak);
+                        kill(0, SIGSTOP);
+                        sigsuspend(&sigset);
+                        sigprocmask(SIG_SETMASK, &sigset_bak, NULL);
+                        continue ;
+                    } else if (last_signal == SIGCONT) {
+                        if (got_sig_tstp == 0 && s_vterm_info.ti_cup != NULL) {
+                            /* maybe there is a good method to know if we got SIGSTOP... */
+                            struct termios termio;
+                            if (tcgetattr(fd, &termio) == 0) {
+                                struct termios termioraw;
+                                memcpy(&termioraw, &termio, sizeof(termio));
+                                cfmakeraw(&termioraw);
+                                if (memcmp(&termioraw, &termio, sizeof(termio)) == 0) {
+                                    LOG_VERBOSE(g_vlib_log, "%s() SIGCONT ignored", __func__);
+                                    continue ;
+                                }
+                            }
+                        }
+                        got_sig_tstp = 0;
+                        flockfile(out);
+                        vterm_goto_enable(fd, 0);
+                        vterm_goto_enable(fd, 1);
+                        funlockfile(out);
+                        LOG_INFO(g_vlib_log, "%s(): CONTINUE after STOP", __func__);
+                        /* print header */
+                        if (((cb_ret = display_callback(VTERM_SCREEN_START, out, elapsed, evdata,
+                                callback_data)) & VTERM_SCREEN_CB_EXIT) != 0) {
+                            ret = VTERM_OK;
+                            break ;
+                        }
+                        vterm_screen_handle_cb_result(cb_ret, evdata, &timer_ms, &timer);
+                        continue ;
                     } else if (last_signal != SIGALRM) {
                         continue ;
                     }
                     /* this is SIGALARM */
-                    elapsed.tv_usec += timer_ms * 1000;
-                    if (elapsed.tv_usec >= 1000000) {
-                        elapsed.tv_sec += (elapsed.tv_usec / 1000000);
-                        elapsed.tv_usec %= 1000000;
+                    elapsed->tv_usec += timer_ms * 1000;
+                    if (elapsed->tv_usec >= 1000000) {
+                        elapsed->tv_sec += (elapsed->tv_usec / 1000000);
+                        elapsed->tv_usec %= 1000000;
                     }
 
-                    if (((cb_ret = display_callback(VTERM_SCREEN_TIMER, out, &elapsed, NULL,
-                                        callback_data, &cb_result)) & VTERM_SCREEN_CB_EXIT) != 0) {
+                    if (((cb_ret = display_callback(VTERM_SCREEN_TIMER, out, elapsed, evdata,
+                                        callback_data)) & VTERM_SCREEN_CB_EXIT) != 0) {
                         ret = VTERM_OK;
                         break ;
                     }
@@ -1383,10 +1766,10 @@ int vterm_screen_loop(
                 ret = VTERM_ERROR;
                 break ;
             }
-            vterm_screen_handle_cb_result(cb_ret, cb_result, &timer_ms, &timer);
+            vterm_screen_handle_cb_result(cb_ret, evdata, &timer_ms, &timer);
         }
         /* callback informing termination */
-        display_callback(VTERM_SCREEN_END, out, &elapsed, NULL, callback_data, &cb_result);
+        display_callback(VTERM_SCREEN_END, out, elapsed, evdata, callback_data);
 
     } while (0);
 
@@ -1404,6 +1787,11 @@ int vterm_screen_loop(
     if (goto_enabled) {
         vterm_goto_enable(fd, 0);
     }
+    /* callback for end of goto mode */
+    if (userinit_done) {
+        display_callback(VTERM_SCREEN_EXIT, out, elapsed, evdata, callback_data);
+    }
+
     if (timer_bak.it_value.tv_sec != INT_MAX) {
         LOG_ERROR(g_vlib_log, "%s(): restore setitimer(): %s", __func__, strerror(errno));
     }
@@ -1412,12 +1800,18 @@ int vterm_screen_loop(
         LOG_ERROR(g_vlib_log, "%s(): restore signal masks: %s", __func__, strerror(errno));
     }
     /* uninstall signals */
-    if (sa_timer_bak.sa_handler != NULL && sigaction(SIGALRM, &sa_timer_bak, NULL) < 0) {
-        LOG_ERROR(g_vlib_log, "%s(): restore alrm signal: %s", __func__, strerror(errno));
+    for (i = 0; i < PTR_COUNT(sigs); ++i) {
+        if (sigs[i].done
+        && sigaction(sigs[i].sig, &(sigs[i].sa_bak), NULL) < 0) {
+            LOG_ERROR(g_vlib_log, "%s(): restore signal(%d): %s", __func__,
+                      sigs[i].sig, strerror(errno));
+        }
     }
-    if (sa_bak.sa_handler != NULL && sigaction(SIGINT, &sa_bak, NULL) < 0) {
-        LOG_ERROR(g_vlib_log, "%s(): restore int signal: %s", __func__, strerror(errno));
-    }
+    /* free data */
+    free(evdata);
+    free(elapsed);
+    free(buffer);
+
     LOG_INFO(g_vlib_log, "%s(): exiting with status %d.", __func__, ret);
 
     return ret;

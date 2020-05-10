@@ -25,16 +25,42 @@
 #ifdef __cplusplus
 # include <cstring>
 # include <cstdio>
+# include <climits>
 # include <cinttypes>
 #else
 # include <string.h>
 # include <stdio.h>
+# include <limits.h>
 # include <inttypes.h>
 #endif
+
+#ifdef _DEBUG
+#define _DEBUG_STATEMENTS(...)  __VA_ARGS__
+#else
+#define _DEBUG_STATEMENTS(...)
+#endif
+
+#define PTR_COUNT(_ptr)         (sizeof(_ptr) / sizeof(*(_ptr)))
+
+#define STR_NULL                "(null)"
+#define STR_CHECKNULL(_str)     ((_str) != NULL ? (_str) : STR_NULL)
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/** LIKELY/UNLIKELY compiler branchs prediction */
+#if ! defined(__has_builtin)
+# define __has_builtin(x) 0
+#endif
+#if defined(__builtin_expect) || __GNUC__ >= 3 || defined(__clang__) || defined(__ICL) \
+||  __has_builtin(__builtin_expect)
+# define VLIB_EXPECT(_cond,_val)    __builtin_expect((_cond), (_val))
+#else
+# define VLIB_EXPECT(_cond,_val)    (_cond)
+#endif
+# define VLIB_UNLIKELY(_cond)       VLIB_EXPECT(_cond, 0)
+# define VLIB_LIKELY(_cond)         VLIB_EXPECT(_cond, 1)
 
 /** snprintf wrapper which returns the real number of characters
  * stored in the string, rather than the number of character which would
@@ -100,6 +126,9 @@ size_t      strtok_ro_r(const char ** token, const char * seps,
                         const char ** next, size_t * maxlen,
                         int flags);
 
+/* return the index of first fnmatch pattern character or -1 if not found */
+int         fnmatch_patternidx(const char * str);
+
 /** same as strtol() but returns 0 on success, and strict conv. if endptr NULL */
 int         vstrtol(const char * str, char ** endptr, int base, long * l);
 
@@ -117,6 +146,19 @@ int         vstrtod(const char * str, char ** endptr, double * d);
 
 /** same as strtold() but returns 0 on success, and strict conv. if endptr NULL */
 int         vstrtold(const char * str, char ** endptr, long double * ld);
+
+/** 'plus grand commun diviseur'
+ * @return 0 for pgcd(0,0) */
+unsigned long pgcd(long a, long b);
+
+/* ************************************************************************ */
+/** rounded 'plus grand commun diviseur'
+ * @param p_precision the pointer to divisor of values before applying pgcd.
+ *        *p_precision is updated before return, to be used for a next call
+ * @return 0 for pgcd_rounded(0,0,...)
+ *         or if p_precision == NULL or *p_precision <= 0 or min_preicsion <= 0 */
+unsigned long pgcd_rounded(long value1, long value2,
+                            double * p_precision, double min_precision);
 
 /** vabspath: get file absolute path
  * @param dst where to store absolute path

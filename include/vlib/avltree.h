@@ -24,8 +24,10 @@
 #define VLIB_AVLTREE_H
 
 #include <stdio.h>
+#include <pthread.h>
 
 #include "vlib/rbuf.h"
+#include "vlib/slist.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,14 +46,18 @@ typedef struct avltree_node_s {
     char                        balance;
 } avltree_node_t;
 
+/** avltree_visit_context_t defined later */
+typedef struct avltree_visit_context_s avltree_visit_context_t;
+
 /** tree flags */
 typedef enum {
     AFL_NONE            = 0,
-    /** AFL_SHARED_STACK: Request to create an internal stack, shared between
-     * the tree operations. Otherwise, if the tree stack (tree->stack) is NULL,
-     * tree operations will create and free a stack at each call. If not NULL,
-     * tree operations will use the stack even without AFL_SHARED_STACK,
-     * allowing sharing a stack between several trees. */
+    /** AFL_SHARED_STACK: Request to create internal stack and context, shared
+     * between the tree operations. Otherwise, if the tree stack or context
+     * (tree->{stack,context}) is NULL, tree operations will create and free
+     * a stack and context at each call. If not NULL, tree operations will use
+     * the stack and context even without AFL_SHARED_STACK, allowing sharing a
+     * stack and context between several trees. */
     AFL_SHARED_STACK    = 1 << 0,
     AFL_REMOVE_NOFREE   = 1 << 1,   /* don't call tree->free() on remove, caller must free data */
     AFL_INSERT_NODOUBLE = 1 << 2,   /* return error when inserting existing element (cmp==0) */
@@ -59,8 +65,10 @@ typedef enum {
     /* replace an already existing element on insert (cmp==0) */
     AFL_INSERT_REPLACE  = AFL_INSERT_NODOUBLE | AFL_INSERT_IGNDOUBLE,
     AFL_INSERT_MASK     = AFL_INSERT_REPLACE,
+    AFL_FREE_PARALLEL   = 1 << 4,   /* perform multi-threaded avltree_{free,clear}() */
+    AFL_DISABLE_PARALLEL= 1 << 5,   /* forbids completly parallel visits */
     AFL_USER            = 1 << 16,
-    AFL_DEFAULT         = AFL_SHARED_STACK
+    AFL_DEFAULT         = AFL_SHARED_STACK | AFL_FREE_PARALLEL
 } avltree_flags_t;
 
 /** avltree_t */
@@ -68,10 +76,18 @@ typedef struct {
     avltree_node_t *            root;
     size_t                      n_elements;
     avltree_flags_t             flags;
-    struct rbuf_s *             stack;
     avltree_cmpfun_t            cmp;
     avltree_freefun_t           free;
+    struct avltree_shared_s *   shared;
 } avltree_t;
+
+/** resources shared between several trees */
+typedef struct avltree_shared_s {
+    struct rbuf_s *             stack;
+    avltree_visit_context_t *   context;
+    pthread_mutex_t             mutex;
+    int                         in_use;
+} avltree_shared_t;
 
 /** avltree_visitfun_t return value */
 typedef enum {
@@ -85,22 +101,35 @@ typedef enum {
 } avltree_visit_status_t;
 
 /** how to visit the tree (direction) */
+#define AVH_PARALLEL_SHIFT (16U)
+#define AVH_PARALLEL_DUPDATA(_how, _datasz) \
+        (((_how) & AVH_MASK) | AVH_PARALLEL \
+         | ((unsigned int) (_datasz) << AVH_PARALLEL_SHIFT))
+#define AVH_PARALLEL_DATASZ(_how) \
+        (((_how) & AVH_PARALLEL) == 0 \
+         ? 0U : (unsigned int)((unsigned int)(_how) >> AVH_PARALLEL_SHIFT))
 typedef enum {
     AVH_PREFIX  = 1 << 0,   /* prefix, pre-order (first visit, before the two childs) */
     AVH_INFIX   = 1 << 1,   /* infix, in-order (second visit between the two childs) */
     AVH_SUFFIX  = 1 << 2,   /* suffix, post-order (third visit, after the two childs) */
     AVH_BREADTH = 1 << 3,   /* breadth-first (width visit) */
-    AVH_RIGHT   = 1 << 7    /* visit modifier: visit right child before left child */
+    AVH_PARALLEL= 1 << 5,   /* visit modifier: multi-threaded visit, undefined order
+                            With AVH_PARALLEL_DUPDATA, user_data is duplicated for each job */
+    AVH_MERGE   = 1 << 6,   /* visit modifier: with AVH_PARALLEL, merge by visiting roots
+                            of jobs subtrees with AVH_MERGE and context.data=job_user_data */
+    AVH_RIGHT   = 1 << 7,   /* visit modifier: visit right child before left child */
+    AVH_MASK   = ((1U << AVH_PARALLEL_SHIFT) - 1U),
 } avltree_visit_how_t;
 
 /** visit context to be passed to avltree_visitfun_t functions */
-typedef struct {
+struct avltree_visit_context_s {
     avltree_visit_how_t         state;  /* current visit state (prefix,infix,...) */
     avltree_visit_how_t         how;    /* requested visit modes (prefix|infix|...) */
     size_t                      level;  /* current node level (depth) */
     size_t                      index;  /* current node index in level */
     rbuf_t *                    stack;  /* current stack */
-} avltree_visit_context_t;
+    void *                      data; /* RFU, used for PARALLEL MERGE */
+};
 
 /** avltree_node_t visit function called on each node by avltree_visit()
  * @param tree the tree beiing visited, cannot be NULL (ensured by avltree_visit())
@@ -115,6 +144,12 @@ typedef int         (*avltree_visitfun_t) (
                         avltree_node_t *                    node,
                         const avltree_visit_context_t *     context,
                         void *                              user_data);
+#define AVLTREE_DECLARE_VISITFUN(_name, _tree, _node, _context, _user_data) \
+    avltree_visit_status_t _name(                                           \
+                            avltree_t *                     _tree,          \
+                            avltree_node_t *                _node,          \
+                            const avltree_visit_context_t * _context,       \
+                            void *                          _user_data)
 
 /*****************************************************************************/
 
@@ -166,7 +201,7 @@ int                avltree_clear(
 void                avltree_free(
                         avltree_t *                 tree);
 
-/** avltree_find()
+/** avltree_find().
  * complexity: O(log2(n))
  * @return the element (errno is only set to 0 if element is NULL),
  *         or NULL on error with errno set. */
@@ -225,6 +260,7 @@ int                 avltree_visit(
 
 /** avltree_visit_range()
  * The given function will be called in infix order on each node of given range.
+ * Parallel mode (AVH_PARALLEL) is not supported and ignored (normat infix done).
  * @param tree the tree to visit
  * @param min the minimum element of the range
  * @param max the maximum element of the range
@@ -249,6 +285,45 @@ int                 avltree_visit_range(
 void *              avltree_remove(
                         avltree_t *                 tree,
                         const void *                data);
+
+/** avltree_to_slist()
+ * complexity: O(n)
+ * return a single-linked list of tree elements (node->data), sorted according to 'how',
+ * unless AVH_PARALLEL is used (random order).
+ * @param tree the tree to visit
+ * @param how a combination of avltree_visit_how_t, giving list order (prefix|infix|...)
+ * @return the list (free with slist_free(list, NULL) or NULL or NULL on error with errno set.
+ * @notes: utility function only, lot of mallocs, avltree_visit better for frequent use */
+slist_t *           avltree_to_slist(
+                        avltree_t *                 tree,
+                        avltree_visit_how_t         how);
+
+/** avltree_to_rbuf()
+ * complexity: O(n)
+ * return a ring-buffer filled with tree elements (node->data), sorted according to 'how',
+ * unless AVH_PARALLEL is used (random order).
+ * @param tree the tree to visit
+ * @param how a combination of avltree_visit_how_t, giving rbuf order (prefix|infix|...)
+ * @return the rbuf (free with rbuf_free(rbuf)) or NULL or NULL on error with errno set.
+ * @notes: utility function only, lot of mallocs, avltree_visit better for frequent use */
+rbuf_t *            avltree_to_rbuf(
+                        avltree_t *                 tree,
+                        avltree_visit_how_t         how);
+
+/** avltree_to_array()
+ * complexity: O(n)
+ * Creates an array filled with tree elements (node->data), sorted according to 'how',
+ * unless AVH_PARALLEL is used (random order).
+ * @param tree the tree to visit
+ * @param how a combination of avltree_visit_how_t, giving array order (prefix|infix|...)
+ * @param parray pointer to array of <void *> (free with free(*parray) if not NULL).
+ * @return the number of element in array or 0 on error with errno set.
+ * @notes: utility function only, lot of mallocs, avltree_visit better for frequent use */
+size_t              avltree_to_array(
+                        avltree_t *                 tree,
+                        avltree_visit_how_t         how,
+                        void *** /*3 stars, wah!!*/ parray); /* <quote>you dont't mess around
+                                                                       do you you ?</quote> */
 
 /** avltree_printfun_t
  * this function must return the number of chars printed (let be it small for better view) */

@@ -41,6 +41,15 @@
 #include "vlib/logpool.h"
 #include "vlib/time.h"
 #include "vlib/slist.h"
+#include "vlib/util.h"
+
+#if defined (VLIB_ENABLE_LIKELY_TEST) || defined(VLIB_ENABLE_LIKELY_ALL)
+# define TEST_LIKELY(cond)      VLIB_LIKELY(cond)
+# define TEST_UNLIKELY(cond)    VLIB_UNLIKELY(cond)
+#else
+# define TEST_LIKELY(cond)      (cond)
+# define TEST_UNLIKELY(cond)    (cond)
+#endif
 
 /* ************************************************************************ */
 
@@ -228,13 +237,15 @@ int                     tests_check(
 
 #define TEST_CHECK0(_TESTGROUP, _fmt, _CHECKING, _CHECKING_NAME, ...)       \
         do {                                                                \
-            int __errno_bak; testresult_t __result;                         \
-            int __do_errno = (_TESTGROUP) == NULL                           \
-                        || ((_TESTGROUP)->flags & TPF_CHECK_ERRNO) != 0;    \
-            int __do_bench = (_TESTGROUP) == NULL                           \
-                        || ((_TESTGROUP)->flags & TPF_BENCH_RESULTS) != 0;  \
-            if (__do_errno) __errno_bak = errno; else __errno_bak = EFAULT; \
-            memset(&(__result), 0, sizeof(__result));                       \
+            testresult_t __result;                                          \
+            int __do_errno, __do_bench, __errno_bak;                        \
+            if (TEST_UNLIKELY((_TESTGROUP) == NULL)) {                      \
+                __do_bench = __do_errno = 1; __errno_bak = errno;           \
+            } else {                                                        \
+                __do_bench = ((_TESTGROUP)->flags & TPF_BENCH_RESULTS) != 0; \
+                if ((__do_errno = ((_TESTGROUP)->flags & TPF_CHECK_ERRNO) != 0)) \
+                    { __errno_bak = errno; } else { __errno_bak = EFAULT; } \
+            }                                                               \
             __result.testgroup = _TESTGROUP;                                \
             __result.checkname = _CHECKING_NAME;                            \
             if (__do_bench) {                                               \

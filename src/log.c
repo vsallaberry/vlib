@@ -101,6 +101,7 @@ static struct { log_flag_t flag; const char * name; } s_log_flag_str[] = {
     { LOG_FLAG_ABS_TIME,    "AbsTime" },
     { LOG_FLAG_COLOR,       "Color" },
     { LOG_FLAG_SILENT,      "Silent" },
+    { LOG_FLAG_DEFAULT,     "Default" },
 };
 #define LOG_FLAG_STR_NB (sizeof(s_log_flag_str) / sizeof(*s_log_flag_str))
 
@@ -175,7 +176,7 @@ int log_describe_option(char * buffer, int * size, const char *const* modules,
             n += VLIB_SNPRINTF(ret, buffer + n, *size - n, "%s%s", sep, name);
         }
     }
-    n += VLIB_SNPRINTF(ret, buffer + n, *size - n, "'");
+    n += VLIB_SNPRINTF(ret, buffer + n, *size - n, "' (fnmatch(3) pattern)");
     *size = n;
 
     return OPT_CONTINUE(1);

@@ -79,6 +79,38 @@ extern "C" {
 int vclock_gettime(int id, struct timespec * ts);
 
 /* ******************************************
+   CLOCK AND TM BENCHS
+* **************************************** */
+
+/** Declare TIME AND CPU Benchs */
+#define BENCHS_DECL(_tmbench, _cpubench) \
+            BENCH_TM_DECL(_tmbench); \
+            BENCH_DECL(_cpubench);
+
+/** Start TIME AND CPU Benchs */
+#define BENCHS_START(_tmbench, _cpubench) \
+    do { BENCH_TM_START(_tmbench); BENCH_START(_cpubench); } while (0)
+
+/** Stop TIME AND CPU Benchs */
+#define BENCHS_STOP(_tmbench, _cpubench) \
+    do { BENCH_STOP(_cpubench); BENCH_TM_STOP(_tmbench); } while (0)
+
+/** STOP and PRINT TIME and CPU Benchs */
+#define BENCHS_STOP_PRINT(_tmbench, _cpubench, printf_fun, arg, fmt, ...) \
+    do { long __t_cpu, __t_tm; \
+         BENCHS_STOP(_tmbench, _cpubench); \
+         __t_cpu = BENCH_GET(_cpubench); __t_tm = BENCH_TM_GET(_tmbench); \
+         printf_fun(arg, fmt "DURATION = %ld.%03lds (cpus:%ld.%03lds)", \
+                    __VA_ARGS__, \
+                    __t_tm / 1000, __t_tm % 1000, \
+                    __t_cpu / 1000, __t_cpu % 1000); \
+    } while(0)
+
+/** STOP and LOG TIME and CPU Benchs */
+#define BENCHS_STOP_LOG(_tmbench, _cpubench, _log, _fmt, ...) \
+    BENCHS_STOP_PRINT(_tmbench, _cpubench, LOG_INFO, _log, _fmt, __VA_ARGS__);
+
+/* ******************************************
  * CLOCK BENCH: measures cpu tick of process
  ********************************************/
 
@@ -86,6 +118,9 @@ int vclock_gettime(int id, struct timespec * ts);
 #define BENCH_DECL(name)    struct {  \
                                 clock_t t; \
                             } name
+
+/** Reset Bench so that BENCH_GET returns 0 */
+#define BENCH_RESET(name)   do { (name).t = 0; } while(0)
 
 /**
  * Bench Start: start a bench using a bench variable previously declared
@@ -127,7 +162,7 @@ int vclock_gettime(int id, struct timespec * ts);
                 long __t; \
                 BENCH_STOP(name); \
                 __t = BENCH_GET(name); \
-                printf_fun(arg, fmt "DURATION(cpu) = %ld.%03lds", \
+                printf_fun(arg, fmt "DURATION(cpus) = %ld.%03lds", \
                            __VA_ARGS__, \
                            __t / 1000, \
                            __t % 1000); \
@@ -149,6 +184,11 @@ int vclock_gettime(int id, struct timespec * ts);
                                     struct timespec t0; \
                                     struct timespec t1; \
                                 } name
+
+/** Reset TM Bench so that BENCH_TM_GET returns 0 */
+#define BENCH_TM_RESET(name)    do { (name).t1.tv_sec = 0; \
+                                     (name).t1.tv_nsec = 0; } while (0)
+
 /**
  * Bench Start: start a time bench using a bench variable previously declared
  * with BENCH_TM_DECL.

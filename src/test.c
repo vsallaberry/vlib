@@ -51,11 +51,6 @@ enum {
     TPF_FREE_LOGPOOL    = TPF_INTERNAL,
 };
 
-#define TEST_LOGFD(_TESTGROUP)                                              \
-    ((_TESTGROUP) != NULL && (_TESTGROUP)->log != NULL                      \
-     && (_TESTGROUP)->log->out != NULL                                      \
-     ? fileno((_TESTGROUP)->log->out) : STDERR_FILENO)
-
 #define TEST_STARTSTOP_LOGLEVEL LOG_LVL_INFO
 #define TEST_ERRNO_MSG_SZ       128
 
@@ -95,6 +90,12 @@ static int tests_group_cmp(const void * v1, const void * v2) {
     }
     if (g1 == NULL || g2 == NULL) {
         return g1 - g2;
+    }
+    if (g1->name == g2->name) {
+        return 0;
+    }
+    if (g1->name == NULL || g2->name == NULL) {
+        return g1->name - g2->name;
     }
     return strcasecmp(g1->name, g2->name);
 }
@@ -221,7 +222,7 @@ static avltree_visit_status_t   tests_printgroup_visit(
                 }
 
                 LOG_INFO(data->log, "  [" "%s%s" "%s" "%s" "] %s/%lu: %s%s%s [%s], "
-                        "%lu.%03lus (cpus:%lu/%03lus), %s():%s:%u",
+                        "%lu.%03lus (cpus:%lu.%03lus), %s():%s:%u",
                         color, vterm_color(fd, VCOLOR_BOLD),
                         result->success ? "  OK  " : "FAILED", color_reset,
                         result->testgroup->name, result->id, result->msg,
@@ -285,7 +286,7 @@ log_t *                 tests_getlog(
 
     if ((tests->flags & TPF_LOG_TESTPREFIX) != 0) {
         snprintf(prefix, sizeof(prefix)/sizeof(*prefix), "%s/%s",
-                TESTPOOL_LOG_PREFIX, testname == NULL ? "(null)" : testname);
+                TESTPOOL_LOG_PREFIX, STR_CHECKNULL(testname));
         testname = prefix;
     }
 
@@ -316,9 +317,10 @@ testgroup_t *           tests_start(
     testgroup_t *   group;
     log_t *         log;
 
-    log = (tests != NULL
-           ? tests_getlog(tests, testname != NULL ? testname : "(null)")
-           : g_vlib_log);
+    if (testname == NULL) {
+        testname = STR_NULL;
+    }
+    log = (tests != NULL ? tests_getlog(tests, testname) : g_vlib_log);
 
     if (LOG_CAN_LOG(log, TEST_STARTSTOP_LOGLEVEL)) {
         FILE * out = log_getfile_locked(log);
@@ -403,7 +405,7 @@ unsigned long           tests_end(
         fprintf(out,
                 "<- %s%s%s (%s()): ending with %s%s%lu error%s%s.",
                 vterm_color(fd, VCOLOR_BOLD),
-                testgroup != NULL ? testgroup->name : "(null)",
+                testgroup != NULL ? STR_CHECKNULL(testgroup->name) : STR_NULL,
                 vterm_color(fd, VCOLOR_RESET), func,
                 vterm_color(fd, VCOLOR_BOLD),
                 vterm_color(fd, n_errors > 0 ? VCOLOR_RED : VCOLOR_GREEN),
@@ -448,7 +450,7 @@ int                     tests_check(
     va_list     valist;
     char *      msg = NULL;
 
-    if (result == NULL || result->testgroup == NULL) {
+    if (TEST_UNLIKELY(result == NULL || result->testgroup == NULL)) {
         int fd = g_vlib_log && g_vlib_log->out ? fileno(g_vlib_log->out) : STDERR_FILENO;
         LOG_WARN(g_vlib_log, "%s() NULL GROUP/RESULT (%s) {%s():%s:%d}",
                  __func__, fmt, func, file, line);
@@ -485,9 +487,15 @@ int                     tests_check(
 
         /* LOG RESULT */
         if (log_result) {
-            int             fd = TEST_LOGFD(result->testgroup);
+            int             fd;
             char            errno_msg[TEST_ERRNO_MSG_SZ] = { 0, };
 
+            if (TEST_LIKELY(result->testgroup->log != NULL
+                            && result->testgroup->log->out != NULL)) {
+                fd = fileno(result->testgroup->log->out);
+            } else {
+                fd = STDERR_FILENO;
+            }
             /* prepare errno message in case it has been updated by the test */
             if (result->checkerrno != TEST_ERRNO_UNCHANGED
             && result->checkerrno != TEST_ERRNO_DISABLED) {
@@ -520,6 +528,10 @@ int                     tests_check(
             testresult_t * newresult = malloc(sizeof(*result));
             if (newresult != NULL) {
                 memcpy(newresult, result, sizeof(*result));
+                if ((result->testgroup->flags & TPF_BENCH_RESULTS) == 0) {
+                    BENCH_RESET(newresult->cpu_bench);
+                    BENCH_TM_RESET(newresult->tm_bench);
+                }
                 newresult->func = strdup(func);
                 newresult->file = strdup(file);
                 newresult->line = line;

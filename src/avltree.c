@@ -27,6 +27,8 @@
 #include "vlib/avltree.h"
 #include "vlib/log.h"
 #include "vlib/rbuf.h"
+#include "vlib/job.h"
+#include "vlib/term.h"
 
 #include "vlib_private.h"
 
@@ -113,13 +115,25 @@ avltree_t *         avltree_create(
     }
     /* create a shared stack if requested in flags */
     if ((flags & AFL_SHARED_STACK) != 0) {
-        tree->stack = rbuf_create(AVLTREE_STACK_SZ, RBF_DEFAULT | RBF_SHRINK_ON_RESET);
-        if (tree->stack == NULL) {
+        if ((tree->shared = malloc(sizeof(*(tree->shared)))) == NULL) {
             free(tree);
             return NULL;
         }
-    } else {
-        tree->stack = NULL;
+        tree->shared->in_use = 0;
+        tree->shared->context = NULL;
+        if (NULL == (tree->shared->stack
+                    = rbuf_create(AVLTREE_STACK_SZ, RBF_DEFAULT | RBF_SHRINK_ON_RESET))
+        || NULL == (tree->shared->context = malloc(sizeof(*(tree->shared->context))))
+        || pthread_mutex_init(&(tree->shared->mutex), NULL) != 0) {
+            rbuf_free(tree->shared->stack);
+            if (tree->shared->context != NULL)
+                free(tree->shared->context);
+            free(tree->shared);
+            free(tree);
+            return NULL;
+        }
+   } else {
+        tree->shared = NULL;
     }
     tree->root = NULL;
     tree->n_elements = 0;
@@ -168,12 +182,12 @@ void *              avltree_insert(
             return NULL;
         }
         ++tree->n_elements;
-        if (data == NULL) {
-            errno = 0;
-        }
         LOG_DEBUG(g_vlib_log, "created root 0x%lx data 0x%ld left:0x%lx right:0x%lx",
                   (unsigned long)tree->root, (long)tree->root->data,
                   (unsigned long)tree->root->left, (unsigned long)tree->root->right);
+        if (data == NULL) {
+            errno = 0;
+        }
         return data;
     }
     insert_data.newdata = data;
@@ -201,12 +215,16 @@ void *              avltree_insert(
 /*****************************************************************************/
 int                avltree_clear(
                         avltree_t *                 tree) {
-    avltree_visit_status_t ret;
+    avltree_visit_status_t  ret;
+    unsigned int            how = AVH_PREFIX;
 
     if (tree == NULL) {
         return AVS_ERROR;
     }
-    if ((ret = avltree_visit(tree, avltree_visit_free, NULL, AVH_PREFIX)) != AVS_FINISHED) {
+    if ((tree->flags & AFL_FREE_PARALLEL) != 0) {
+        how |= AVH_PARALLEL;
+    }
+    if ((ret = avltree_visit(tree, avltree_visit_free, NULL, how)) != AVS_FINISHED) {
         LOG_WARN(g_vlib_log, "warning avltree_visit_free() error");
     }
     tree->root = NULL;
@@ -218,36 +236,70 @@ int                avltree_clear(
 /*****************************************************************************/
 void                avltree_free(
                         avltree_t *                 tree) {
+    unsigned int how = AVH_PREFIX;
+
     if (tree == NULL) {
         return ;
     }
-    if (avltree_visit(tree, avltree_visit_free, NULL, AVH_PREFIX) != AVS_FINISHED) {
+    if ((tree->flags & AFL_FREE_PARALLEL) != 0) {
+        how |= AVH_PARALLEL;
+    }
+    if (avltree_visit(tree, avltree_visit_free, NULL, how) != AVS_FINISHED) {
         LOG_WARN(g_vlib_log, "warning avltree_visit_free() error");
     }
-    if (tree->stack != NULL && (tree->flags & AFL_SHARED_STACK) != 0) {
-        rbuf_free(tree->stack);
+    if (tree->shared != NULL && (tree->flags & AFL_SHARED_STACK) != 0) {
+        if (tree->shared->in_use != 0)
+            LOG_WARN(g_vlib_log, "warning tree shared resources in use !");
+        tree->shared->in_use = 1;
+        rbuf_free(tree->shared->stack);
+        if (tree->shared->context != NULL)
+            free(tree->shared->context);
+        pthread_mutex_destroy(&(tree->shared->mutex));
+        free(tree->shared);
     }
     free(tree);
 }
 
-/*****************************************************************************/
-void *              avltree_find(
+/** avltree_find_next() context type */
+typedef avltree_node_t * avltree_find_context_t;
+#define AVLTREE_FIND_CTX_INITIALIZER(_tree)     ((_tree)->root)
+#define AVLTREE_DECLARE_FIND_CTX(_tree, _name)  \
+            avltree_find_context_t _name = AVLTREE_FIND_CTX_INITIALIZER(_tree)
+
+#if 0 // Not published yet: need testing
+/* ### FOR avltree.h ### */
+/** avltree_find(). Please use avltree_find_next() if you need to find twins. */
+/** avltree_find_next()
+ * complexity: O(log2(n))
+ * @param find_context, the pointer to find context which must be decalred or
+ *        initialized with: 'AVLTEE_DECLARE_FIND_CTX(tree, <var_name>);'
+ *        or '<varname> = AVLTREE_FIND_CTX_INITIALIZER(tree);'. No Free needed.
+ * @return the next matching element
+ *         (errno is only set to 0 if element is NULL),
+ *         or NULL on error with errno set. */
+void *              avltree_find_next(
                         avltree_t *                 tree,
-                        const void *                data) {
+                        const void *                data,
+                        avltree_find_context_t *    find_context);
+#endif
+
+/*****************************************************************************/
+static inline void * avltree_find_next_internal(
+                        avltree_t *                 tree,
+                        const void *                data,
+                        avltree_find_context_t *    find_context) {
+
     avltree_node_t *    node;
     int                 cmp;
 
-    if (tree == NULL) {
-        errno = EINVAL;
-        return NULL;
-    }
-    node = tree->root;
-    while (node) {
+    node = *find_context;
+    while (node != NULL) {
         cmp = tree->cmp(data, node->data);
         if (cmp == 0) {
             if (node->data == NULL) {
                 errno = 0;
             }
+            *find_context = node->left; /* next one if any is on left child */
             return node->data;
         } else if (cmp < 0) {
             node = node->left;
@@ -255,9 +307,35 @@ void *              avltree_find(
             node = node->right;
         }
     }
-    //TODO: handle nodes with same value;
     errno = ENOENT;
     return NULL;
+}
+
+#if 0 /* not published yet, need testing */
+/*****************************************************************************/
+void *              avltree_find_next(
+                        avltree_t *                 tree,
+                        const void *                data,
+                        avltree_find_context_t *    find_context) {
+    if (tree == NULL || find_context == NULL) {
+        errno = EINVAL;
+        return NULL;
+    }
+    return avltree_find_next_internal(tree, data, find_context);
+}
+#endif
+
+/*****************************************************************************/
+void *              avltree_find(
+                        avltree_t *                 tree,
+                        const void *                data) {
+    if (tree == NULL) {
+        errno = EINVAL;
+        return NULL;
+    } else {
+        AVLTREE_DECLARE_FIND_CTX(tree, find_context);
+        return avltree_find_next_internal(tree, data, &find_context);
+    }
 }
 
 /*****************************************************************************/
@@ -330,6 +408,7 @@ unsigned int        avltree_find_depth(
     }
     return depth;
 }
+
 /*****************************************************************************/
 size_t              avltree_count(
                         avltree_t *                 tree) {
@@ -351,8 +430,14 @@ size_t              avltree_memorysize(
         return 0;
     }
     size = sizeof(avltree_t);
-    if (tree->stack != NULL && (tree->flags & AFL_SHARED_STACK) != 0) {
-       size += rbuf_memorysize(tree->stack);
+    if (tree->shared != NULL && (tree->flags & AFL_SHARED_STACK) != 0) {
+        size += sizeof(*(tree->shared));
+        if (tree->shared->stack != NULL) {
+            size += rbuf_memorysize(tree->shared->stack);
+        }
+        if (tree->shared->context != NULL) {
+            size += sizeof(*(tree->shared->context));
+        }
     }
     /* return value cannot be 0, no need to set errno */
     return size + (avltree_count(tree) * sizeof(avltree_node_t));
@@ -390,13 +475,241 @@ static inline avltree_node_t *  avltree_visit_get_child(
 }
 
 /*****************************************************************************/
+static inline int avltree_visit_resources_get(
+                        avltree_t *                 tree,
+                        rbuf_t **                   pstack,
+                        avltree_visit_context_t **  pcontext) {
+    if (tree->shared != NULL) {
+        pthread_mutex_lock(&(tree->shared->mutex));
+        if (tree->shared->in_use == 0
+        && tree->shared->stack != NULL && tree->shared->context != NULL) {
+            *pstack = tree->shared->stack;
+            *pcontext = tree->shared->context;
+            tree->shared->in_use = 1;
+            pthread_mutex_unlock(&(tree->shared->mutex));
+            return AVS_FINISHED;
+        }
+        pthread_mutex_unlock(&(tree->shared->mutex));
+    }
+    if ((*pcontext = malloc(sizeof(**pcontext))) == NULL) {
+        return AVS_ERROR;
+    }
+    if ((*pstack = rbuf_create(AVLTREE_STACK_SZ, RBF_DEFAULT)) == NULL) {
+        if (*pcontext != NULL)
+            free(*pcontext);
+        return AVS_ERROR;
+    }
+    return AVS_FINISHED;
+}
+
+/*****************************************************************************/
+static inline void avltree_visit_resources_free(
+                        avltree_t *                 tree,
+                        rbuf_t *                    stack,
+                        avltree_visit_context_t *   context) {
+
+    if (tree->shared != NULL
+    &&  stack != NULL && stack == tree->shared->stack) {
+        rbuf_reset(stack);
+        pthread_mutex_lock(&(tree->shared->mutex));
+        tree->shared->in_use = 0;
+        pthread_mutex_unlock(&(tree->shared->mutex));
+        return ;
+    }
+    if (context != NULL)
+        free(context);
+    rbuf_free(stack);
+}
+
+/*****************************************************************************/
+typedef struct {
+    avltree_visitfun_t  visit;
+    void *              user_data;
+    int                 how;
+} avltree_visit_parallel_common_t;
+typedef struct {
+    avltree_t                           tree;
+    vjob_t *                            job;
+    avltree_node_t *                    parent; /* this not the parent of tree.root */
+    avltree_visit_parallel_common_t *   common;
+    void *                              job_user_data; /* !!! MUST BE LAST !!! */
+} avltree_visit_parallel_t;
+
+static void *       avltree_visit_job(void * vdata) {
+    avltree_visit_parallel_t * data = (avltree_visit_parallel_t *) vdata;
+
+    return (void *)((long) avltree_visit(&(data->tree), data->common->visit,
+                                         data->job_user_data, data->common->how));
+}
+
+/*****************************************************************************/
+#define AVLTREE_JOB_BYIDX(_data, _idx, _sz) \
+    ((avltree_visit_parallel_t *) (((unsigned char *) (_data)) + ((_idx) * (_sz))))
+
+/*****************************************************************************/
+static int          avltree_visit_parallel(
+                        avltree_t *                 tree,
+                        avltree_visitfun_t          visit,
+                        void *                      user_data,
+                        avltree_visit_how_t         how) {
+
+    avltree_visit_parallel_common_t common_data;
+    unsigned char *             data;
+    unsigned int                ncpus;
+    unsigned int                njobs, depth, maxjobs, nparents;
+    unsigned int                userdatasz, structsz;
+    avltree_node_t *            node;
+    int                         ret = AVS_FINISHED;
+    rbuf_t *                    fifo;
+    avltree_visit_context_t *   ctx;
+
+    /* alloc data */
+    userdatasz = user_data != NULL ? AVH_PARALLEL_DATASZ(how) : 0U;
+    structsz = sizeof(avltree_visit_parallel_t) + userdatasz;
+
+    if ((ncpus = vjob_cpu_nb()) < 2U)
+        ncpus = 2U;
+    maxjobs = (ncpus / 2U) * 4U;
+    if ((data = malloc(maxjobs * (structsz))) == NULL) {
+        return AVS_ERROR;
+    }
+    if (avltree_visit_resources_get(tree, &fifo, &ctx) != AVS_FINISHED) {
+        free(data);
+        return AVS_ERROR;
+    }
+
+    LOG_DEBUG(g_vlib_log, "%s(): %zu nodes, %u CPUs, how:%d, datasz=%u", __func__,
+              tree->n_elements, ncpus, how, userdatasz);
+
+    /* init threads visit data */
+    common_data.user_data = user_data;
+    common_data.visit = visit;
+    common_data.how = how | AVH_PARALLEL; /* so as threads know they are in PARALELL mode */
+    for (njobs = 0; njobs < maxjobs; ++njobs) {
+        avltree_visit_parallel_t * job = AVLTREE_JOB_BYIDX(data, njobs, structsz);
+        job->tree = *tree;
+        job->tree.flags |= AFL_DISABLE_PARALLEL; /* parallel visit forbidden in threads */
+        job->tree.shared = NULL; /* use dedicated stack/context for thread visit */
+        job->tree.root = NULL;
+        if (userdatasz > 0) {
+            job->job_user_data = ((unsigned char *)&(job->job_user_data))
+                                  + sizeof(job->job_user_data);
+            memcpy(job->job_user_data, user_data, userdatasz);
+        } else {
+            job->job_user_data = user_data;
+        }
+        job->common = &common_data;
+        job->job = NULL;
+        job->parent = NULL; /* there cannot be more parents than number of jobs */
+    }
+
+    /* perform a width (breadth style) visit stopping when there is enough leafs for CPUs */
+    njobs = 0;
+    nparents = 0;
+    if (tree->root != NULL) {
+        rbuf_push(fifo, tree->root);
+        rbuf_push(fifo, (void*)(0L));
+    }
+
+    while (rbuf_size(fifo) != 0) {
+        node = rbuf_dequeue(fifo);
+        depth = (unsigned int)((unsigned long)rbuf_dequeue(fifo));
+
+        LOG_SCREAM(g_vlib_log, "avltree_parallel: node %ld depth %u", (long)node->data, depth);
+
+        if (1U << depth >= ncpus) { /* we reached a suitable depth to run jobs */
+            /* Launch multi-threaded visit */
+            avltree_visit_parallel_t * job = AVLTREE_JOB_BYIDX(data, njobs, structsz);
+
+            LOG_DEBUG(g_vlib_log, "avltree_parallel: node %ld, RUNNING visit job#%u",
+                      (long)node->data, njobs);
+
+            job->tree.root = node;
+            if ((job->job = vjob_run(avltree_visit_job, job)) == NULL) {
+                ret = AVS_ERROR;
+            }
+            ++njobs;
+        } else {
+            /* keep parent of pushed nodes */
+            avltree_visit_parallel_t * par = AVLTREE_JOB_BYIDX(data, nparents++, structsz);
+            par->parent = node;
+
+            if (node->left != NULL) {
+                rbuf_push(fifo, node->left);
+                rbuf_push(fifo, (void*)((unsigned long) (depth + 1)));
+            }
+
+            if (node->right != NULL) {
+                rbuf_push(fifo, node->right);
+                rbuf_push(fifo, (void*)((unsigned long) (depth + 1)));
+            }
+        }
+    }
+
+    LOG_DEBUG(g_vlib_log, "avltree_parallel: %u job%s launched, %u parent%s",
+              njobs, njobs > 1 ? "s": "", nparents, nparents > 1 ? "s" : "");
+
+    /* visit parents of nodes visited by threads */
+    /* TODO: with AVH_MERGE, visit parents and childs roots in requested order(how) */
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->state = AVH_PREFIX;
+    ctx->how = how;
+    ctx->data = NULL;
+
+    while (nparents-- > 0) {
+        avltree_visit_parallel_t * par = AVLTREE_JOB_BYIDX(data, nparents, structsz);
+        node = par->parent;
+
+        LOG_DEBUG(g_vlib_log, "avltree_parallel: parent visit - node %ld",
+                  (long)node->data);
+
+        if (visit(tree, node, ctx, user_data) == AVS_ERROR)
+            ret = AVS_ERROR;
+    }
+
+    /* Wait and free jobs, merge results if necessary, by visiting roots of
+     * jobs subtrees with AVH_MERGE if jobs have allocated data, they must free it now. */
+    if ((how & AVH_MERGE) != 0) {
+        ctx->state = AVH_MERGE;
+        ctx->how = how;
+        LOG_DEBUG(g_vlib_log, "avltree_parallel: wait child%s and merge",
+                  (njobs > 1 ? "s" : ""));
+
+    }
+    while (njobs-- > 0) {
+        /* wait */
+        avltree_visit_parallel_t * job = AVLTREE_JOB_BYIDX(data, njobs, structsz);
+        void * job_result = vjob_waitandfree(job->job);
+        if ((long)job_result != AVS_FINISHED
+        && ((long)job_result == AVS_ERROR
+            || job_result == VJOB_ERR_RESULT || job_result == VJOB_NO_RESULT)) {
+            ret = AVS_ERROR;
+        }
+        /* merge */
+        if ((how & AVH_MERGE) != 0) {
+            ctx->data = job->job_user_data;
+            if (visit(tree, job->tree.root, ctx, user_data) == AVS_ERROR) {
+                ret = AVS_ERROR;
+            }
+        }
+    }
+
+    /* free resources, restore stack/root and return */
+    free(data);
+    avltree_visit_resources_free(tree, fifo, ctx);
+
+    LOG_DEBUG(g_vlib_log, "%s(): EXITING with status %d", __func__, ret);
+    return ret;
+}
+
+/*****************************************************************************/
 int                 avltree_visit(
                         avltree_t *                 tree,
                         avltree_visitfun_t          visit,
                         void *                      user_data,
                         avltree_visit_how_t         how) {
-    rbuf_t *                stack           = NULL;
-    avltree_visit_context_t context;
+    avltree_visit_context_t*context;
+    rbuf_t *                stack;
     int                     ret             = AVS_CONTINUE;
     int                     breadth_style   = 0;
     int                     push            = 1;
@@ -404,22 +717,29 @@ int                 avltree_visit(
     if (tree == NULL || visit == NULL) {
         return AVS_ERROR;
     }
-    if (tree->stack != NULL) {
-        stack = tree->stack;
-    } else {
-        stack = rbuf_create(AVLTREE_STACK_SZ, RBF_DEFAULT);
+    /* enable parallel only if more than 1 cpu and tree big enough */
+    if ((how & AVH_PARALLEL) != 0 && (tree->flags & AFL_DISABLE_PARALLEL) == 0
+    && (ret = vjob_cpu_nb()) > 1
+    &&  tree->n_elements > 0 && 1 << (avltree_find_depth(tree) - 1) >= ret) {
+        return avltree_visit_parallel(tree, visit, user_data, how);
     }
-
+    /* allocate context/stack if not shared and not used */
+    if (avltree_visit_resources_get(tree, &stack, &context) != AVS_FINISHED) {
+        return AVS_ERROR;
+    }
+    /* push the root node, in any */
     if (tree->root != NULL) {
         rbuf_push(stack, tree->root);
     }
 
-    context.level = 0;
-    context.index = 0;
-    context.stack = stack;
-    context.state = (how & AVH_BREADTH) != 0 ? (how & ~AVH_RIGHT & AVH_BREADTH) : AVH_PREFIX;
-    breadth_style = (context.state == AVH_BREADTH || (how & ~AVH_RIGHT) == AVH_PREFIX);
-    context.how = how;
+    context->level = 0;
+    context->index = 0;
+    context->stack = stack;
+    context->data = NULL;
+    context->how = how;
+    how &= (AVH_MASK & ~(AVH_PARALLEL) & ~(AVH_MERGE));
+    context->state = (how & AVH_BREADTH) != 0 ? (how & ~AVH_RIGHT & AVH_BREADTH) : AVH_PREFIX;
+    breadth_style = (context->state == AVH_BREADTH || (how & ~AVH_RIGHT) == AVH_PREFIX);
 
     while (rbuf_size(stack) != 0) {
         avltree_node_t *      node = (avltree_node_t *) ((how & AVH_BREADTH) != 0 ?
@@ -433,23 +753,23 @@ int                 avltree_visit(
         avltree_node_t *      right = node->right;
         avltree_node_t *      left = node->left;
 
-        LOG_DEBUG(g_vlib_log, "altree_visit(): node:%ld(%ld,%ld) state:%d how:%d "
-                              "do_visit:%d last_ret:%d how_orig:%d",
+        LOG_SCREAM(g_vlib_log, "altree_visit(): node:%ld(%ld,%ld) state:%d how:%d "
+                               "do_visit:%d last_ret:%d how_orig:%d",
                 (long) node->data,
                 node->left?(long)node->left->data:-1,
                 node->right?(long)node->right->data:-1,
-                context.state, how, (how &~AVH_RIGHT & context.state), ret, context.how);
+                context->state, how, (how &~AVH_RIGHT & context->state), ret, context->how);
 
         /* visit the current node if required, and update ret only if visitor is called */
-        if ((how & ~AVH_RIGHT & context.state) == context.state) {
-            ret = visit(tree, node, &context, user_data);
+        if ((how & ~AVH_RIGHT & context->state) == context->state) {
+            ret = visit(tree, node, context, user_data);
             /* stop on error or when visit goal is accomplished */
             if (ret == AVS_ERROR || ret == AVS_FINISHED) {
                 break ;
             }
             /* we remove the current visit type from set */
             if ((ret & AVS_NEXTVISIT) == AVS_NEXTVISIT) {
-                how &= ~context.state;
+                how &= ~(context->state);
                 push = 0;
             }
         }
@@ -465,7 +785,7 @@ int                 avltree_visit(
             }
             continue ;
         }
-        switch (context.state) {
+        switch (context->state) {
             case AVH_PREFIX:
                 /* push current node, so that child can return to its parent */
                 if ((ret & AVS_SKIP) == 0) {
@@ -479,10 +799,10 @@ int                 avltree_visit(
                 } else {
                     if (!push && (how & AVH_INFIX) == 0) {
                         /* stay on node for suffix visit, as neither infix nor push is required */
-                        context.state = AVH_SUFFIX;
+                        context->state = AVH_SUFFIX;
                     } else {
                         /* stay on node for infix visit */
-                        context.state = AVH_INFIX;
+                        context->state = AVH_INFIX;
                     }
                 }
                 break ;
@@ -496,10 +816,10 @@ int                 avltree_visit(
                 &&  (node = avltree_visit_get_child(AGC_SECOND, ret, how, left, right)) != NULL) {
                     /* go to right, for prefix visit */
                     rbuf_push(stack, node);
-                    context.state = AVH_PREFIX;
+                    context->state = AVH_PREFIX;
                 } else {
                     /* stays on node, for SUFFIX visit */
-                    context.state = AVH_SUFFIX;
+                    context->state = AVH_SUFFIX;
                 }
                 break ;
             case AVH_SUFFIX:
@@ -512,26 +832,24 @@ int                 avltree_visit(
                     && node == avltree_visit_get_child(AGC_FIRST, AVS_CONTINUE, how,
                                                        parent->left, parent->right)) {
                         /* prepare the parent to be visited in infix mode */
-                        context.state = AVH_INFIX;
+                        context->state = AVH_INFIX;
                     } else {
-                        context.state = AVH_SUFFIX;
+                        context->state = AVH_SUFFIX;
                     }
                     /* next visit is for parent */
                 }
                 break ;
             default:
-                LOG_ERROR(g_vlib_log, "avltree_visit: bad state %d", context.state);
+                LOG_ERROR(g_vlib_log, "avltree_visit: bad state %d", context->state);
                 ret = AVS_ERROR;
                 rbuf_reset(stack);
                 break ;
         }
     }
-    if (stack == tree->stack) {
-        rbuf_reset(stack);
-    } else {
-        rbuf_free(stack);
-    }
-    LOG_DEBUG(g_vlib_log, "avltree_visit: EXITING with status %d",
+    /* free resources if needed, and restore shared resources */
+    avltree_visit_resources_free(tree, stack, context);
+
+    LOG_DEBUG(g_vlib_log, "%s(): EXITING with status %d", __func__,
               ret != AVS_ERROR ? AVS_FINISHED : AVS_ERROR);
     return ret != AVS_ERROR ? AVS_FINISHED : AVS_ERROR;
 }
@@ -581,13 +899,189 @@ int                 avltree_visit_range(
 }
 
 /*****************************************************************************/
+typedef struct {
+    slist_t * head;
+    slist_t * tail;
+} avltree_slist_data_t;
+AVLTREE_DECLARE_VISITFUN(avltree_toslist_visit, tree, node, context, vdata) {
+    avltree_slist_data_t * data = (avltree_slist_data_t *) vdata;
+    (void) tree;
+    if ((context->state & AVH_MERGE) != 0) {
+        avltree_slist_data_t * child_data = ((avltree_slist_data_t *) context->data);
+        if (data->head == NULL) {
+            data->head = child_data->head;
+            data->tail = child_data->tail;
+        } else if (child_data->head != NULL) {
+            data->tail->next = child_data->head;
+            data->tail = child_data->tail;
+        }
+    } else {
+        slist_t * new = slist_prepend(NULL, node->data);
+        if (new == NULL) {
+            return AVS_ERROR;
+        }
+        if (data->head == NULL) {
+            data->head = new;
+        } else {
+            data->tail->next = new;
+        }
+        data->tail = new;
+    }
+    return AVS_CONTINUE;
+}
+/*****************************************************************************/
+slist_t *           avltree_to_slist(
+                        avltree_t *                 tree,
+                        avltree_visit_how_t         how) {
+    avltree_slist_data_t data = { .head = NULL, .tail = NULL };
+
+    if (tree == NULL) {
+        errno = EINVAL;
+        return NULL;
+    }
+    if ((how & AVH_PARALLEL) != 0) {
+        how = AVH_PARALLEL_DUPDATA(how | AVH_MERGE, sizeof(data));
+    }
+    if (avltree_visit(tree, avltree_toslist_visit, &data, how) != AVS_FINISHED) {
+        slist_free(data.head, NULL);
+        errno = EFAULT;
+        return NULL;
+    }
+
+    if (data.head == NULL) {
+        errno = 0;
+    }
+    return data.head;
+}
+
+/*****************************************************************************/
+AVLTREE_DECLARE_VISITFUN(avltree_torbuf_visit, tree, node, context, vdata) {
+    rbuf_t ** prbuf = (rbuf_t **) vdata;
+    (void) tree;
+
+    if ((context->state & AVH_MERGE) != 0) {
+        rbuf_t * child_rbuf = *((rbuf_t **) context->data);
+
+        if (*prbuf == NULL) {
+            *prbuf = child_rbuf;
+        } else {
+            for (size_t i = 0, n = rbuf_size(child_rbuf); i < n; ++i) {
+                rbuf_push(*prbuf, rbuf_get(child_rbuf, i));
+            }
+            rbuf_free(child_rbuf);
+        }
+        *((rbuf_t**)(context->data)) = NULL;
+    } else {
+        if (*prbuf == NULL
+        && NULL == (*prbuf = rbuf_create((tree->n_elements / vjob_cpu_nb()) + 1, RBF_DEFAULT))) {
+            return AVS_ERROR;
+        }
+        if (rbuf_push(*prbuf, node->data) != 0) {
+            return AVS_ERROR;
+        }
+    }
+    return AVS_CONTINUE;
+}
+/*****************************************************************************/
+rbuf_t *            avltree_to_rbuf(
+                        avltree_t *                 tree,
+                        avltree_visit_how_t         how) {
+    rbuf_t * rbuf = NULL;
+
+    if (tree == NULL) {
+        errno = EINVAL;
+        return NULL;
+    }
+    if ((how & AVH_PARALLEL) != 0) {
+        how = AVH_PARALLEL_DUPDATA(how | AVH_MERGE, sizeof(*(&rbuf)) );
+    }
+    if (avltree_visit(tree, avltree_torbuf_visit, &rbuf, how) != AVS_FINISHED) {
+        rbuf_free(rbuf);
+        errno = EFAULT;
+        return NULL;
+    }
+
+    if (rbuf == NULL) {
+        errno = 0;
+    }
+    return rbuf;
+}
+
+/*****************************************************************************/
+typedef struct {
+    void **     array;
+    size_t      n;
+    size_t      max;
+} avltree_array_visit_data_t;
+AVLTREE_DECLARE_VISITFUN(avltree_toarray_visit, tree, node, context, vdata) {
+    avltree_array_visit_data_t * data = (avltree_array_visit_data_t *) vdata;
+    (void) tree;
+    (void) context;
+    if (data->n >= data->max)
+        return AVS_ERROR;
+    data->array[(data->n)++] = node->data;
+    return AVS_CONTINUE;
+}
+/*****************************************************************************/
+size_t              avltree_to_array(
+                        avltree_t *                 tree,
+                        avltree_visit_how_t         how,
+                        void ***                    parray) {
+    size_t                      n;
+    avltree_array_visit_data_t  data;
+
+    if (tree == NULL || parray == NULL) {
+        if (parray != NULL)
+            *parray = NULL;
+        errno = EINVAL;
+        return 0;
+    }
+
+    if ((how & AVH_PARALLEL) != 0) {
+        rbuf_t *    rbuf = NULL;
+
+        if ((rbuf = avltree_to_rbuf(tree, how)) == NULL) {
+            *parray = NULL;
+            return 0;
+        }
+        if ((*parray = malloc(rbuf_size(rbuf) * sizeof(void *))) == NULL) {
+            rbuf_free(rbuf);
+            return 0;
+        }
+        n = rbuf_size(rbuf);
+        for (size_t i = 0; i < n; ++i) {
+            (*parray)[i] = rbuf_get(rbuf, i);
+        }
+        rbuf_free(rbuf);
+        return n;
+    }
+    n = (((how & AVH_PREFIX) / AVH_PREFIX) + ((how & AVH_INFIX) / AVH_INFIX)
+      +  ((how & AVH_SUFFIX) / AVH_SUFFIX) + ((how & AVH_BREADTH) / AVH_BREADTH)
+         ) * tree->n_elements;
+    if ((*parray = malloc(n * sizeof(*parray))) == NULL) {
+        return 0;
+    }
+    data.n = 0;
+    data.max = n;
+    data.array = *parray;
+
+    if (avltree_visit(tree, avltree_toarray_visit, &data, how) != AVS_FINISHED) {
+        free(*parray);
+        *parray = NULL;
+        errno = EFAULT;
+        return 0;
+    }
+    return data.n;
+}
+
+/*****************************************************************************/
 #ifdef _DEBUG
 # define _DEBUG_PRINT_TREE(tree) \
-        if (g_vlib_log && g_vlib_log->level >= LOG_LVL_DEBUG            \
-        && avltree_count(tree) < 50) {                                  \
-            rbuf_t * stack = tree->stack; tree->stack = NULL;           \
-            avltree_print(tree, avltree_print_node_default, stderr);    \
-            tree->stack = stack;                                        \
+        if (g_vlib_log != NULL && LOG_CAN_LOG(g_vlib_log, LOG_LVL_SCREAM)   \
+        && avltree_count(tree) < 32) {                                      \
+            avltree_shared_t * shared = tree->shared; tree->shared = NULL;  \
+            avltree_print(tree, avltree_print_node_default, g_vlib_log->out); \
+            tree->shared = shared;                                          \
         }
 #else
 # define _DEBUG_PRINT_TREE(tree)
@@ -606,8 +1100,8 @@ static int          avltree_visit_rebalance(
 
     pparent = parent ? (parent->left == node ? &parent->left : &parent->right) : &tree->root;
 
-    LOG_DEBUG(g_vlib_log, "BALANCING %ld(%ld,%ld) ppar=%ld "
-                          "difbal:%d dirbal:%d obal:%d nbal:%d (%s:%ld)",
+    LOG_SCREAM(g_vlib_log, "BALANCING %ld(%ld,%ld) ppar=%ld "
+                           "difbal:%d dirbal:%d obal:%d nbal:%d (%s:%ld)",
                 (long) node->data,
                 node->left ? (long) node->left->data : -1,
                 node->right ? (long) node->right->data : -1,
@@ -692,8 +1186,8 @@ static int          avltree_visit_insert(
         return AVS_ERROR;
     }
 
-    LOG_DEBUG(g_vlib_log, "INSERTING %ld, Visiting Node %ld(%ld,%ld)"
-                          " State:%d How:%d Ptr %lx(%lx,%lx)",
+    LOG_SCREAM(g_vlib_log, "INSERTING %ld, Visiting Node %ld(%ld,%ld)"
+                           " State:%d How:%d Ptr %lx(%lx,%lx)",
               (long)idata->newdata, (long)node->data,
               node->left?(long)node->left->data:-1, node->right?(long)node->right->data:-1,
               context->state, context->how,
@@ -703,12 +1197,24 @@ static int          avltree_visit_insert(
     if (cmp == 0 && (cmp = (tree->flags & AFL_INSERT_MASK)) != 0) {
         if (cmp == AFL_INSERT_NODOUBLE) {
             /* having doubles is forbidden in this tree: return error */
+            LOG_DEBUG(g_vlib_log, "%s(): %lx already in tree, keep it - "
+                                  "node %ld(%lx,%lx) ptr 0x%lx", __func__,
+              (long)(idata->newdata),
+              (long)node->data, (unsigned long)node->left, (unsigned long)node->right,
+              (unsigned long) node);
+
             return AVS_ERROR;
         }
         /* replace or ignore exsting element: previous one is returned */
         void * prevdata = node->data;
         if (cmp == AFL_INSERT_REPLACE) {
             /* replace data in the node, return previous data, and free it if needed */
+            LOG_DEBUG(g_vlib_log, "%s(): %lx already in tree, replace it - "
+                                  "node %ld(%lx,%lx) ptr 0x%lx", __func__,
+              (long)(idata->newdata),
+              (long)node->data, (unsigned long)node->left, (unsigned long)node->right,
+              (unsigned long) node);
+
             node->data = idata->newdata;
             if (tree->free != NULL && (tree->flags & AFL_REMOVE_NOFREE) == 0) {
                 tree->free(prevdata);
@@ -749,7 +1255,8 @@ static int          avltree_visit_insert(
     idata->prev_nodep = parent;
     idata->new_balance = 1;
 
-    LOG_DEBUG(g_vlib_log, "INSERTED node %ld(%lx,%lx) ptr 0x%lx on %s of %ld ptr 0x%lx",
+    LOG_DEBUG(g_vlib_log, "%s(): INSERTED node %ld(%lx,%lx) ptr 0x%lx on %s of %ld ptr 0x%lx",
+              __func__,
               (long)new->data, (unsigned long)new->left, (unsigned long)new->right,
               (unsigned long) new,
               parent == &(node->left) ? "LEFT" : "RIGHT",
@@ -786,8 +1293,8 @@ static int              avltree_visit_remove(
         return AVS_ERROR;
     }
 
-    LOG_DEBUG(g_vlib_log, "DELETING %ld, Visiting Node %ld(%ld,%ld)"
-                          " State:%d How:%d Ptr %lx(%lx,%lx)",
+    LOG_SCREAM(g_vlib_log, "DELETING %ld, Visiting Node %ld(%ld,%ld)"
+                           " State:%d How:%d Ptr %lx(%lx,%lx)",
               (long)idata->newdata, (long)node->data,
               node->left?(long)node->left->data:-1, node->right?(long)node->right->data:-1,
               context->state, context->how,
@@ -856,7 +1363,7 @@ static int              avltree_visit_remove(
     }
 
     idata->new_balance = -1;
-    LOG_DEBUG(g_vlib_log, "DELETED node %ld (0x%p)",
+    LOG_DEBUG(g_vlib_log, "%s(): DELETED node %ld (0x%p)", __func__,
               (long)idata->newdata, (void *) idata->newnode);
 
     /* skip this node and stop prefix visit and switch to suffix visit */
@@ -1003,20 +1510,29 @@ int                 avltree_print_node_default(
  * TODO, get terminal columns number (width)
  * then for now the visit is inlined in this function */
 void avltree_print(avltree_t * tree, avltree_printfun_t print, FILE * out) {
+    avltree_visit_context_t * context;
     rbuf_t *    fifo;
-    int         width       = 100; // TODO: max(80,term_columns)
     int         node_nb     = 1;
-    int         node_sz     = width / 3;
-    int         display     = (node_nb - 1) * node_sz;
-    int         indent      = (width - display) / 2;
+    int         width;
+    int         node_sz;
+    int         display;
+    int         indent;
     ssize_t     n;
     ssize_t     old_idx     = -1;
 
-    if (tree->stack != NULL) {
-        fifo = tree->stack;
-    } else {
-        fifo = rbuf_create(32 * 3, RBF_DEFAULT);
+    if (tree == NULL || out == NULL
+    ||  avltree_visit_resources_get(tree, &fifo, &context) != AVS_FINISHED) {
+        return ;
     }
+
+    if ((width = vterm_get_columns(fileno(out))) == 0)
+        width = 100; /* not a tty */
+    else if (width < 80)
+        width = 80; /* minimum width */
+    node_nb     = 1;
+    node_sz     = width / 3;
+    display     = (node_nb - 1) * node_sz;
+    indent      = (width - display) / 2;
 
     if (tree && tree->root) {
         rbuf_push(fifo, 0);
@@ -1081,10 +1597,6 @@ void avltree_print(avltree_t * tree, avltree_printfun_t print, FILE * out) {
     }
     fputc('\n', out);
 
-    if (fifo == tree->stack) {
-        rbuf_reset(fifo);
-    } else {
-        rbuf_free(fifo);
-    }
+    avltree_visit_resources_free(tree, fifo, context);
 }
 

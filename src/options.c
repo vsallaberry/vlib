@@ -198,11 +198,15 @@ static int opt_check_opt_config(opt_config_t * opt_config) {
         int fd = opt_config && opt_config->log && opt_config->log->out
                     ? fileno(opt_config->log->out) : STDOUT_FILENO;
 
+        if ((opt_config->flags & OPT_FLAG_SILENT) != 0) {
+            return 0;
+        }
+
         for (unsigned int i = 0; i < sizeof(colors) / sizeof(*colors); ++i) {
             if (*(colors[i].ptr) == VCOLOR_NULL) {
                 if (color_mode == -1) {
                     vterm_colorset_t term_colors = vterm_termfgbg(fd);
-                    if (VCOLOR_GET_BACK(term_colors) != VCOLOR_BLACK) {
+                    if (VCOLOR_GET_BACK(term_colors) != VCOLOR_BG_BLACK) {
                         color_mode = 1;
                     } else {
                         color_mode = 0;
@@ -1060,15 +1064,22 @@ int opt_parse_options_2pass(opt_config_t * opt_config, opt_option_callback_t cal
             opt_config->flags |= OPT_FLAG_SILENT;
         } else {
             if (opt_config->callback != NULL) {
+                _DEBUG_STATEMENTS(int opt_ret = ret);
                 ret = opt_config->callback(OPT_ID_END, NULL, NULL, opt_config);
+                LOG_DEBUG(g_vlib_log, "opt_parse_options() first pass result %d"
+                                      ", callback=%d", opt_ret, ret);
                 if (!OPT_IS_CONTINUE(ret))
                     return ret;
             }
             opt_config->flags &= ~OPT_FLAG_SILENT;
             opt_config->callback = callback2;
         }
+        if (opt_config->callback != NULL) {
+            opt_config->callback(OPT_ID_START, NULL, NULL, opt_config);
+        }
         ret = opt_parse_options(opt_config);
     }
+    LOG_DEBUG(g_vlib_log, "opt_parse_options() second pass result %d", ret);
     return ret;
 }
 
@@ -1205,7 +1216,8 @@ static int opt_parse_generic_pass_2(int opt, const char *arg, int *i_argv,
         case OPT_BUILTIN_HELP:
             return opt_usage(OPT_EXIT_OK(0), opt_config, arg);
         case OPT_BUILTIN_VERSION:
-            fprintf(stdout, "%s\n* with %s\n", opt_config->version_string, vlib_get_version());
+            fprintf(stdout, "%s\n* with %s\n",
+                    STR_CHECKNULL(opt_config->version_string), vlib_get_version());
             return OPT_EXIT_OK(0);
         case OPT_BUILTIN_SOURCE:
             return opt_filter_source(stdout, arg, vlib_get_source, NULL);

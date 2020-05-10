@@ -32,11 +32,23 @@ typedef struct slist_s {
     struct slist_s *    next;
 } slist_t;
 
+/** struct with slist head and slist tail */
+#define SHLIST_INITIALIZER()    ((shlist_t) { .head = NULL, .tail = NULL })
+typedef struct {
+    slist_t *           head;
+    slist_t *           tail;
+} shlist_t;
+
 typedef void    (*slist_free_fun_t)(void *);
 typedef int     (*slist_cmp_fun_t)(const void *, const void *);
 
 slist_t *       slist_prepend(slist_t * list, void * data);
 slist_t *       slist_append(slist_t * list, void * data);
+
+/* append data at (*last) and set (*last) to appended element
+ * last can be NULL, if *last is NULL, append at end of list */
+slist_t *       slist_appendto(slist_t * list, void * data, slist_t ** last);
+
 slist_t *       slist_insert_sorted(slist_t * list, void * data, slist_cmp_fun_t cmpfun);
 
 slist_t *       slist_concat(slist_t * list1, slist_t * list2);
@@ -58,25 +70,31 @@ void            slist_free(slist_t * list, slist_free_fun_t freefun);
  * Can be folowed by { } block.
  * Eg: FOREACH_SLIST_ELT(list elt) printf("%s\n", (char *)elt->data);
  * */
-#define SLIST_FOREACH_ELT(list, iter) \
-                for (slist_t * iter = list; iter; iter = iter->next)
+#define SLIST_FOREACH_ELT_T(_TYPE, _list, _iter) \
+                for (_TYPE _iter = (_list); (_iter); (_iter) = (_iter)->next)
+
+#define SLIST_FOREACH_ELT(_TYPE, _list, _iter) \
+                SLIST_FOREACH_ELT_T(slist_t *, _list, _iter)
+
+#define SLISTC_FOREACH_ELT(_list, _iter) \
+                SLIST_FOREACH_ELT_T(const slist_t *, _list, _iter)
 
 /**
  * for loop iterating on each 'type' data element of slist_t * node
  * Can be followed by { } block.
  * Eg: FOREACH_SLIST_DATA(list, str, char *) { printf("%s\n", str); }
  */
-#define SLIST_FOREACH_DATA_T(TYPE, list, iter, type) \
-                for(TYPE it_list = (list); it_list; ) \
-                    for(type iter; \
-                        (it_list) && ((iter = (type)((it_list)->data))||1); \
-                        it_list = (it_list)->next)
+#define SLIST_FOREACH_DATA_T(_TYPE, _list, _iter, _dtype) \
+                for(_TYPE _it_list = (_list); (_it_list); (_it_list) = NULL) \
+                    for(_dtype _iter; \
+                        (_it_list) && (((_iter) = (_dtype)((_it_list)->data))||1); \
+                        _it_list = (_it_list)->next)
 
-#define SLIST_FOREACH_DATA(list, iter, type) \
-            SLIST_FOREACH_DATA_T(slist_t *, list, iter, type)
+#define SLIST_FOREACH_DATA(_list, _iter, _type) \
+            SLIST_FOREACH_DATA_T(slist_t *, _list, _iter, _type)
 
-#define SLISTC_FOREACH_DATA(list, iter, type) \
-            SLIST_FOREACH_DATA_T(const slist_t *, list, iter, type)
+#define SLISTC_FOREACH_DATA(_list, _iter, _type) \
+            SLIST_FOREACH_DATA_T(const slist_t *, _list, _iter, _type)
 
 #ifdef __cplusplus
 }

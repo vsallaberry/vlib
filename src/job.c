@@ -149,10 +149,17 @@ vjob_t * vjob_run(vjob_fun_t fun, void * user_data) {
         vjob_free(job);
         return NULL;
     }
+    #if 0 && defined(_DEBUG)
+    if (vlib_thread_valgrind(0, NULL)) {
+        pthread_detach(job->tid);
+    }
+    #endif
+
     /* synchro with job_runner() */
     pthread_cond_wait(&(job->cond), &(job->mutex));
     pthread_cond_signal(&(job->cond));
     pthread_mutex_unlock(&(job->mutex));
+
     return job;
 }
 
@@ -199,13 +206,16 @@ void * vjob_wait(vjob_t * job) {
     /* ------------------------------------- */
     LOG_DEBUG(g_vlib_log, "%s(): state %x", __func__, state);
 
+    #ifdef _DEBUG
     if (vlib_thread_valgrind(0, NULL)) {
-        pthread_detach(job->tid);
         while (!vjob_done(job)) {
             usleep(100000);
         }
         retval = job->retval;
-    } else {
+        usleep(100000);
+    } else
+    #endif
+    {
         if (pthread_join(job->tid, &retval) == 0
         && retval != PTHREAD_CANCELED) {
             job->retval = retval;
@@ -213,11 +223,19 @@ void * vjob_wait(vjob_t * job) {
             retval = job->retval;
         }
     }
+
+    pthread_mutex_lock(&(job->mutex));
+    if ((job->state & VJS_LOGPOOL_DISABLED) != 0) {
+        logpool_enable(g_vlib_logpool, NULL, 1, NULL);
+        job->state &= ~VJS_LOGPOOL_DISABLED;
+    }
+    pthread_mutex_unlock(&(job->mutex));
+
     return retval;
 }
 
 /* ************************************************************************ */
-void * vjob_kill(vjob_t * job) {
+void * vjob_killnowait(vjob_t * job) {
     void *          retval  = VJOB_ERR_RESULT;
     unsigned int    state;
     int             prev_enable;
@@ -234,18 +252,30 @@ void * vjob_kill(vjob_t * job) {
         pthread_mutex_unlock(&(job->mutex));
         return retval;
     }
+    logpool_enable(g_vlib_logpool, NULL, 0, &prev_enable);
+    if (prev_enable)
+        job->state |= VJS_LOGPOOL_DISABLED;
     pthread_mutex_unlock(&(job->mutex));
 
     LOG_DEBUG(g_vlib_log, "%s(): state %x", __func__, state);
 
-    logpool_enable(g_vlib_logpool, NULL, 0, &prev_enable);
     fflush(NULL);
 
     pthread_cancel(job->tid);
 
-    retval = vjob_wait(job);
+    return VJOB_NO_RESULT;
+}
 
-    logpool_enable(g_vlib_logpool, NULL, prev_enable, NULL);
+/* ************************************************************************ */
+void * vjob_kill(vjob_t * job) {
+    void *          retval;
+
+    if (job == NULL) {
+        return VJOB_ERR_RESULT;
+    }
+
+    vjob_killnowait(job);
+    retval = vjob_wait(job);
 
     return retval;
 }
@@ -308,4 +338,21 @@ int vjob_runandfree(vjob_fun_t fun, void * data) {
     return 0;
 }
 #endif
+
+unsigned int vjob_cpu_nb() {
+    static int ncpus = -1;
+    if (ncpus > 0) {
+        return ncpus;
+    }
+    if (ncpus < 0) {
+        ncpus = 0;
+        long sc = sysconf(_SC_NPROCESSORS_ONLN);
+        if (sc > 0) {
+            ncpus = sc;
+        } else {
+            ncpus = 1;
+        }
+    }
+    return ncpus;
+}
 
