@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Vincent Sallaberry
+ * Copyright (C) 2020,2023 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -150,7 +150,7 @@ vjob_t * vjob_run(vjob_fun_t fun, void * user_data) {
         return NULL;
     }
     #if 0 && defined(_DEBUG)
-    if (vlib_thread_valgrind(0, NULL)) {
+    if (vthread_valgrind(0, NULL)) {
         pthread_detach(job->tid);
     }
     #endif
@@ -207,7 +207,7 @@ void * vjob_wait(vjob_t * job) {
     LOG_DEBUG(g_vlib_log, "%s(): state %x", __func__, state);
 
     #ifdef _DEBUG
-    if (vlib_thread_valgrind(0, NULL)) {
+    if (vthread_valgrind(0, NULL)) {
         while (!vjob_done(job)) {
             usleep(100000);
         }

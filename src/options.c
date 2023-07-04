@@ -890,7 +890,7 @@ int opt_parse_options(opt_config_t * opt_config) {
     }
 
     /* initialize valgrind detection */
-    vlib_thread_valgrind(opt_config->argc, argv);
+    vthread_valgrind(opt_config->argc, argv);
 
     /* check opt_config and init it if needed */
     opt_check_opt_config(opt_config);
