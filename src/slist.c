@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Vincent Sallaberry
+ * Copyright (C) 2017-2020,2023 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,15 +20,16 @@
  * Simple single linked list.
  */
 #include <stdlib.h>
+#include <string.h>
 
 #include "vlib/slist.h"
 
-static slist_t * slist_alloc() {
-    return malloc(sizeof(slist_t));
+static slist_t * slist_alloc(size_t size) {
+    return malloc(size);
 }
 
 slist_t * slist_prepend(slist_t * list, void * data) {
-    slist_t * new = slist_alloc();
+    slist_t * new = slist_alloc(sizeof(slist_t));
     if (new) {
         new->data = data;
         new->next = list;
@@ -37,8 +38,20 @@ slist_t * slist_prepend(slist_t * list, void * data) {
     return list;
 }
 
+slist_t * slist_prepend_sized(slist_t * list, const void * data, size_t data_sz) {
+    slist_t * new = slist_alloc(sizeof(slist_t) + data_sz - sizeof(list->data));
+    if (new) {
+        if (data) {
+            memcpy(&(new->data), data, data_sz);
+        }
+        new->next = list;
+        return new;
+    }
+    return list;
+}
+
 slist_t * slist_append(slist_t * list, void * data) {
-    slist_t * new = slist_alloc();
+    slist_t * new = slist_alloc(sizeof(slist_t));
     if (new) {
         slist_t * tail;
 
@@ -51,6 +64,11 @@ slist_t * slist_append(slist_t * list, void * data) {
         tail->next = new;
     }
     return list;
+}
+
+slist_t * slist_append_sized(slist_t * list, const void * data, size_t data_sz) {
+    slist_t * new = slist_prepend_sized(NULL, data, data_sz);
+    return slist_concat(list, new);
 }
 
 slist_t * slist_appendto(slist_t * list, void * data, slist_t ** last) {
@@ -79,8 +97,34 @@ slist_t * slist_appendto(slist_t * list, void * data, slist_t ** last) {
     return list;
 }
 
+slist_t *       slist_appendto_sized(slist_t * list, const void * data, size_t data_sz, slist_t ** last) {
+    slist_t * new;
+
+    if (last == NULL) {
+        return slist_append_sized(list, data, data_sz);
+    }
+
+    new = slist_prepend_sized(NULL, data, data_sz);
+    if (new == NULL) {
+        return list;
+    }
+    if (list == NULL) {
+        *last = new;
+        return new;
+    }
+    if (*last == NULL) {
+        for (*last = list; (*last)->next != NULL; *last = (*last)->next)
+            ; /* nothing but loop */
+    }
+    new->next = (*last)->next;
+    (*last)->next = new;
+    *last = new;
+
+    return list;
+}
+
 slist_t * slist_insert_sorted(slist_t * list, void * data, slist_cmp_fun_t cmpfun) {
-    slist_t * new = slist_alloc();
+    slist_t * new = slist_alloc(sizeof(slist_t));
     if (new) {
         slist_t * tail;
 
@@ -91,6 +135,27 @@ slist_t * slist_insert_sorted(slist_t * list, void * data, slist_cmp_fun_t cmpfu
         }
         for (tail = list; tail->next; tail = tail->next)
             if (cmpfun && cmpfun(data, tail->next->data) < 0)
+               break; /* go to list tail, unless the new element is lower */
+        new->next = tail->next;
+        tail->next = new;
+    }
+    return list;
+}
+
+slist_t * slist_insert_sorted_sized(slist_t * list, const void * data, size_t data_sz, slist_cmp_fun_t cmpfun) {
+    slist_t * new = slist_alloc(sizeof(slist_t) + data_sz - sizeof(list->data));
+    if (new) {
+        slist_t * tail;
+
+        if (data) {
+            memcpy(&(new->data), data, data_sz);
+        }
+        if (!list || (cmpfun && cmpfun(data, &(list->data)) < 0)) {
+            new->next = list;
+            return new;
+        }
+        for (tail = list; tail->next; tail = tail->next)
+            if (cmpfun && cmpfun(data, &(tail->next->data)) < 0)
                break; /* go to list tail, unless the new element is lower */
         new->next = tail->next;
         tail->next = new;
@@ -133,6 +198,18 @@ const slist_t * slist_find(const slist_t * list, const void * data, slist_cmp_fu
     return NULL;
 }
 
+const slist_t * slist_find_sized(const slist_t * list, const void * data, slist_cmp_fun_t cmpfun) {
+    if (!cmpfun) {
+        return NULL;
+    }
+    for ( ; list; list = list->next) {
+        if (cmpfun(&(list->data), data) == 0) {
+            return list;
+        }
+    }
+    return NULL;
+}
+
 slist_t * slist_remove(slist_t * list, const void * data,
                        slist_cmp_fun_t cmpfun, slist_free_fun_t freefun) {
     slist_t * head = list;
@@ -147,6 +224,29 @@ slist_t * slist_remove(slist_t * list, const void * data,
         return head;
     }
     for ( ; list->next && cmpfun(list->next->data, data); list = list->next)
+        ; // go up to matching element or NULL
+    if (list->next) {
+        tofree = list->next;
+        list->next = list->next->next;
+        slist_free_1(tofree, freefun);
+    }
+    return head;
+}
+
+slist_t * slist_remove_sized(slist_t * list, const void * data,
+                             slist_cmp_fun_t cmpfun, slist_free_fun_t freefun) {
+    slist_t * head = list;
+    slist_t * tofree;
+
+    if (!list || !cmpfun) {
+        return list;
+    }
+    if (cmpfun(&(list->data), data) == 0) {
+        head = list->next;
+        slist_free_1(list, freefun);
+        return head;
+    }
+    for ( ; list->next && cmpfun(&(list->next->data), data); list = list->next)
         ; // go up to matching element or NULL
     if (list->next) {
         tofree = list->next;

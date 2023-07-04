@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Vincent Sallaberry
+ * Copyright (C) 2018-2020,2023 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -40,10 +40,10 @@ typedef void    (*avltree_freefun_t)  (void *);
 
 /** avltree_node_t */
 typedef struct avltree_node_s {
-    void *                      data;
     struct avltree_node_s *     left;
     struct avltree_node_s *     right;
     char                        balance;
+    void *                      data;
 } avltree_node_t;
 
 /** avltree_visit_context_t defined later */

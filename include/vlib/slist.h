@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Vincent Sallaberry
+ * Copyright (C) 2017-2020,2023 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,14 +22,16 @@
 #ifndef VLIB_SLIST_H
 #define VLIB_SLIST_H
 
+#include <stdlib.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /** single linked list element */
 typedef struct slist_s {
-    void *              data;
     struct slist_s *    next;
+    void *              data; /* must be last for the  slist_*_sized() functions */
 } slist_t;
 
 /** struct with slist head and slist tail */
@@ -65,6 +67,16 @@ unsigned int    slist_length(const slist_t * list);
 void            slist_free_1(slist_t * list, slist_free_fun_t freefun);
 void            slist_free(slist_t * list, slist_free_fun_t freefun);
 
+/* special slist_t allocation which incorporates the data with given size
+ * For iteration, use the macro SLIST*_FOREACH_PDATA(). data can be NULL. */
+slist_t *       slist_prepend_sized(slist_t * list, const void * data, size_t data_sz);
+slist_t *       slist_append_sized(slist_t * list, const void * data, size_t data_sz);
+slist_t *       slist_appendto_sized(slist_t * list, const void * data, size_t data_sz, slist_t ** last);
+slist_t *       slist_insert_sorted_sized(slist_t * list, const void * data, size_t data_sz, slist_cmp_fun_t cmpfun);
+const slist_t * slist_find_sized(const slist_t * list, const void * data, slist_cmp_fun_t cmpfun);
+slist_t *       slist_remove_sized(slist_t * list, const void * data,
+                                   slist_cmp_fun_t cmpfun, slist_free_fun_t freefun);
+
 /**
  * for loop iterating on each 'slist_t *' element of the list
  * Can be folowed by { } block.
@@ -84,17 +96,25 @@ void            slist_free(slist_t * list, slist_free_fun_t freefun);
  * Can be followed by { } block.
  * Eg: FOREACH_SLIST_DATA(list, str, char *) { printf("%s\n", str); }
  */
-#define SLIST_FOREACH_DATA_T(_TYPE, _list, _iter, _dtype) \
+#define SLIST_DATA(list)    ((list)->data)
+#define SLIST_PDATA(list)   (&((list)->data))
+#define SLIST_FOREACH_DATA_T(_TYPE, _list, _iter, _dtype, _getdata) \
                 for(_TYPE _it_list = (_list); (_it_list); (_it_list) = NULL) \
                     for(_dtype _iter; \
-                        (_it_list) && (((_iter) = (_dtype)((_it_list)->data))||1); \
+                        (_it_list) && (((_iter) = (_dtype)(_getdata(_it_list))) || 1); \
                         _it_list = (_it_list)->next)
 
 #define SLIST_FOREACH_DATA(_list, _iter, _type) \
-            SLIST_FOREACH_DATA_T(slist_t *, _list, _iter, _type)
+            SLIST_FOREACH_DATA_T(slist_t *, _list, _iter, _type, SLIST_DATA)
 
 #define SLISTC_FOREACH_DATA(_list, _iter, _type) \
-            SLIST_FOREACH_DATA_T(const slist_t *, _list, _iter, _type)
+            SLIST_FOREACH_DATA_T(const slist_t *, _list, _iter, _type, SLIST_DATA)
+
+#define SLIST_FOREACH_PDATA(_list, _iter, _type) \
+            SLIST_FOREACH_DATA_T(slist_t *, _list, _iter, _type, SLIST_PDATA)
+
+#define SLISTC_FOREACH_PDATA(_list, _iter, _type) \
+            SLIST_FOREACH_DATA_T(const slist_t *, _list, _iter, _type, SLIST_PDATA)
 
 #ifdef __cplusplus
 }

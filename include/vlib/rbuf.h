@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Vincent Sallaberry
+ * Copyright (C) 2018-2019,2023 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -31,6 +31,8 @@
  */
 #ifndef VLIB_RBUF_H
 #define VLIB_RBUF_H
+
+#include <stdlib.h>
 
 #ifdef __cplusplus
 extern "C" {
