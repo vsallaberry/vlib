@@ -1652,7 +1652,8 @@ $(CONFIGINC) $(CONFIGMAKE): Makefile
 	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
 	 $(cmd_TESTBSDOBJ) && cd $(.CURDIR) && build=`echo $(.OBJDIR) | $(SED) -e 's|^$(.CURDIR)||'`/ || build=; \
 	 { cat .gitignore $(NO_STDERR); \
-	   for f in $(LIB) $(JAR) $(GENSRC) $(GENJAVA) $(GENINC) $(SRCINC_Z) $(SRCINC_STR) $(CONFIGMAKE_REC_FILE) \
+	 for f in $(LIB) $(JAR) $(GENSRC) $(GENJAVA) $(GENINC) $(METASRC:=-cpp) \
+	            $(SRCINC_Z) $(SRCINC_STR) $(CONFIGMAKE_REC_FILE) \
 	            $(BUILDINC) $(BUILDINCJAVA) $(CLANGCOMPLETE) $(CONFIGLOG) $(CONFIGMAKE) $(CONFIGINC) obj/ \
 	            `$(TEST) -n "$(BIN)" && echo "$(BIN)" "$(BIN).dSYM" "$(BIN).core" "core" "core.[0-9]*[0-9]" || true` \
 	            `echo "$(FLEXLEXER_LNK)" | $(SED) -e 's|^\./||' || true`; do \
