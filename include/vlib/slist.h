@@ -80,12 +80,12 @@ slist_t *       slist_remove_sized(slist_t * list, const void * data,
 /**
  * for loop iterating on each 'slist_t *' element of the list
  * Can be folowed by { } block.
- * Eg: FOREACH_SLIST_ELT(list elt) printf("%s\n", (char *)elt->data);
+ * Eg: SLIST_FOREACH_ELT(list, elt) printf("%s\n", (char *)elt->data);
  * */
 #define SLIST_FOREACH_ELT_T(_TYPE, _list, _iter) \
                 for (_TYPE _iter = (_list); (_iter); (_iter) = (_iter)->next)
 
-#define SLIST_FOREACH_ELT(_TYPE, _list, _iter) \
+#define SLIST_FOREACH_ELT(_list, _iter) \
                 SLIST_FOREACH_ELT_T(slist_t *, _list, _iter)
 
 #define SLISTC_FOREACH_ELT(_list, _iter) \
@@ -94,10 +94,11 @@ slist_t *       slist_remove_sized(slist_t * list, const void * data,
 /**
  * for loop iterating on each 'type' data element of slist_t * node
  * Can be followed by { } block.
- * Eg: FOREACH_SLIST_DATA(list, str, char *) { printf("%s\n", str); }
+ * Eg: SLIST_FOREACH_DATA(list, str, char *) { printf("%s\n", str); }
  */
 #define SLIST_DATA(list)    ((list)->data)
 #define SLIST_PDATA(list)   (&((list)->data))
+
 #define SLIST_FOREACH_DATA_T(_TYPE, _list, _iter, _dtype, _getdata) \
                 for(_TYPE _it_list = (_list); (_it_list); (_it_list) = NULL) \
                     for(_dtype _iter; \
