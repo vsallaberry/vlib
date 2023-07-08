@@ -748,10 +748,7 @@ CHECK_RUN	?= $(PRINTF) -- 'CHECK_RUN variable empty -> no test is done for this 
 
 default_rule: update-$(BUILDINC) $(BUILDDIRS) .WAIT $(BIN) $(LIB) $(JAR) gentags
 
-$(SUBDIRS): $(BUILDDIRS)
-$(SUBLIBS): $(BUILDDIRS)
-	@true
-$(BUILDDIRS): $(CONFIGMAKE) $(VERSIONINC) .EXEC
+$(BUILDDIRS): $(CONFIGMAKE) $(VERSIONINC) update-$(BUILDINC) .EXEC
 	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
 	 recdir=$(@:-build=); rectarget=; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs}; fi
 
@@ -847,6 +844,11 @@ check: $(CONFIGMAKE) all $(CHECKDIRS)
 $(CHECKDIRS): $(CONFIGMAKE) all
 	@if ! $(cmd_CONFIGMAKE_RECURSE); then \
 	 recdir=$(@:-check=); rectarget=check; $(RECURSEMAKEARGS); cd "$${recdir}" && "$(MAKE)" $${recargs} check; fi
+
+# -- SUBDIRS --
+$(SUBDIRS): $(BUILDDIRS)
+$(SUBLIBS): $(BUILDDIRS)
+	@true
 
 # --- build BIN ---
 $(BIN): $(OBJ) $(SUBLIBS) $(JCNIINC)
@@ -1672,7 +1674,7 @@ $(CLANGCOMPLETE): $(ALLMAKEFILES) $(BUILDINC) $(CONFIGMAKE)
 	     curdir="$(.CURDIR)/"; moresed="s|-I$(.CURDIR)\([^[:space:]]*\)|-I$(.CURDIR)/\1 -I$(.OBJDIR)/\1|g"; \
 	 fi; \
 	 $(AWK) 'BEGIN { ign=0 } /^[[:space:]]*$(DASH)[[:space:]]*auto-generated[[:space:]]/{ ign = 2 } \
-	                         //{ if (ign>0) ign--; else print $$0 }' "$@" $(NOSTDERR) > "$@.tmp" || true; \
+	                         //{ if (ign>0) ign--; else print $$0 }' "$@" > "$@.tmp" $(NO_STDERR) || true; \
 	 for d in . $(SUBDIRS); do \
 	     short_d="$${d}"; \
 	     d="$${curdir}$${d}"; cppflags="$(CPPFLAGS)"; \
@@ -1681,7 +1683,7 @@ $(CLANGCOMPLETE): $(ALLMAKEFILES) $(BUILDINC) $(CONFIGMAKE)
 	                  || $(GREP) -E -v '^[[:space:]]*$(DASH)' "$${d}/$(CLANGCOMPLETE)" \
 			     | $(SED) -e "s%-I\([^/][^[:space:]]*\)%-I$${d}/\1%g"; \
 	                } | $(TR) '\n' ' '`"; \
-	 $(PRINTF) -- '%s\n' "$${cppflags}" >> "$@.tmp"; \
+	 $(PRINTF) -- '%s\n' "$(DASH) auto-generated for $${d}" "$${cppflags}" >> "$@.tmp"; \
 	 done && $(CAT) "$@.tmp" > "$@" && $(RM) "$@.tmp" || touch "$@"; fi
 
 # to spread 'generic' makefile part to sub-directories
