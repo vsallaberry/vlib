@@ -45,7 +45,12 @@ typedef enum {
     VTS_EXIT_REQUESTED  = 1 << 15,
 } vthread_state_t;
 
-/** opaaue struct vthread_priv_s */
+/** vthread result */
+#define VTHREAD_RESULT_OK           (((PTHREAD_CANCELED) == (void *) 1) ? (void *) -1 : (void *) 1)
+#define VTHREAD_RESULT_CANCELED     (PTHREAD_CANCELLED)
+#define VTHREAD_RESULT_ERROR        (NULL)
+
+/** opaque struct vthread_priv_s */
 struct vthread_priv_s;
 
 /** vthread_t */
@@ -106,7 +111,10 @@ int                 vthread_start(
                             vthread_t *             vthread);
 
 /** stop and clean the thread: mandatory to clean resources
- * even if the thread exited before calling this function */
+ * even if the thread exited before calling this function
+ * @return VTHREAD_RESULT_ERROR (or NULL with errno set) on error,
+ *         VTHREAD_RESULT_CANCELED if thread was canceled,
+ *         VTHREAD_RESULT_OK or pointer (or NULL with errno=0) on success. */
 void *               vthread_stop(
                             vthread_t *             vthread);
 

@@ -510,11 +510,9 @@ static void vthread_body_cleanup(void * data) {
 
     SLIST_FOREACH_DATA(priv->event_list, data, vthread_event_data_t *) {
         if (data != NULL) {
-            int ret = 0;
-
             if (data->callback != NULL && (data->event & VTE_CLEAN) != 0) {
-                ret = data->callback(vthread, VTE_CLEAN, (void *) NULL,
-                                            data->callback_data);
+                data->callback(vthread, VTE_CLEAN, (void *) NULL,
+                                        data->callback_data);
             }
             if ((data->event & (VTE_FD_READ | VTE_FD_WRITE | VTE_FD_ERR)) != 0) {
                 close(data->ev.fd);
@@ -533,11 +531,12 @@ static void * vthread_body(void * data) {
     fd_set                  readfds, writefds, errfds;
     struct sigaction        sa;
     sigset_t                select_sigset, block_sigset;
-    int                     select_ret, select_errno, ret, fd_max = -1;
+    int                     select_ret, select_errno, ret;
+    volatile int            fd_max = -1;
     int                     old_exit_signal;
     sig_atomic_t            last_signal;
     int                     pthread_cancel_state;
-    void *                  thread_result = (void *) 1UL;
+    void *                  thread_result = VTHREAD_RESULT_OK;
 #   ifndef VLIB_THREAD_PSELECT
     struct timeval          select_timeout, * p_select_timeout;
     sigset_t                sigset_bak;
@@ -547,7 +546,8 @@ static void * vthread_body(void * data) {
 
     if (priv == NULL) {
         LOG_ERROR(g_vlib_log, "bad thread context");
-        return NULL;
+        errno = EFAULT;
+        return VTHREAD_RESULT_ERROR;
     }
     LOG_VERBOSE(vthread->log, "thread: initializing");
     pthread_mutex_lock(&priv->mutex);
@@ -569,10 +569,12 @@ static void * vthread_body(void * data) {
     old_exit_signal = priv->exit_signal;
     priv->exit_signal = SIG_SPECIAL_VALUE;
     if (vthread_set_exit_signal_internal(vthread, old_exit_signal, &block_sigset) != 0) {
+        int errno_save = errno;
         priv->state = VTS_FINISHED | VTS_ERROR;
         pthread_cond_signal(&priv->cond);
         pthread_mutex_unlock(&priv->mutex);
-        return NULL;
+        errno = errno_save == 0 ? EINVAL : errno_save;
+        return VTHREAD_RESULT_ERROR;
     }
 
     /* ignore SIGPIPE */
@@ -580,11 +582,13 @@ static void * vthread_body(void * data) {
     sa.sa_handler = SIG_IGN;
     sigemptyset(&sa.sa_mask);
     if (sigaction(SIGPIPE, &sa, NULL) < 0) {
+        int errno_save = errno;
         LOG_ERROR(vthread->log, "error sigaction(SIGPIPE)");
         priv->state = VTS_FINISHED | VTS_ERROR;
         pthread_cond_signal(&priv->cond);
         pthread_mutex_unlock(&priv->mutex);
-        return NULL;
+        errno = errno_save;
+        return VTHREAD_RESULT_ERROR;
     }
 
     /* notify vthread_start() we are ready,
@@ -703,7 +707,8 @@ static void * vthread_body(void * data) {
                              p_select_timeout, &select_sigset);
         last_signal = s_last_signal;
         select_errno = errno;
-        LOG_DEBUG(vthread->log, "pselect return %d errno %d", select_ret, select_errno);
+        LOG_DEBUG(vthread->log, "pselect return %d errno %d(%s)", 
+                  select_ret, select_errno, select_errno ? strerror(select_errno) : "");
         pthread_mutex_lock(&priv->mutex);
         LOG_DEBUG(vthread->log, "mutex relocked");
 #      endif
@@ -782,6 +787,10 @@ static void * vthread_body(void * data) {
     pthread_cleanup_pop(0);
 
     vthread_body_cleanup(vthread);
+
+    if (thread_result == VTHREAD_RESULT_ERROR && errno != 0) {
+        errno = 0;
+    }
 
     return thread_result;
 }
