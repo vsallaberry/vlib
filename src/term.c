@@ -96,6 +96,7 @@ void            refresh();
 #include <unistd.h>
 #include <sys/select.h>
 #include <sys/ioctl.h>
+#include <poll.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -352,10 +353,7 @@ int vterm_has_colors(int fd) {
 vterm_colorset_t vterm_termfgbg(int fd) {
     static const vterm_colorset_t termfgbg_default
         = VCOLOR_BUILD(VCOLOR_WHITE, VCOLOR_BG_BLACK, VCOLOR_EMPTY);
-    const char *    env;
-    const char *    token;
-    size_t          len;
-    unsigned long   fg, bg;
+    const char *    env;    
 
     if (vterm_init(fd, s_vterm_info.flags) != VTERM_OK) {
         LOG_DEBUG(g_vlib_log, "%s(): no tty or init failed, using default (%u,%u,%u)",
@@ -373,38 +371,78 @@ vterm_colorset_t vterm_termfgbg(int fd) {
         return s_vterm_info.term_fgbg;
     }
 
-    if ((env = getenv("COLORFGBG")) == NULL) {
-        LOG_DEBUG(g_vlib_log, "%s(): no COLORFGBG, using default (%u,%u,%u)",
-                  __func__, VCOLOR_GET_FORE(termfgbg_default),
-                  VCOLOR_GET_BACK(termfgbg_default),
-                  VCOLOR_GET_STYLE(termfgbg_default));
-        s_vterm_info.term_fgbg = termfgbg_default;
+    if ((env = getenv("COLORFGBG")) != NULL) {
+        const char *    token;
+        size_t          len;
+        unsigned long   fg, bg;
+    
+        len = strtok_ro_r(&token, ";", &env, NULL, 0);
+        // TODO COLOR CONVERSION NOT 100% accurate
+        if (len > 0) {
+            fg = strtol(token, NULL, 10);
+            fg = (fg % (VCOLOR_BG - VCOLOR_FG)) + VCOLOR_FG;
+        } else {
+            fg = VCOLOR_GET_FORE(termfgbg_default);
+        }
+        if (len > 0 && env && *env) {
+            bg = strtol(env, NULL, 10);
+            bg = (bg % (VCOLOR_STYLE - VCOLOR_BG)) + VCOLOR_BG;
+        } else {
+            bg = VCOLOR_GET_BACK(termfgbg_default);
+        }
+
+        s_vterm_info.term_fgbg = VCOLOR_BUILD(fg, bg, VCOLOR_EMPTY);
+
+        LOG_DEBUG(g_vlib_log, "%s(): COLORFGBG (%u,%u,%u)", __func__,
+                  VCOLOR_GET_FORE(s_vterm_info.term_fgbg),
+                  VCOLOR_GET_BACK(s_vterm_info.term_fgbg),
+                  VCOLOR_GET_STYLE(s_vterm_info.term_fgbg));
+
         return s_vterm_info.term_fgbg;
     }
 
-    len = strtok_ro_r(&token, ";", &env, NULL, 0);
-    // TODO COLOR CONVERSION NOT 100% accurate
-    if (len > 0) {
-        fg = strtol(token, NULL, 10);
-        fg = (fg % (VCOLOR_BG - VCOLOR_FG)) + VCOLOR_FG;
-    } else {
-        fg = VCOLOR_GET_FORE(termfgbg_default);
+    struct termios term_conf, term_conf_bak;
+    tcgetattr(fd, &term_conf_bak);
+    memcpy(&term_conf, &term_conf_bak, sizeof(term_conf));
+    cfmakeraw(&term_conf); // no ECHO, VMIN=0, VTIME=0
+    tcsetattr(fd, TCSANOW, &term_conf);
+
+    if (write(fd, "\033]11;?\033\\", 8) == 8) { // -> "11;rgb:0f0f/0e0e/1111"
+        char            buf[128];
+        ssize_t         n;
+        struct pollfd   pollfd = { .fd = STDIN_FILENO, .events = POLLIN };
+        
+        buf[sizeof(buf)-1] = 0;
+        if (poll(&pollfd, 1, 50) > 0 && (pollfd.revents & POLLIN) != 0
+        &&  (n = read(STDIN_FILENO, buf, sizeof(buf)-1)) > 0
+        &&  strstr(buf, "11;rgb:") != NULL) {
+            char * rgb = strchr(buf, ':');
+            int R = strtol(rgb+1, &rgb, 16) % 256;
+            int G = strtol(rgb+1, &rgb, 16) % 256;
+            int B = strtol(rgb+1, &rgb, 16) % 256;                        
+            int gray = 0.2126 * R + 0.7152 * G + 0.0722 * B;
+            
+            tcsetattr(fd, TCSANOW, &term_conf_bak);
+            s_vterm_info.term_fgbg = VCOLOR_BUILD(
+                gray < 128 ? VCOLOR_WHITE : VCOLOR_BLACK, 
+                gray < 128 ? VCOLOR_BG_BLACK : VCOLOR_BG_WHITE, VCOLOR_EMPTY);
+            
+            LOG_DEBUG(g_vlib_log, "%s(): xterm-esc-seq (%u,%u,%u) [%d/%d/%d %d]",
+                      __func__, VCOLOR_GET_FORE(s_vterm_info.term_fgbg),
+                      VCOLOR_GET_BACK(s_vterm_info.term_fgbg),
+                      VCOLOR_GET_STYLE(s_vterm_info.term_fgbg), R, G, B, gray);
+            return s_vterm_info.term_fgbg;
+        } else {
+            tcsetattr(fd, TCSANOW, &term_conf_bak);
+        }
     }
-    if (len > 0 && env && *env) {
-        bg = strtol(env, NULL, 10);
-        bg = (bg % (VCOLOR_STYLE - VCOLOR_BG)) + VCOLOR_BG;
-    } else {
-        bg = VCOLOR_GET_BACK(termfgbg_default);
-    }
 
-    s_vterm_info.term_fgbg = VCOLOR_BUILD(fg, bg, VCOLOR_EMPTY);
-
-    LOG_DEBUG(g_vlib_log, "%s(): set (%u,%u,%u)", __func__,
-              VCOLOR_GET_FORE(s_vterm_info.term_fgbg),
-              VCOLOR_GET_BACK(s_vterm_info.term_fgbg),
-              VCOLOR_GET_STYLE(s_vterm_info.term_fgbg));
-
-    return s_vterm_info.term_fgbg;
+    LOG_DEBUG(g_vlib_log, "%s(): no COLORFGBG, using default (%u,%u,%u)",
+              __func__, VCOLOR_GET_FORE(termfgbg_default),
+              VCOLOR_GET_BACK(termfgbg_default),
+              VCOLOR_GET_STYLE(termfgbg_default));
+    s_vterm_info.term_fgbg = termfgbg_default;
+    return s_vterm_info.term_fgbg;    
 }
 
 /* ************************************************************************* */
