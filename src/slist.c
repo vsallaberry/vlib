@@ -21,6 +21,7 @@
  */
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 #include "vlib/slist.h"
 
@@ -216,6 +217,7 @@ slist_t * slist_remove(slist_t * list, const void * data,
     slist_t * tofree;
 
     if (!list || !cmpfun) {
+        errno = EINVAL;
         return list;
     }
     if (cmpfun(list->data, data) == 0) {
@@ -229,6 +231,8 @@ slist_t * slist_remove(slist_t * list, const void * data,
         tofree = list->next;
         list->next = list->next->next;
         slist_free_1(tofree, freefun);
+    } else {
+        errno = ENOENT;
     }
     return head;
 }
@@ -239,11 +243,12 @@ slist_t * slist_remove_sized(slist_t * list, const void * data,
     slist_t * tofree;
 
     if (!list || !cmpfun) {
+        errno = EINVAL;
         return list;
     }
     if (cmpfun(&(list->data), data) == 0) {
         head = list->next;
-        slist_free_1(list, freefun);
+        slist_free_1_sized(list, freefun);
         return head;
     }
     for ( ; list->next && cmpfun(&(list->next->data), data); list = list->next)
@@ -251,7 +256,9 @@ slist_t * slist_remove_sized(slist_t * list, const void * data,
     if (list->next) {
         tofree = list->next;
         list->next = list->next->next;
-        slist_free_1(tofree, freefun);
+        slist_free_1_sized(tofree, freefun);
+    } else {
+        errno = ENOENT;
     }
     return head;
 }
@@ -282,12 +289,29 @@ void slist_free_1(slist_t * list, slist_free_fun_t freefun) {
     }
 }
 
-void slist_free(slist_t * list, slist_free_fun_t freefun) {
+void slist_free_1_sized(slist_t * list, slist_free_fun_t freefun) {
+    if (list) {
+        if (freefun) {
+            freefun(&(list->data));
+        }
+        free(list);
+    }
+}
+
+static inline void slist_free_internal(slist_t * list, slist_free_fun_t freefun, void (*slist_free1_fun)(slist_t *, slist_free_fun_t)) {
     slist_t * tofree;
     while (list) {
         tofree = list;
         list = list->next;
-        slist_free_1(tofree, freefun);
+        slist_free1_fun(tofree, freefun);
     }
+}
+
+void slist_free(slist_t * list, slist_free_fun_t freefun) {
+    slist_free_internal(list, freefun, slist_free_1);
+}
+
+void slist_free_sized(slist_t * list, slist_free_fun_t freefun) {
+    slist_free_internal(list, freefun, slist_free_1_sized);
 }
 

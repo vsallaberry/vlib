@@ -76,6 +76,8 @@ slist_t *       slist_insert_sorted_sized(slist_t * list, const void * data, siz
 const slist_t * slist_find_sized(const slist_t * list, const void * data, slist_cmp_fun_t cmpfun);
 slist_t *       slist_remove_sized(slist_t * list, const void * data,
                                    slist_cmp_fun_t cmpfun, slist_free_fun_t freefun);
+void            slist_free_1_sized(slist_t * list, slist_free_fun_t freefun);
+void            slist_free_sized(slist_t * list, slist_free_fun_t freefun);
 
 /**
  * for loop iterating on each 'slist_t *' element of the list
