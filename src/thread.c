@@ -35,12 +35,12 @@
 #include "vlib/thread.h"
 #include "vlib/slist.h"
 #include "vlib/log.h"
+#include "vlib/util.h"
 #include "vlib/job.h"
 
 #include "vlib_private.h"
 
 /*****************************************************************************/
-#define SIG_SPECIAL_VALUE   INT_MIN
 #define VLIB_THREAD_PSELECT
 
 #if defined(_DEBUG) && (defined(__APPLE__) || defined(BUILD_SYS_darwin))
@@ -55,7 +55,7 @@ typedef struct vthread_priv_s {
     pthread_mutex_t             mutex;
     pthread_rwlock_t            pipe_mutex;
     pthread_cond_t              cond;
-    int                         exit_signal;
+    sigset_t                    block_sigset;
     slist_t *                   event_list;
     unsigned long               process_timeout;
     vthread_state_t             state;
@@ -68,7 +68,10 @@ typedef struct {
     union {
         int                     fd;
         void *                  ptr;
-        int                     sig;
+        struct vthread_event_sig_s {
+            int                 num;
+            struct sigaction    sa_bak;
+        } sig;
     } ev;
     vthread_callback_t          callback;
     void *                      callback_data;
@@ -89,11 +92,6 @@ static int                      vthread_control_pipe_cb(
                                     void *                  ev_data,
                                     void *                  cb_data);
 
-static int                      vthread_set_exit_signal_internal(
-                                    vthread_t *             vthread,
-                                    int                     exit_signal,
-                                    sigset_t *              block_sigset);
-
 static int                      vthread_closefd(
                                     vthread_t *             vthread,
                                     vthread_event_t         event,
@@ -106,6 +104,8 @@ static int                      vthread_register_event_unlocked(
                                     void *                  event_data,
                                     vthread_callback_t      callback,
                                     void *                  callback_user_data);
+
+static int                      vthread_event_cmp(const void * vev1, const void * vev2);
 
 static void                     vthread_sig_handler(int sig);
 static volatile sig_atomic_t    s_last_signal = 0;
@@ -135,10 +135,10 @@ vthread_t *     vthread_create(
     vthread->priv = priv;
     priv->state = VTS_CREATING;
     priv->process_timeout = process_timeout;
-    priv->exit_signal = VLIB_THREAD_EXIT_SIG;
     pthread_mutex_init(&priv->mutex, NULL);
     pthread_rwlock_init(&priv->pipe_mutex, NULL);
     pthread_cond_init(&priv->cond, NULL);
+    sigemptyset(&priv->block_sigset);
 
     if ((priv->control_fd = vthread_pipe_create(vthread, vthread_control_pipe_cb, NULL)) < 0) {
         LOG_ERROR(vthread->log, "cannot create thread control fd: %s", strerror(errno));
@@ -258,27 +258,6 @@ unsigned int        vthread_state(
 }
 
 /*****************************************************************************/
-int                 vthread_set_exit_signal(
-                            vthread_t *             vthread,
-                            int                         exit_signal) {
-    vthread_priv_t *    priv = vthread ? vthread->priv : NULL;
-    int                     ret;
-
-    /* sanity checks */
-    if (priv == NULL) {
-        LOG_WARN(g_vlib_log, "bad thread context");
-        return -1;
-    }
-    pthread_mutex_lock(&priv->mutex);
-    ret = vthread_notify(vthread);
-    priv->exit_signal = exit_signal;
-    pthread_mutex_unlock(&priv->mutex);
-
-    LOG_VERBOSE(vthread->log, "new exit signal %d", exit_signal);
-    return ret;
-}
-
-/*****************************************************************************/
 int                 vthread_register_event(
                             vthread_t *             vthread,
                             vthread_event_t         event,
@@ -309,8 +288,9 @@ int                 vthread_register_event(
 int                 vthread_unregister_event(
                             vthread_t *             vthread,
                             vthread_event_t         event,
-                            void *                      event_data) {
-    vthread_priv_t  * priv = vthread ? (vthread_priv_t *) vthread->priv : NULL;
+                            void *                  event_data) {
+    vthread_priv_t  *       priv = vthread ? (vthread_priv_t *) vthread->priv : NULL;
+    vthread_event_data_t    ev;
 
     if (priv == NULL) {
         LOG_WARN(g_vlib_log, "bad thread context");
@@ -320,8 +300,29 @@ int                 vthread_unregister_event(
                 event, (long) event_data);
 
     pthread_mutex_lock(&priv->mutex);
-    //TODO
-    LOG_WARN(vthread->log, "warning: %s() NOT IMPLEMENTED", __func__);
+
+    ev.event = event;
+
+    if ((event & (VTE_FD_READ | VTE_FD_WRITE | VTE_FD_ERR)) != 0) {
+        ev.ev.fd = (int) ((ssize_t) event_data);
+    } else if ((event & VTE_SIG) != 0) {
+        if (sigaction(ev.ev.sig.num, &ev.ev.sig.sa_bak, NULL) != 0) {
+            LOG_ERROR(vthread->log, "sigaction() restore error, event %u (%lx): %s",
+                      event, (unsigned long) event_data, strerror(errno));
+        }
+        ev.ev.sig.num = (int) ((ssize_t) event_data);
+        sigaddset(&priv->block_sigset, ev.ev.sig.num);
+    } else {
+        ev.ev.ptr = event_data;
+    }
+
+    errno = 0;
+    priv->event_list = slist_remove(priv->event_list, &ev, vthread_event_cmp, free);
+    if (errno != 0) {
+        LOG_ERROR(vthread->log, "error: cannot remove event %u(%lx) from event_list : %s",
+                  event, (unsigned long)ev.ev.ptr, strerror(errno));
+        return -1;
+    }
 
     /* signal the thread about configuration change */
     vthread_notify(vthread);
@@ -394,6 +395,7 @@ int                 vthread_pipe_create(
     return pipefd[1];
 }
 
+/****************************************************************************/
 static int write_nonblock(int fd, const void * buf, size_t size, unsigned int timeout_ms) {
     int ret;
 
@@ -518,7 +520,7 @@ static void vthread_body_cleanup(void * data) {
                 close(data->ev.fd);
             }
         }
-    }
+        }
 
     priv->state = (priv->state & ~VTS_FINISHING) | VTS_FINISHED;
     pthread_mutex_unlock(&priv->mutex);
@@ -526,14 +528,14 @@ static void vthread_body_cleanup(void * data) {
 
 /*****************************************************************************/
 static void * vthread_body(void * data) {
-    vthread_t *         vthread = (vthread_t *) data;
-    vthread_priv_t *    priv = vthread ? (vthread_priv_t *) vthread->priv : NULL;
+    static const int        blocked_sigs[] = {
+        SIGHUP, SIGINT, /*SIGPIPE,*/ SIGALRM, SIGTSTP, SIGVTALRM, SIGPROF, SIGUSR1, SIGUSR2 };
+    vthread_t *             vthread = (vthread_t *) data;
+    vthread_priv_t *        priv = vthread ? (vthread_priv_t *) vthread->priv : NULL;
     fd_set                  readfds, writefds, errfds;
     struct sigaction        sa;
-    sigset_t                select_sigset, block_sigset;
     int                     select_ret, select_errno, ret;
     volatile int            fd_max = -1;
-    int                     old_exit_signal;
     sig_atomic_t            last_signal;
     int                     pthread_cancel_state;
     void *                  thread_result = VTHREAD_RESULT_OK;
@@ -563,24 +565,22 @@ static void * vthread_body(void * data) {
         return thread_result;
     }
 
-    /* setup the thread exit signal */
-    sigemptyset(&select_sigset);
-    sigemptyset(&block_sigset);
-    old_exit_signal = priv->exit_signal;
-    priv->exit_signal = SIG_SPECIAL_VALUE;
-    if (vthread_set_exit_signal_internal(vthread, old_exit_signal, &block_sigset) != 0) {
-        int errno_save = errno;
-        priv->state = VTS_FINISHED | VTS_ERROR;
-        pthread_cond_signal(&priv->cond);
-        pthread_mutex_unlock(&priv->mutex);
-        errno = errno_save == 0 ? EINVAL : errno_save;
-        return VTHREAD_RESULT_ERROR;
+    // block 'user' signals which terminate the program.
+    // (note: block_sigset emptied in vthread_create())
+    for (size_t i = 0; i < PTR_COUNT(blocked_sigs); ++i) {
+        if ((blocked_sigs[i] == SIGINT || blocked_sigs[i] == SIGPROF)
+        &&  sigaction(blocked_sigs[i], NULL, &sa) == 0 && sa.sa_handler == SIG_DFL) {
+            //if SIG{INT,PROF} are handled elsewhere, block them in the thread.
+            continue ;
+        }
+        sigaddset(&priv->block_sigset, blocked_sigs[i]);
     }
+    pthread_sigmask(SIG_SETMASK, &priv->block_sigset, NULL);
 
     /* ignore SIGPIPE */
     sa.sa_flags = SA_RESTART;
     sa.sa_handler = SIG_IGN;
-    sigemptyset(&sa.sa_mask);
+    sigfillset(&sa.sa_mask);
     if (sigaction(SIGPIPE, &sa, NULL) < 0) {
         int errno_save = errno;
         LOG_ERROR(vthread->log, "error sigaction(SIGPIPE)");
@@ -593,7 +593,7 @@ static void * vthread_body(void * data) {
 
     /* notify vthread_start() we are ready,
      * and WAIT for vthread_start() and signal back just before loop starts.
-     * This allows call to vthread_{register_event,set_exit_signal} before start */
+     * This allows call to vthread_{register_event} before start */
     LOG_VERBOSE(vthread->log, "thread: waiting for launch");
     priv->state = (priv->state & ~VTS_CREATING) | VTS_CREATED | VTS_WAITING;
     pthread_cond_signal(&priv->cond);
@@ -625,17 +625,6 @@ static void * vthread_body(void * data) {
     LOG_VERBOSE(vthread->log, "thread: launched");
 
     while ((priv->state & (VTS_RUNNING | VTS_EXIT_REQUESTED)) == VTS_RUNNING) {
-        /* if exit_signal has changed, block it (will be unlocked by pselect) */
-        if (!sigismember(&block_sigset, priv->exit_signal)) {
-            int new_exit_signal = priv->exit_signal;
-            priv->exit_signal = old_exit_signal;
-            if (vthread_set_exit_signal_internal(vthread, new_exit_signal, &block_sigset) != 0) {
-                priv->state |= VTS_ERROR;
-                break ;
-            }
-        }
-        old_exit_signal = priv->exit_signal;
-
         /* fill the read, write, err fdsets, and manage new registered signals  */
         FD_ZERO(&readfds);
         FD_ZERO(&writefds);
@@ -652,14 +641,8 @@ static void * vthread_body(void * data) {
                     FD_SET(data->ev.fd, &errfds); if (data->ev.fd > fd_max) fd_max = data->ev.fd;
                 }
                 if ((data->event & VTE_SIG) != 0
-                && !sigismember(&block_sigset, data->ev.sig)) {
-                    //TODO: removal from block_sigset of unregitered signals.
-                    sigaddset(&block_sigset, data->ev.sig);
-                    if (pthread_sigmask(SIG_SETMASK, &block_sigset, NULL) != 0) {
-                        LOG_ERROR(vthread->log, "error: pthread_sigmask(): %s", strerror(errno));
-                        priv->state |= VTS_ERROR;
-                        break ;
-                    }
+                &&  sigismember(&priv->block_sigset, data->ev.sig.num)) {
+                    sigdelset(&priv->block_sigset, data->ev.sig.num);
                 }
             }
         }
@@ -682,13 +665,12 @@ static void * vthread_body(void * data) {
         }
 
         /* -------------------------------------------- */
-        LOG_DEBUG(vthread->log, "start select timeout=%ld exit_signal ismember ? %d",
-                  priv->process_timeout, sigismember(&select_sigset, priv->exit_signal));
+        LOG_DEBUG(vthread->log, "start select timeout=%ld", priv->process_timeout);
 
         priv->state |= VTS_WAITING;
 
 #      ifndef VLIB_THREAD_PSELECT
-        pthread_sigmask(SIG_SETMASK, &select_sigset, &sigset_bak);
+        pthread_sigmask(SIG_SETMASK, &priv->block_sigset, &sigset_bak);
         pthread_mutex_unlock(&priv->mutex);
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, &pthread_cancel_state);
 
@@ -704,10 +686,10 @@ static void * vthread_body(void * data) {
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, &pthread_cancel_state);
 
         select_ret = pselect(fd_max + 1, &readfds, &writefds, &errfds,
-                             p_select_timeout, &select_sigset);
+                             p_select_timeout, &priv->block_sigset);
         last_signal = s_last_signal;
         select_errno = errno;
-        LOG_DEBUG(vthread->log, "pselect return %d errno %d(%s)", 
+        LOG_DEBUG(vthread->log, "pselect return %d errno %d(%s)",
                   select_ret, select_errno, select_errno ? strerror(select_errno) : "");
         pthread_mutex_lock(&priv->mutex);
         LOG_DEBUG(vthread->log, "mutex relocked");
@@ -739,8 +721,8 @@ static void * vthread_body(void * data) {
             /* check callbacks registered to signal */
             SLIST_FOREACH_DATA(priv->event_list, data, vthread_event_data_t *) {
                 if (data != NULL && data->callback != NULL
-                && (data->event & VTE_SIG) != 0 && (last_signal == data->ev.sig)) {
-                    ret = data->callback(vthread, VTE_SIG, VTE_DATA_SIG(data->ev.sig),
+                && (data->event & VTE_SIG) != 0 && (last_signal == data->ev.sig.num)) {
+                    ret = data->callback(vthread, VTE_SIG, VTE_DATA_SIG(data->ev.sig.num),
                                                   data->callback_data);
                     if (ret < 0)
                         priv->state |= VTS_EXIT_REQUESTED;
@@ -846,24 +828,56 @@ static int vthread_notify(vthread_t * vthread) {
 static int          vthread_register_event_unlocked(
                             vthread_t *             vthread,
                             vthread_event_t         event,
-                            void *                      event_data,
+                            void *                  event_data,
                             vthread_callback_t      callback,
-                            void *                      callback_user_data) {
+                            void *                  callback_user_data) {
     vthread_priv_t *        priv = vthread->priv;
     vthread_event_data_t *  ev;
-    slist_t *                   new;
+    slist_t *               new;
 
     if ((ev = malloc(sizeof(vthread_event_data_t))) == NULL) {
         LOG_ERROR(vthread->log, "error: cannot malloc event_data : %s", strerror(errno));
         return -1;
     }
     ev->event = event;
-    ev->ev.fd = (int)((long) event_data); // TODO
     ev->callback = callback;
     ev->callback_data = callback_user_data;
+
+    if ((event & (VTE_FD_READ | VTE_FD_WRITE | VTE_FD_ERR)) != 0) {
+        ev->ev.fd = (int)((ssize_t) event_data);
+    } else if ((event & VTE_SIG) != 0) {
+        ev->ev.sig.num = (int)((ssize_t) event_data);
+    } else {
+        ev->ev.ptr = event_data;
+    }
+
+    if ((event & VTE_SIG) != 0) {
+        if (sigaction(ev->ev.sig.num, NULL, &ev->ev.sig.sa_bak) != 0) {
+            LOG_ERROR(vthread->log, "sigaction(), cannot backup, event %u (%lx): %s",
+                      event, (unsigned long) event_data, strerror(errno));
+            free(ev);
+            return -1;
+        }
+        struct sigaction sa;
+        sigfillset(&sa.sa_mask);
+        sa.sa_handler = vthread_sig_handler;
+        sa.sa_flags = SA_RESTART;
+        if (sigaction(ev->ev.sig.num, &sa, NULL) != 0) {
+            LOG_ERROR(vthread->log, "sigaction() error, event %u (%lx): %s",
+                    event, (unsigned long) event_data, strerror(errno));
+            free(ev);
+            return -1;
+        }
+        sigdelset(&priv->block_sigset, ev->ev.sig.num);
+    }
+
     new = slist_prepend(priv->event_list, ev);
     if (new == priv->event_list) {
-        LOG_ERROR(vthread->log, "error: cannot add in event_list : %s", strerror(errno));
+        LOG_ERROR(vthread->log, "error: cannot add event %u (%lx) in event_list : %s",
+                  event, (unsigned long) event_data, strerror(errno));
+        if (sigaction(ev->ev.sig.num, &ev->ev.sig.sa_bak, NULL) != 0) {
+            LOG_WARN(vthread->log, "sigaction(): cannot restore: %s", strerror(errno));
+        }
         free(ev);
         return -1;
     }
@@ -872,67 +886,21 @@ static int          vthread_register_event_unlocked(
     return 0;
 }
 
-/*****************************************************************************/
-static int          vthread_set_exit_signal_internal(
-                            vthread_t *             vthread,
-                            int                         exit_signal,
-                            sigset_t *                  block_sigset) {
-    vthread_priv_t *    priv = vthread ? vthread->priv : NULL;
-    struct sigaction        sa;
+/****************************************************************************/
+static int vthread_event_cmp(const void * vev1, const void * vev2) {
+    const vthread_event_data_t * ev1 = (const vthread_event_data_t *) vev1;
+    const vthread_event_data_t * ev2 = (const vthread_event_data_t *) vev2;
 
-    /* sanity checks */
-    if (priv == NULL) {
-        LOG_WARN(g_vlib_log, "bad thread context");
-        return -1;
+    if (!ev1 || !ev2)
+        return ev1 - ev2;
+    if (ev1->event != ev2->event)
+        return ev1->event - ev2->event;
+    if ((ev1->event & (VTE_FD_READ | VTE_FD_WRITE | VTE_FD_ERR)) != 0) {
+        return ev1->ev.fd - ev2->ev.fd;
+    } else if ((ev1->event & VTE_SIG) != 0) {
+        return ev1->ev.sig.num - ev2->ev.sig.num;
     }
-    if (exit_signal == priv->exit_signal) {
-        return 0;
-    }
-    LOG_VERBOSE(vthread->log, "replace exit_signal %d by %d",
-                priv->exit_signal, exit_signal);
-    sigemptyset(&sa.sa_mask);
-
-    /* check wheter SIG_SPECIAL_VALUE is not a valid signal */
-    sa.sa_handler = SIG_DFL;
-    sa.sa_flags = 0;
-    if (sigaction(SIG_SPECIAL_VALUE, &sa, NULL) == 0) {
-        LOG_ERROR(vthread->log, "error: sigaction(%d) should have been rejected. "
-                                "Choose another value for SIG_SPECIAL_VALUE",
-                  SIG_SPECIAL_VALUE);
-        return -1;
-    }
-    /* restore previous signal handler if any */
-    if (priv->exit_signal != SIG_SPECIAL_VALUE) {
-        sa.sa_handler = SIG_DFL;
-        sa.sa_flags = 0;
-        if (sigaction(priv->exit_signal, &sa, NULL) != 0) {
-            LOG_ERROR(vthread->log, "sigaction uninstall exit_signal: %s", strerror(errno));
-            return -1;
-        }
-        sigdelset(block_sigset, priv->exit_signal);
-    }
-    if (exit_signal != SIG_SPECIAL_VALUE) {
-        /* add the new signal to the block mask */
-        sigaddset(block_sigset, exit_signal);
-        sigaddset(block_sigset, SIGINT);
-    }
-    /* set the new signal mask */
-    if (pthread_sigmask(SIG_SETMASK, block_sigset, NULL) != 0) {
-        LOG_ERROR(vthread->log, "error: pthread_sigmask(): %s", strerror(errno));
-        return -1;
-    }
-    if (exit_signal != SIG_SPECIAL_VALUE) {
-        sa.sa_flags = SA_RESTART;
-        sa.sa_handler = vthread_sig_handler;
-        /* install signal handler on exit_signal */
-        if (sigaction(exit_signal, &sa, NULL) < 0) {
-            LOG_ERROR(vthread->log, "error sigaction(%d): %s", exit_signal, strerror(errno));
-            return -1;
-        }
-    }
-    priv->exit_signal = exit_signal;
-
-    return 0;
+    return (char*)ev1->ev.ptr - (char*)ev2->ev.ptr;
 }
 
 /*****************************************************************************/

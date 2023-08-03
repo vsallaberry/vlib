@@ -22,6 +22,7 @@
 #ifndef VLIB_THREAD_H
 #define VLIB_THREAD_H
 
+#include <stdlib.h>
 #include <signal.h>
 #include <pthread.h>
 
@@ -74,13 +75,13 @@ typedef enum {
 } vthread_event_t;
 
 /** cast macros for the event_data parameter of vthread_(un)register_event() */
-#define VTE_DATA_FD(fd)         ((void *)((long)(fd)))
-#define VTE_DATA_SIG(sig)       ((void *)((long)(sig)))
+#define VTE_DATA_FD(fd)         ((void *)((ssize_t)(fd)))
+#define VTE_DATA_SIG(sig)       ((void *)((ssize_t)(sig)))
 #define VTE_DATA_PTR(ptr)       ((void *)(ptr))
 
 /** cast macros for parameter event_data of event callback handlers */
-#define VTE_FD_DATA(data)       ((int)((long)(data)))
-#define VTE_FD_SIG(data)        ((int)((long)(data)))
+#define VTE_FD_DATA(data)       ((int)((ssize_t)(data)))
+#define VTE_SIG_DATA(data)      ((int)((ssize_t)(data)))
 
 /** vlib thread callback : see vthread_register_event() */
 typedef int         (*vthread_callback_t)(
@@ -88,10 +89,6 @@ typedef int         (*vthread_callback_t)(
                             vthread_event_t         event,
                             void *                  event_data,
                             void *                  callback_user_data);
-
-/** the default signal used to kill the thread,
- * can be changed with vthread_set_exit_signal() */
-#define VLIB_THREAD_EXIT_SIG    SIGUSR1 /** @deprecated */
 
 /** initialize a select thread which will be waiting for
  * vthread_start() call, allowing customizations before start.
@@ -150,16 +147,6 @@ int                 vthread_unregister_event(
                             vthread_t *             vthread,
                             vthread_event_t         event,
                             void *                  event_data);
-
-/** setup a custom signal to stop the thread
- * @param vthread the vlib thread context
- * @param exit_signal, the signal used to finish the thread
- * @return 0 on SUCCESS, other value on error
- * @depecated
- */
-int                 vthread_set_exit_signal(
-                            vthread_t *             vthread,
-                            int                     exit_signal);
 
 /** create a pipe whose in_fd will be registered by thread. This function
  * is a shortcut to vthread_register_event, with additionally pipe
