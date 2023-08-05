@@ -48,7 +48,7 @@ typedef enum {
 
 /** vthread result */
 #define VTHREAD_RESULT_OK           (((PTHREAD_CANCELED) == (void *) 1) ? (void *) -1 : (void *) 1)
-#define VTHREAD_RESULT_CANCELED     (PTHREAD_CANCELLED)
+#define VTHREAD_RESULT_CANCELED     (PTHREAD_CANCELED)
 #define VTHREAD_RESULT_ERROR        (NULL)
 
 /** opaque struct vthread_priv_s */
@@ -58,7 +58,8 @@ struct vthread_priv_s;
 typedef struct {
     pthread_t                   tid;
     log_t *                     log;
-    struct vthread_priv_s * priv;
+    struct vthread_priv_s *     priv;
+    void *                      result;
 } vthread_t;
 
 /** vthread_event */
@@ -72,6 +73,8 @@ typedef enum {
     VTE_FD_READ         = 1 << 5, /* action_data is fd */
     VTE_FD_WRITE        = 1 << 6, /* action_data is fd */
     VTE_FD_ERR          = 1 << 7, /* action_data is fd */
+    VTE_FD_CLOSE        = 1 << 8, /* action_data is fd, can be combined with READ,WRITE,ERR */
+    VTE_RESERVED        = 1 << 16 /* LAST. Reserved for internal use */
 } vthread_event_t;
 
 /** cast macros for the event_data parameter of vthread_(un)register_event() */
@@ -113,6 +116,11 @@ int                 vthread_start(
  *         VTHREAD_RESULT_CANCELED if thread was canceled,
  *         VTHREAD_RESULT_OK or pointer (or NULL with errno=0) on success. */
 void *               vthread_stop(
+                            vthread_t *             vthread);
+
+/** wait for thread termination and clean it.
+ * @return see vthread_stop(). */
+void *              vthread_wait_and_free(
                             vthread_t *             vthread);
 
 /** register an action on the vlib thread
