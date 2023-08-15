@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Vincent Sallaberry
+ * Copyright (C) 2017-2020,2023 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -220,72 +220,6 @@ static int log_location(FILE * out, log_flag_t flags, log_level_t level,
     }
     return n;
 }
-
-#ifndef LOG_USE_VA_ARGS
-static int xvlog(log_level_t level, log_t * log,
-                 const char *fmt, va_list arg) {
-    int n = 0;
-    if (log == NULL)
-        log = &s_vlib_log_null;
-    if (LOG_CAN_LOG(log, level))
-    {
-        FILE *          out;
-        const char *    file = "?", * func = "?";
-        int             line = 0;
-
-        out = log_getfile_locked(log);
-
-        if (fmt == NULL) {
-            line = fputc('\n', out) != EOF ? 1 : 0;
-            funlockfile(out);
-            return line;
-        }
-
-        n += log_header2(level, log, out, file, func, line);
-        n += vfprintf(out, fmt, arg);
-        n += log_footer2(level, log, out, func, file, line);
-
-        funlockfile(out);
-    }
-    return n;
-}
-int log_error(log_t * log, const char * fmt, ...) {
-    va_list arg;
-    va_start(arg, fmt);
-    xvlog(LOG_LVL_ERROR, log, fmt);
-    va_end(arg);
-}
-int log_warn(log_t * log, const char * fmt, ...) {
-    va_list arg;
-    va_start(arg, fmt);
-    xvlog(LOG_LVL_WARN, log, fmt);
-    va_end(arg);
-}
-int log_info(log_t * log, const char * fmt, ...) {
-    va_list arg;
-    va_start(arg, fmt);
-    xvlog(LOG_LVL_INFO, log, fmt, arg);
-    va_end(arg);
-}
-int log_verbose(log_t * log, const char * fmt, ...) {
-    va_list arg;
-    va_start(arg, fmt);
-    xvlog(LOG_LVL_VERBOSE, log, fmt, arg);
-    va_end(arg);
-}
-int log_debug(log_t * log, const char * fmt, ...) {
-    va_list arg;
-    va_start(arg, fmt);
-    xvlog(LOG_LVL_DEBUG, log, fmt, arg);
-    va_end(arg);
-}
-int log_scream(log_t * log, const char * fmt, ...) {
-    va_list arg;
-    va_start(arg, fmt);
-    xvlog(LOG_LVL_SCREAM, log, fmt, arg);
-    va_end(arg);
-}
-#endif /* ! ifndef LOG_USE_VA_ARGS */
 
 int log_header2(log_level_t level, log_t * log, FILE * out,
                const char * file, const char * func, int line) {
@@ -704,4 +638,118 @@ FILE * log_getfile_locked(log_t * log) {
         return file;
     }
 }
+
+#ifndef LOG_USE_VA_ARGS
+// VERY RARE USECASE : only active when __VA_ARGS for Macros is not available
+// and this is bad, because there is no fast level checking and no real File/line context.
+static int xvlog(log_level_t level, log_t * log,
+                 const char *fmt, va_list arg) {
+    int n = 0;
+    if (log == NULL)
+        log = &s_vlib_log_null;
+    if (LOG_CAN_LOG(log, level))
+    {
+        FILE *          out;
+        const char *    file = "?", * func = "?";
+        int             line = 0;
+
+        out = log_getfile_locked(log);
+
+        if (fmt == NULL) {
+            line = fputc('\n', out) != EOF ? 1 : 0;
+            funlockfile(out);
+            return line;
+        }
+
+        n += log_header2(level, log, out, file, func, line);
+        n += vfprintf(out, fmt, arg);
+        n += log_footer2(level, log, out, func, file, line);
+
+        funlockfile(out);
+    }
+    return n;
+}
+int log_error(log_t * log, const char * fmt, ...) {
+    va_list arg;
+    int n;
+    va_start(arg, fmt);
+    n = xvlog(LOG_LVL_ERROR, log, fmt, arg);
+    va_end(arg);
+    return n;
+}
+int log_warn(log_t * log, const char * fmt, ...) {
+    va_list arg;
+    int n;
+    va_start(arg, fmt);
+    n = xvlog(LOG_LVL_WARN, log, fmt, arg);
+    va_end(arg);
+    return n;
+}
+int log_info(log_t * log, const char * fmt, ...) {
+    va_list arg;
+    int n;
+    va_start(arg, fmt);
+    n = xvlog(LOG_LVL_INFO, log, fmt, arg);
+    va_end(arg);
+    return n;
+}
+int log_verbose(log_t * log, const char * fmt, ...) {
+    va_list arg;
+    int n;
+    va_start(arg, fmt);
+    n = xvlog(LOG_LVL_VERBOSE, log, fmt, arg);
+    va_end(arg);
+    return n;
+}
+int log_debug(log_t * log, const char * fmt, ...) {
+    va_list arg;
+    int n;
+    va_start(arg, fmt);
+    n = xvlog(LOG_LVL_DEBUG, log, fmt, arg);
+    va_end(arg);
+    return n;
+}
+int log_debug_lvl(log_level_t lvl, log_t * log, const char * fmt, ...) {
+    va_list arg;
+    int n;
+    va_start(arg, fmt);
+    n = xvlog(lvl, log, fmt, arg);
+    va_end(arg);
+    return n;
+}
+int log_scream(log_t * log, const char * fmt, ...) {
+    va_list arg;
+    int n;
+    va_start(arg, fmt);
+    n = xvlog(LOG_LVL_SCREAM, log, fmt, arg);
+    va_end(arg);
+    return n;
+}
+int log_buffer_nova(log_level_t lvl, log_t * log, const void * pbuffer, size_t len, const char * fmt, ...) {
+    va_list arg;
+    int n = 0;
+    if (log == NULL)
+        log = &s_vlib_log_null;
+    if (LOG_CAN_LOG(log, lvl))
+    {
+        va_start(arg, fmt);
+        n = log_buffer_internal(lvl, log, pbuffer, len, __FILE__, __func__, __LINE__, fmt, arg);
+        va_end(arg);
+    }
+    return n;
+}
+int log_debug_buffer(log_t * log, const void * pbuffer, size_t len, const char * fmt, ...) {
+    va_list arg;
+    int n = 0;
+    if (log == NULL)
+        log = &s_vlib_log_null;
+    if (LOG_CAN_LOG(log, LOG_LVL_DEBUG))
+    {
+        va_start(arg, fmt);
+        n = log_buffer_internal(LOG_LVL_DEBUG, log, pbuffer, len, __FILE__, __func__, __LINE__, fmt, arg);
+        va_end(arg);
+    }
+    return n;
+}
+#endif /* ! ifndef LOG_USE_VA_ARGS */
 

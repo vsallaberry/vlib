@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Vincent Sallaberry
+ * Copyright (C) 2017-2020,2023 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,11 +23,13 @@
 #define VLIB_UTIL_H
 
 #ifdef __cplusplus
+# include <cstdlib>
 # include <cstring>
 # include <cstdio>
 # include <climits>
 # include <cinttypes>
 #else
+# include <stdlib.h>
 # include <string.h>
 # include <stdio.h>
 # include <limits.h>
@@ -61,6 +63,13 @@ extern "C" {
 #endif
 # define VLIB_UNLIKELY(_cond)       VLIB_EXPECT(_cond, 0)
 # define VLIB_LIKELY(_cond)         VLIB_EXPECT(_cond, 1)
+
+/** VLIB_OFFSETOF() / get offset of a field in a struct */
+#if 0 && defined(__offsetof)
+# define VLIB_OFFSETOF(type, field) __ofsetof(type, field)
+#else
+# define VLIB_OFFSETOF(type, field) ( (size_t) ( &(((type *)0)->field) ) )
+#endif
 
 /** snprintf wrapper which returns the real number of characters
  * stored in the string, rather than the number of character which would

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Vincent Sallaberry
+ * Copyright (C) 2017-2020,2023 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -130,13 +130,18 @@ typedef struct {
                                     LOG_CHECK_LOGBUF(log,lvl,buf,sz,__VA_ARGS__)
 #  ifdef _DEBUG
 #   define  LOG_DEBUG(log,...)      LOG_CHECK_LOG(log, LOG_LVL_DEBUG,   __VA_ARGS__)
+#   define  LOG_DEBUG_LVL(lvl,log,...) LOG_CHECK_LOG(log, lvl,          __VA_ARGS__)
 #   define  LOG_SCREAM(log,...)     LOG_CHECK_LOG(log, LOG_LVL_SCREAM,  __VA_ARGS__)
 #   define  LOG_DEBUG_BUF(log,buf,sz,...) \
                                     LOG_BUFFER(LOG_LVL_DEBUG,log,buf,sz,__VA_ARGS__)
+#   define  LOG_DEBUG_BUF_LVL(lvl,log,buf,sz,...) \
+                                    LOG_BUFFER(lvl,          log,buf,sz,__VA_ARGS__)
 #  else
 static inline int log_dummy() { return 0; } /* to avoid -Wunused-value on gcc */
 #   define  LOG_DEBUG(log,...)      log_dummy()
+#   define  LOG_DEBUG_LVL(log,...)  log_dummy()
 #   define  LOG_DEBUG_BUF(log,...)  log_dummy()
+#   define  LOG_DEBUG_BUF_LVL(lvl,log,...)  log_dummy()
 #   define  LOG_SCREAM(log,...)     log_dummy()
 #  endif /* ! _DEBUG */
 # else /*! LOG_USE_VA_ARGS */
@@ -145,15 +150,29 @@ int     log_warn(log_t * log, const char * fmt, ...);
 int     log_info(log_t * log, const char * fmt, ...);
 int     log_verbose(log_t * log, const char * fmt, ...);
 int     log_debug(log_t * log, const char * fmt, ...);
-int     log_debug_buffer(log_t * log, const char * fmt, ...);
+int     log_debug_lvl(log_level_t lvl, log_t * log, const char * fmt, ...);
+int     log_debug_buffer(log_t * log, const void * p, size_t l, const char * fmt, ...);
+int     log_buffer_nova(log_level_t lvl, log_t * log, const void *p, size_t l, const char * fmt, ...);
 int     log_scream(log_t * log, const char * fmt, ...);
 #  define   LOG_ERROR               log_error
 #  define   LOG_WARN                log_warn
 #  define   LOG_INFO                log_info
 #  define   LOG_VERBOSE             log_verbose
-#  define   LOG_DEBUG               log_debug
-#  define   LOG_DEBUG_BUF           log_debug_buffer
-#  define   LOG_SCREAM              log_scream
+#  define   LOG_BUFFER              log_buffer_nova
+#  ifdef _DEBUG
+#   define   LOG_DEBUG               log_debug
+#   define   LOG_DEBUG_LVL           log_debug_lvl
+#   define   LOG_DEBUG_BUF           log_debug_buffer
+#   define   LOG_DEBUG_BUF_LVL       log_buffer_nova
+#   define   LOG_SCREAM              log_scream
+#  else
+static inline int log_dummy() { return 0; } /* to avoid -Wunused-value on gcc */
+#   define  LOG_DEBUG(log,...)      log_dummy()
+#   define  LOG_DEBUG_LVL(log,...)  log_dummy()
+#   define  LOG_DEBUG_BUF(log,...)  log_dummy()
+#   define  LOG_DEBUG_BUF_LVL(lvl,log,...)  log_dummy()
+#   define  LOG_SCREAM(log,...)     log_dummy()
+#  endif /* ! _DEBUG */
 # endif /* ! LOG_USE_VA_ARGS */
 
 /*
