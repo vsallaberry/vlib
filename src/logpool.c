@@ -323,26 +323,21 @@ void                logpool_free(
 }
 
 /* ************************************************************************ */
-static avltree_visit_status_t   logpool_enable_visit(
-                                    avltree_t *                         tree,
-                                    avltree_node_t *                    node,
-                                    const avltree_visit_context_t *     context,
-                                    void *                              user_data) {
+static AVLTREE_DECLARE_VISITFUN(logpool_enable_visit, node_data, context, user_data) {
     log_t *             log;
     int                 enable  = (int)((unsigned long)user_data);
-    (void) context;
 
-    if (tree == NULL)
-        log = (log_t *) node; /* for calling this function outside of visit */
+    if (context == NULL)
+        log = (log_t *) node_data; /* for calling this function outside of visit */
     else
-        log = &(((logpool_entry_t *) node->data)->log); /* normal avltree_visit */
+        log = &(((logpool_entry_t *) node_data)->log); /* normal avltree_visit */
 
     if (log != NULL) {
         FILE * out = log_getfile_locked(log);
 
         if (enable == 0) {
             log->flags |= LOG_FLAG_SILENT;
-        } else if (log != g_vlib_log || tree == NULL) {
+        } else if (log != g_vlib_log || context == NULL) {
             log->flags &= ~LOG_FLAG_SILENT;
         }
 
@@ -369,8 +364,7 @@ int                 logpool_enable(
         if (prev_enable != NULL) {
             *prev_enable = g_vlib_log == NULL ? 1 : (g_vlib_log->flags & LOG_FLAG_SILENT) == 0;
         }
-        logpool_enable_visit(NULL, (avltree_node_t *) g_vlib_log, NULL,
-                             (void*)((unsigned long)enable));
+        logpool_enable_visit(g_vlib_log, NULL, (void*)((unsigned long)enable));
     } else {
         pthread_rwlock_wrlock(&pool->rwlock);
 
@@ -380,7 +374,7 @@ int                 logpool_enable(
 
         if (enable == 0) {
             /* special case for vlib log to avoid avltree logging while disabling */
-            logpool_enable_visit(NULL, (avltree_node_t *) g_vlib_log, NULL, (void*)(0UL));
+            logpool_enable_visit(g_vlib_log, NULL, (void*)(0UL));
 
             /* set SILENT flag to logpool to create new logs as SILENT */
             pool->flags |= LPP_SILENT;
@@ -389,7 +383,7 @@ int                 logpool_enable(
         avltree_visit(pool->logs, logpool_enable_visit, (void*)((unsigned long)enable), AVH_PREFIX);
 
         if (enable == 1) {
-            logpool_enable_visit(NULL, (avltree_node_t *) g_vlib_log, NULL, (void*)(1UL));
+            logpool_enable_visit(g_vlib_log, NULL, (void*)(1UL));
             pool->flags &= ~LPP_SILENT;
         }
 
@@ -851,14 +845,9 @@ typedef struct {
     int                 fnm_flag;
     int                 bfirst_is_pattern;
 } logpool_findpattern_t;
-static avltree_visit_status_t   logpool_findpattern_visit(
-                                    avltree_t *                         tree,
-                                    avltree_node_t *                    node,
-                                    const avltree_visit_context_t *     context,
-                                    void *                              user_data) {
-    logpool_entry_t *       entry = (logpool_entry_t *) node->data;
+static AVLTREE_DECLARE_VISITFUN(logpool_findpattern_visit, node_data, context, user_data) {
+    logpool_entry_t *       entry = (logpool_entry_t *) node_data;
     logpool_findpattern_t * data = (logpool_findpattern_t *) user_data;
-    (void) tree;
     (void) context;
 
     if (entry->log.prefix == NULL) {
@@ -975,14 +964,9 @@ log_t *             logpool_getlog(
 }
 
 /* ************************************************************************ */
-static avltree_visit_status_t   logpool_filesz_visit(
-                                    avltree_t *                         tree,
-                                    avltree_node_t *                    node,
-                                    const avltree_visit_context_t *     context,
-                                    void *                              user_data) {
-    logpool_file_t *    file = (logpool_file_t *) node->data;
+static AVLTREE_DECLARE_VISITFUN(logpool_filesz_visit, node_data, context, user_data) {
+    logpool_file_t *    file = (logpool_file_t *) node_data;
     size_t *            psz = (size_t *) user_data;
-    (void) tree;
     (void) context;
 
     if (psz != NULL && file != NULL) {
@@ -991,14 +975,9 @@ static avltree_visit_status_t   logpool_filesz_visit(
     return AVS_CONTINUE;
 }
 /* ************************************************************************ */
-static avltree_visit_status_t   logpool_logsz_visit(
-                                    avltree_t *                         tree,
-                                    avltree_node_t *                    node,
-                                    const avltree_visit_context_t *     context,
-                                    void *                              user_data) {
-    logpool_entry_t *   entry = (logpool_entry_t *) node->data;
+static AVLTREE_DECLARE_VISITFUN(logpool_logsz_visit, node_data, context, user_data) {
+    logpool_entry_t *   entry = (logpool_entry_t *) node_data;
     size_t *            psz = (size_t *) user_data;
-    (void) tree;
     (void) context;
 
     if (psz != NULL && entry != NULL && entry->log.prefix != NULL) {
@@ -1031,14 +1010,9 @@ size_t              logpool_memorysize(
 }
 
 /* ************************************************************************ */
-static avltree_visit_status_t   logpool_logprint_visit(
-                                    avltree_t *                         tree,
-                                    avltree_node_t *                    node,
-                                    const avltree_visit_context_t *     context,
-                                    void *                              user_data) {
-    logpool_entry_t *   entry = (logpool_entry_t *) node->data;
+static AVLTREE_DECLARE_VISITFUN(logpool_logprint_visit, node_data, context, user_data) {
+    logpool_entry_t *   entry = (logpool_entry_t *) node_data;
     log_t *             log = user_data != NULL ? (log_t *) user_data : g_vlib_log;
-    (void) tree;
     (void) context;
 
     if (entry != NULL) {
@@ -1057,14 +1031,9 @@ static avltree_visit_status_t   logpool_logprint_visit(
     return AVS_CONTINUE;
 }
 /* ************************************************************************ */
-static avltree_visit_status_t   logpool_fileprint_visit(
-                                    avltree_t *                         tree,
-                                    avltree_node_t *                    node,
-                                    const avltree_visit_context_t *     context,
-                                    void *                              user_data) {
-    logpool_file_t *    file = (logpool_file_t *) node->data;
+static AVLTREE_DECLARE_VISITFUN(logpool_fileprint_visit, node_data, context, user_data) {
+    logpool_file_t *    file = (logpool_file_t *) node_data;
     log_t *             log = user_data != NULL ? (log_t *) user_data : g_vlib_log;
-    (void) tree;
     (void) context;
 
     if (file != NULL) {
@@ -1081,7 +1050,7 @@ static avltree_visit_status_t   logpool_fileprint_visit(
 /* ************************************************************************ */
 #if defined(_DEBUG)
 static int avltree_print_logpool(FILE * out, const avltree_node_t * node) {
-    logpool_entry_t *   entry = (logpool_entry_t *) node->data;
+    logpool_entry_t *   entry = (logpool_entry_t *) avltree_node_data(node);
     char                name[13];
     const ssize_t       name_sz = sizeof(name) / sizeof(*name);
     ssize_t             len;
@@ -1154,15 +1123,11 @@ typedef struct {
     slist_t *       list;
     char            path[PATH_MAX*2];
 } logpool_findbypath_visit_t;
-static avltree_visit_status_t logpool_findbypath_visit(
-                                    avltree_t *                         tree,
-                                    avltree_node_t *                    node,
-                                    const avltree_visit_context_t *     context,
-                                    void *                              user_data) {
+
+static AVLTREE_DECLARE_VISITFUN(logpool_findbypath_visit, node_data, context, user_data) {
     logpool_findbypath_visit_t *    data = (logpool_findbypath_visit_t *) user_data;
-    logpool_entry_t *               logentry = (logpool_entry_t *) node->data;
-    int found = 0;
-    (void) tree;
+    logpool_entry_t *               logentry = (logpool_entry_t *) node_data;
+    int                             found = 0;
     (void) context;
 
     if (logentry == NULL) {

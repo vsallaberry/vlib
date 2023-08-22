@@ -99,7 +99,7 @@ void            slist_free_sized(slist_t * list, slist_free_fun_t freefun);
  * Eg: SLIST_FOREACH_DATA(list, str, char *) { printf("%s\n", str); }
  */
 #define SLIST_DATA(list)    ((list)->data)
-#define SLIST_PDATA(list)   (&((list)->data))
+#define SLIST_PDATA(list)   ( (void *) &((list)->data) )
 
 #define SLIST_FOREACH_DATA_T(_TYPE, _list, _iter, _dtype, _getdata) \
                 for(_TYPE _it_list = (_list); (_it_list); (_it_list) = NULL) \

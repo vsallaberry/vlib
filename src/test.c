@@ -162,20 +162,16 @@ typedef struct {
     unsigned int    flags;
     int             do_eol;
 } tests_print_visit_t;
-static avltree_visit_status_t   tests_printgroup_visit(
-                                    avltree_t *                         tree,
-                                    avltree_node_t *                    node,
-                                    const avltree_visit_context_t *     context,
-                                    void *                              user_data) {
+
+static AVLTREE_DECLARE_VISITFUN(tests_printgroup_visit, node_data, context, user_data) {
     tests_print_visit_t *   data    = (tests_print_visit_t *) user_data;
-    testgroup_t *           group   = (testgroup_t *) node->data;
+    testgroup_t *           group   = (testgroup_t *) node_data;
     int                     fd      = data != NULL && data->log != NULL
                                       && data->log->out != NULL
                                       ? ((data->log->flags & LOG_FLAG_COLOR) != 0
                                          ? fileno(data->log->out) : -1)
                                       : STDERR_FILENO;
     (void) context;
-    (void) tree;
 
     if (group == NULL) {
         return AVS_CONTINUE;

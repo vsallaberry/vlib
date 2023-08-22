@@ -29,25 +29,16 @@
 #include "vlib/rbuf.h"
 #include "vlib/slist.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /** avltree_node_t data compare function, strcmp-like */
 typedef int     (*avltree_cmpfun_t)   (const void *, const void *);
 /** avltree_node_t data free function, free-like */
 typedef void    (*avltree_freefun_t)  (void *);
 
-/** avltree_node_t */
-typedef struct avltree_node_s {
-    struct avltree_node_s *     left;
-    struct avltree_node_s *     right;
-    char                        balance;
-    void *                      data;
-} avltree_node_t;
+/** opaque struct avltree_node_t */
+typedef struct avltree_node_s           avltree_node_t;
 
 /** avltree_visit_context_t defined later */
-typedef struct avltree_visit_context_s avltree_visit_context_t;
+typedef struct avltree_visit_context_s  avltree_visit_context_t;
 
 /** tree flags */
 typedef enum {
@@ -123,8 +114,10 @@ typedef enum {
 
 /** visit context to be passed to avltree_visitfun_t functions */
 struct avltree_visit_context_s {
+    avltree_t *                 tree;   /* the tree being visited */
     avltree_visit_how_t         state;  /* current visit state (prefix,infix,...) */
     avltree_visit_how_t         how;    /* requested visit modes (prefix|infix|...) */
+    avltree_node_t *            node;   /* the node being visited, cannot be NULL (ensured by avltree_visit()) */
     size_t                      level;  /* current node level (depth) */
     size_t                      index;  /* current node index in level */
     rbuf_t *                    stack;  /* current stack */
@@ -132,24 +125,24 @@ struct avltree_visit_context_s {
 };
 
 /** avltree_node_t visit function called on each node by avltree_visit()
- * @param tree the tree beiing visited, cannot be NULL (ensured by avltree_visit())
- * @param node the node beiing visited, cannot be NULL (ensured by avltree_visit())
+ * @param data, the data within the node beiing visited,
  * @param context avltree_visit_context_t struct with node infos and visit state,
  *        cannot be NULL (ensured by avltree_visit())
  * @param user_data the specific user data given to avltree_visit
  * @return avltree_visit_status_t
  */
 typedef int         (*avltree_visitfun_t) (
-                        avltree_t *                         tree,
-                        avltree_node_t *                    node,
+                        void *                              data,
                         const avltree_visit_context_t *     context,
                         void *                              user_data);
-#define AVLTREE_DECLARE_VISITFUN(_name, _tree, _node, _context, _user_data) \
+#define AVLTREE_DECLARE_VISITFUN(_name, _data, _context, _user_data) \
     avltree_visit_status_t _name(                                           \
-                            avltree_t *                     _tree,          \
-                            avltree_node_t *                _node,          \
+                            void *                          _data,          \
                             const avltree_visit_context_t * _context,       \
                             void *                          _user_data)
+
+/** AVLNODE : shortcut for avltree_node_create() */
+#define AVLNODE(value, left, right)     avltree_node_create(NULL, value, left, right)
 
 /*****************************************************************************/
 
@@ -160,8 +153,32 @@ typedef int         (*avltree_visitfun_t) (
  * When user inserts NULL values, he must test errno as below:
  * 'if (avltree_find(tree, data) == NULL && errno != 0) perror("find");' */
 
-/** AVLNODE : shortcut for avltree_node_create() */
-#define AVLNODE(value, left, right)     avltree_node_create(NULL, value, left, right)
+/*****************************************************************************/
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/***********************
+ * AVL NODE OPERATIONS *
+ * *********************/
+
+/** get the size of an avltree_node_t, not including what could be in data address. */
+size_t              avltree_node_size();
+/** get left child of an avltree_node_t */
+avltree_node_t *    avltree_node_left(const avltree_node_t * node);
+/** get right child of an avltree_node_t */
+avltree_node_t *    avltree_node_right(const avltree_node_t * node);
+/** get balance of an avltree_node_t */
+char                avltree_node_balance(const avltree_node_t * node);
+/** get data of an avltree_node_t */
+void *              avltree_node_data(const avltree_node_t * node);
+/** set data of an avltree_node_t */
+void                avltree_node_set_data(avltree_node_t * node, void * data);
+
+
+/***********************
+ * AVL TREE OPERATIONS *
+ * *********************/
 
 /** avltree_create()
  * complexity: O(1) */
@@ -342,6 +359,40 @@ void                avltree_print(
 int                 avltree_print_node_default(
                         FILE *                      out,
                         const avltree_node_t *      node);
+
+
+/*****************************
+ * AVL NODE TESTS OPERATIONS *
+ * ***************************/
+
+#if !defined(VLIB_AVLTREE_NODE_TESTS)
+# define VLIB_AVLTREE_NODE_TESTS 0
+#endif
+#if VLIB_AVLTREE_NODE_TESTS
+typedef struct {
+    size_t  node_size;
+    size_t  left_offset;
+    size_t  right_offset;
+    size_t  data_offset;
+    size_t  balance_offset;
+    char    optimize_bits;
+    char    posix_memalign_fallback;
+} avltree_node_info_t;
+/** get infos about avltree_node_t: size, offsets, ... */
+void                avltree_node_infos(avltree_node_info_t * infos);
+/** get left child pointer of an avltree_node_t
+ * !! This function is provided for the tests but SHOULD NOT be used otherwise */
+avltree_node_t **   avltree_node_left_ptr(avltree_node_t * node);
+/** get right child pointer of an avltree_node_t
+ * !! This function is provided for the tests but SHOULD NOT be used otherwise */
+avltree_node_t **   avltree_node_right_ptr(avltree_node_t * node);
+/** set a node pointer (avltree_node_t **)
+ * !! This function is provided for the tests but SHOULD NOT be used otherwise */
+void                avltree_node_set(avltree_node_t ** nodeptr, avltree_node_t * new);
+/** get a node value from its pointer (avltree_node_t **)
+ * !! This function is provided for the tests but SHOULD NOT be used otherwise */
+avltree_node_t *    avltree_node_get(avltree_node_t ** nodeptr);
+#endif // ! #if VLIB_AVLTREE_NODE_TESTS
 
 /*****************************************************************************/
 
