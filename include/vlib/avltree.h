@@ -40,6 +40,9 @@ typedef struct avltree_node_s           avltree_node_t;
 /** avltree_visit_context_t defined later */
 typedef struct avltree_visit_context_s  avltree_visit_context_t;
 
+/** opaque avltree_iterator_t, for avltree_iterator_{create,free}() */
+typedef struct avltree_iterator_s   avltree_iterator_t;
+
 /** tree flags */
 typedef enum {
     AFL_NONE            = 0,
@@ -76,6 +79,7 @@ typedef struct {
 typedef struct avltree_shared_s {
     struct rbuf_s *             stack;
     avltree_visit_context_t *   context;
+    avltree_iterator_t *        iterator;
     pthread_mutex_t             mutex;
     int                         in_use;
 } avltree_shared_t;
@@ -303,6 +307,40 @@ void *              avltree_remove(
                         avltree_t *                 tree,
                         const void *                data);
 
+/** avltree_iterator_create()
+ * complexity: O(1)
+ * @param tree the tree to visit
+ * @param how, a combination of avltree_visit_how_t, giving visit type(s) (prefix|infix|...)
+ *        ! AVH_PARALLEL* is forbidden in this combination, use avltree_visit(AVH_PARALLEL).
+ * @return avltree iterator, to be used with avltree_iterator_next(), or NULL on error. */
+avltree_iterator_t* avltree_iterator_create(
+                        avltree_t *                 tree,
+                        avltree_visit_how_t         how);
+
+/** avltree_iterator_next()
+ * complexity: O(1), and O(n) with repeated calls to visit the whole tree.
+ * @param iterator the current iterator, created with avltree_iterator_create()
+ * @return the next node data or NULL with errno set (not 0) on error.
+ *         NULL with errno == ENOENT is returned when no more data is available.
+ *         NULL with errno == 0 is returned when the data is found and is NULL.
+ * When the iteration ends (error or end-of-tree reached), avltree_iterator_abort()
+ * is automatically called by this function. */
+void *              avltree_iterator_next(avltree_iterator_t * iterator);
+
+/** avltree_iterator_context()
+ * complexity: O(1)
+ * @param iterator the current iterator, created with avltree_iterator_next()
+ * @return the current context of iterator, including the node.
+ *         or NULL if a bad iterator is given as argument. */
+avltree_visit_context_t * avltree_iterator_context(avltree_iterator_t * iterator);
+
+/** avltree_iterator_abort()
+ * complexity: O(1)
+ * This must be called if and only if the iteration has not been completed.
+ * @param iterator the current iterator, created with avltree_iterator_create()
+ * This call frees memory allocated for this iterator. */
+void                avltree_iterator_abort(avltree_iterator_t * iterator);
+
 /** avltree_to_slist()
  * complexity: O(n)
  * return a single-linked list of tree elements (node->data), sorted according to 'how',
@@ -362,6 +400,25 @@ int                 avltree_print_node_default(
 
 
 /*****************************
+ * AVLTREE ITERATOR MACROS
+ ****************************/
+/**
+ * for loop iterating on each 'type' data element of avltree_t * tree
+ * Can be followed by { } block.
+ * Eg: AVLTREE_FOREACH_DATA(tree, str, char *, AVH_INFIX) { printf("%s\n", str); }
+ * As avltree_iterator_next(), the iterator is freed(with avltree_iterator_abort())
+ * when the end of the tree is reached. And this macro calls abort as well when loop breaks.
+ */
+#define AVLTREE_FOREACH_DATA(_tree, _iter, _dtype, _how) \
+            for(avltree_iterator_t * _it_tree = avltree_iterator_create(_tree, _how);   \
+                (_it_tree) != NULL; (avltree_iterator_abort(_it_tree), _it_tree = NULL))\
+                for(_dtype _iter;                                                       \
+                    ((_iter) = (_dtype)(avltree_iterator_next(_it_tree))) != (_dtype)((size_t)NULL) \
+                    || errno == 0 || ((_it_tree = NULL) && 0);                          \
+                    /* no incr. */ )
+
+
+/*****************************
  * AVL NODE TESTS OPERATIONS *
  * ***************************/
 
@@ -371,6 +428,7 @@ int                 avltree_print_node_default(
 #if VLIB_AVLTREE_NODE_TESTS
 typedef struct {
     size_t  node_size;
+    size_t  iterator_size;
     size_t  left_offset;
     size_t  right_offset;
     size_t  data_offset;
