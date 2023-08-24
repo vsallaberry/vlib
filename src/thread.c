@@ -607,6 +607,9 @@ static void * vthread_body(void * data) {
     struct timespec         select_timeout, * p_select_timeout;
 #   endif
 
+    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+    pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
+
     if (priv == NULL) {
         LOG_ERROR(g_vlib_log, "bad thread context");
         errno = EFAULT;
@@ -614,9 +617,6 @@ static void * vthread_body(void * data) {
     }
     LOG_VERBOSE(vthread->log, "thread: initializing");
     pthread_mutex_lock(&priv->mutex);
-
-    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
-    pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
 
     if ((priv->state & VTS_EXIT_REQUESTED) != 0) {
         LOG_VERBOSE(vthread->log, "thread: exit requested before start -> exit");
@@ -738,6 +738,7 @@ static void * vthread_body(void * data) {
         pthread_sigmask(SIG_SETMASK, &priv->block_sigset, &sigset_bak);
         pthread_mutex_unlock(&priv->mutex);
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, &thread_cancel_state);
+        pthread_testcancel();
 
         select_ret = select(fd_max + 1, &readfds, &writefds, &errfds, p_select_timeout);
 
@@ -747,13 +748,15 @@ static void * vthread_body(void * data) {
 #      else
         pthread_mutex_unlock(&priv->mutex);
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, &thread_cancel_state);
-
+        pthread_testcancel();
+        
         select_ret = pselect(fd_max + 1, &readfds, &writefds, &errfds,
                              p_select_timeout, &priv->block_sigset);
         last_signal = s_last_signal;
         select_errno = errno;
 #      endif
 
+        pthread_testcancel();
         pthread_setcancelstate(thread_cancel_state, NULL);
         pthread_mutex_lock(&priv->mutex);
 
