@@ -48,6 +48,15 @@
 //#define AVLTREE_POSIX_MEMALIGN_FALLBACK
 
 /*****************************************************************************/
+/** resources shared between several trees */
+struct avltree_shared_s {
+    struct rbuf_s *             stack;
+    avltree_visit_context_t *   context;
+    avltree_iterator_t *        iterator;
+    pthread_mutex_t             mutex;
+    int                         in_use;
+};
+
 /** visit data used for deletion and insertion visitors */
 typedef struct {
     void *              newdata;        /* IN  : value of new node */
@@ -979,7 +988,7 @@ int                 avltree_visit(
     }
 
     while (rbuf_size(it->stack) != 0) {
-        avltree_node_t *      node = (avltree_node_t *) it->destack_fun(it->stack);
+        it->context->node = (avltree_node_t *) it->destack_fun(it->stack);
 
         //TODO: loop (stack mode) can be optimized by not pushing the next node
         //      to be visited, just do node = node->left/right
@@ -989,16 +998,14 @@ int                 avltree_visit(
         // It is ok to get left/right here, because visit_rebalance() is in suffix mode
         // and there is no left/right push in suffix mode. Moreover, getting left/right
         // now before visit is why the node free() operation works in prefix mode;
-        avltree_node_t *      right = AVL_RIGHT(node);
-        avltree_node_t *      left = AVL_LEFT(node);
-
-        it->context->node = node;
+        avltree_node_t *      right = AVL_RIGHT(it->context->node);
+        avltree_node_t *      left = AVL_LEFT(it->context->node);
 
         LOG_SCREAM(g_vlib_log, "altree_visit(): node:%ld(%ld,%ld) state:%d how:%d "
                                "do_visit:%d last_ret:%d how_orig:%d",
-                (long) AVL_DATA(node),
-                AVL_LEFT(node)?(long)AVL_DATA(AVL_LEFT(node)):-1,
-                AVL_RIGHT(node)?(long)AVL_DATA(AVL_RIGHT(node)):-1,
+                (long) AVL_DATA(it->context->node),
+                left  ? (long)AVL_DATA(left)  : -1,
+                right ? (long)AVL_DATA(right) : -1,
                 it->context->state, it->how, (it->how &~AVH_RIGHT & it->context->state),
                 ret, it->context->how);
 
@@ -1006,7 +1013,7 @@ int                 avltree_visit(
         if ((it->how & ~AVH_RIGHT & it->context->state) == it->context->state) {
 
             /* call the visit() function */
-            ret = visit(AVL_DATA(node), it->context, user_data);
+            ret = visit(AVL_DATA(it->context->node), it->context, user_data);
 
             /* stop on error or when visit goal is accomplished */
             if (ret == AVS_ERROR || ret == AVS_FINISHED) {
@@ -1020,7 +1027,7 @@ int                 avltree_visit(
         }
 
         //node =
-        avltree_iterator_next_node(it, ret, node, left, right);
+        avltree_iterator_next_node(it, ret, it->context->node, left, right);
 
     }
     /* free resources if needed, and restore shared resources */
@@ -1089,10 +1096,10 @@ static inline int   avltree_iterator_init(
 
     it->allocated = 0;
     it->breadth_style = 0;
-    it->push = 1;
+    it->push = -1;
     it->invert_childs = (((how & (AVH_BREADTH | AVH_RIGHT)) == AVH_BREADTH)
                       || ((how & (AVH_RIGHT | AVH_BREADTH)) == AVH_RIGHT));
-    it->how = how;
+    it->how = it->context->how = how;
     it->destack_fun = (it->how & AVH_BREADTH) != 0 ? rbuf_dequeue : rbuf_pop;
 
     /* push the root node, if any */
@@ -1104,7 +1111,7 @@ static inline int   avltree_iterator_init(
     it->context->index = 0;
     it->context->stack = it->stack;
     it->context->data = NULL;
-    it->context->how = it->how;
+
     it->how &= (AVH_MASK & ~(AVH_PARALLEL) & ~(AVH_MERGE));
     it->context->state = (it->how & AVH_BREADTH) != 0 ? (it->how & ~AVH_RIGHT & AVH_BREADTH) : AVH_PREFIX;
     it->breadth_style = (it->context->state == AVH_BREADTH || (it->how & ~AVH_RIGHT) == AVH_PREFIX);
@@ -1134,7 +1141,7 @@ avltree_iterator_t* avltree_iterator_create(
         free(iterator);
         return NULL;
     }
-    iterator->allocated = 1;
+    iterator->allocated = -1;
 
     LOG_DEBUG(g_vlib_log, "%s(): done (tree:%lx, it:%lx).",
                   __func__, (unsigned long) iterator->context->tree, (unsigned long) iterator);
@@ -1144,31 +1151,32 @@ avltree_iterator_t* avltree_iterator_create(
 
 // ***************************************************************************
 void *              avltree_iterator_next(avltree_iterator_t * it) {
-    int ret = AVS_CONTINUE;
-    //LOG_WARN(g_vlib_log, "%s(): NOT IMPLEMENTED.", __func__);
+    avltree_node_t *    visit_node;
+    int                 ret = AVS_CONTINUE;
+
     while (rbuf_size(it->stack) != 0) {
-        avltree_node_t * node = it->context->node = (avltree_node_t *) it->destack_fun(it->stack);
-        avltree_node_t * visit_node = NULL;
+        it->context->node = (avltree_node_t *) it->destack_fun(it->stack);
+        visit_node = NULL;
 
         // It is ok to get left/right here, because visit_rebalance() is in suffix mode
         // and there is no left/right push in suffix mode. Moreover, getting left/right
         // now before visit is why the node free() operation works in prefix mode;
-        avltree_node_t *      right = AVL_RIGHT(node);
-        avltree_node_t *      left = AVL_LEFT(node);
+        avltree_node_t *      right = AVL_RIGHT(it->context->node);
+        avltree_node_t *      left = AVL_LEFT(it->context->node);
 
         LOG_DEBUG(g_vlib_log, "altree_iterator_next(): node:%ld(%ld,%ld) state:%d how:%d "
                                "do_visit:%d last_ret:%d how_orig:%d",
-                (long) AVL_DATA(node),
-                AVL_LEFT(node)?(long)AVL_DATA(AVL_LEFT(node)):-1,
-                AVL_RIGHT(node)?(long)AVL_DATA(AVL_RIGHT(node)):-1,
+                (long) AVL_DATA(it->context->node),
+                left?  (long)AVL_DATA(left):  -1,
+                right? (long)AVL_DATA(right): -1,
                 it->context->state, it->how, (it->how &~AVH_RIGHT & it->context->state), ret, it->context->how);
 
         /* visit the current node if required, and update ret only if visitor is called */
         if ((it->how & ~AVH_RIGHT & it->context->state) == it->context->state) {
-            visit_node = node;
+            visit_node = it->context->node;
         }
-        //node =
-        avltree_iterator_next_node(it, ret, node, left, right);
+        //it->context->node =
+        avltree_iterator_next_node(it, ret, it->context->node, left, right);
 
         if (visit_node) {
             void * data = AVL_DATA(visit_node);

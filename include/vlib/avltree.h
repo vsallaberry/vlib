@@ -40,8 +40,11 @@ typedef struct avltree_node_s           avltree_node_t;
 /** avltree_visit_context_t defined later */
 typedef struct avltree_visit_context_s  avltree_visit_context_t;
 
+/** opaque avltree_shared_t, for sharing resources between trees */
+typedef struct avltree_shared_s         avltree_shared_t;
+
 /** opaque avltree_iterator_t, for avltree_iterator_{create,free}() */
-typedef struct avltree_iterator_s   avltree_iterator_t;
+typedef struct avltree_iterator_s       avltree_iterator_t;
 
 /** tree flags */
 typedef enum {
@@ -74,15 +77,6 @@ typedef struct {
     avltree_freefun_t           free;
     struct avltree_shared_s *   shared;
 } avltree_t;
-
-/** resources shared between several trees */
-typedef struct avltree_shared_s {
-    struct rbuf_s *             stack;
-    avltree_visit_context_t *   context;
-    avltree_iterator_t *        iterator;
-    pthread_mutex_t             mutex;
-    int                         in_use;
-} avltree_shared_t;
 
 /** avltree_visitfun_t return value */
 typedef enum {
