@@ -629,26 +629,16 @@ size_t              avltree_memorysize(
 static inline avltree_node_t *  avltree_visit_get_child(
                                     int                         what,
                                     avltree_visit_status_t      ret,
-                                    avltree_visit_how_t         how,
+                                    avltree_iterator_t *        it,
                                     avltree_node_t *            left,
                                     avltree_node_t *            right) {
-    /* invert [ret, left and right] if the visit is from right to left */
-    if (((how & (AVH_BREADTH | AVH_RIGHT)) == AVH_BREADTH)
-    ||  ((how & (AVH_RIGHT | AVH_BREADTH)) == AVH_RIGHT)) {
-        avltree_node_t * tmp = left;
-        left = right;
-        right = tmp;
-        if ((ret & (AVS_GO_LEFT | AVS_GO_RIGHT)) == AVS_GO_LEFT) {
-           ret = AVS_GO_RIGHT;
-        } else if ((ret & (AVS_GO_LEFT | AVS_GO_RIGHT)) == AVS_GO_RIGHT) {
-           ret = AVS_GO_LEFT;
-        }
-    }
-    if (what == AGC_FIRST) {
-        if (left != NULL && (ret == AVS_GO_LEFT || ret == AVS_CONTINUE)) {
+    /* invert [ret, left and right] if the visit is from right to left 
+     * and take care of return value (do you want to go left/right/both?) */    
+    if (what == (it->invert_childs ? AGC_SECOND : AGC_FIRST)) {
+        if ((ret & AVS_GO_LEFT) != 0) {
             return left;
         }
-    } else if (right != NULL && (ret == AVS_GO_RIGHT || ret == AVS_CONTINUE)) {
+    } else if ((ret & AVS_GO_RIGHT) != 0) {
         return right;
     }
     return NULL;
@@ -891,10 +881,10 @@ static inline /*avltree_node_t * */void avltree_iterator_next_node(avltree_itera
     if (it->breadth_style) {
         /* push left/right child if required */
         if (it->push) {
-            if ((node = avltree_visit_get_child(AGC_SECOND, ret, it->how, left,right)) != NULL) {
+            if ((node = avltree_visit_get_child(AGC_SECOND, ret, it, left,right)) != NULL) {
                 rbuf_push(it->stack, node);
             }
-            if ((node = avltree_visit_get_child(AGC_FIRST, ret, it->how, left,right)) != NULL) {
+            if ((node = avltree_visit_get_child(AGC_FIRST, ret, it, left,right)) != NULL) {
                 rbuf_push(it->stack, node);
             }
             return ; //node;
@@ -909,7 +899,7 @@ static inline /*avltree_node_t * */void avltree_iterator_next_node(avltree_itera
             }
             /* push first child if required (taking care of AVH_RIGHT modifier) */
             if (it->push
-            &&  (node = avltree_visit_get_child(AGC_FIRST, ret, it->how, left, right)) != NULL) {
+            &&  (node = avltree_visit_get_child(AGC_FIRST, ret, it, left, right)) != NULL) {
                 /* visit first child in prefix mode */
                 rbuf_push(it->stack, node);
             } else {
@@ -929,7 +919,7 @@ static inline /*avltree_node_t * */void avltree_iterator_next_node(avltree_itera
             }
             /* push left/right child if required (taking care of AVH_RIGHT modifier) */
             if (it->push
-            &&  (node = avltree_visit_get_child(AGC_SECOND, ret, it->how, left, right)) != NULL) {
+            &&  (node = avltree_visit_get_child(AGC_SECOND, ret, it, left, right)) != NULL) {
                 /* go to right, for prefix visit */
                 rbuf_push(it->stack, node);
                 it->context->state = AVH_PREFIX;
@@ -945,7 +935,7 @@ static inline /*avltree_node_t * */void avltree_iterator_next_node(avltree_itera
             if (rbuf_size(it->stack)) {
                 avltree_node_t * parent = rbuf_top(it->stack);
                 if ((it->push || (it->how & AVH_INFIX) != 0)
-                && node == avltree_visit_get_child(AGC_FIRST, AVS_CONTINUE, it->how,
+                && node == avltree_visit_get_child(AGC_FIRST, AVS_CONTINUE, it,
                                                    AVL_LEFT(parent), AVL_RIGHT(parent))) {
                     /* prepare the parent to be visited in infix mode */
                     it->context->state = AVH_INFIX;
