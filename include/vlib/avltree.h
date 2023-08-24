@@ -311,6 +311,19 @@ avltree_iterator_t* avltree_iterator_create(
                         avltree_t *                 tree,
                         avltree_visit_how_t         how);
 
+/** avltree_iterator_create_inrange()
+ * complexity: O(1)
+ * @param tree the tree to visit
+ * @param min the minimum element of the range
+ * @param max the maximum element of the range
+ * @param how, RFU.
+ * @return avltree iterator, to be used with avltree_iterator_next(), or NULL on error. */
+avltree_iterator_t* avltree_iterator_create_inrange(
+                        avltree_t *                 tree,
+                        void *                      min,
+                        void *                      max,
+                        avltree_visit_how_t         how);
+
 /** avltree_iterator_next()
  * complexity: O(1), and O(n) with repeated calls to visit the whole tree.
  * @param iterator the current iterator, created with avltree_iterator_create()

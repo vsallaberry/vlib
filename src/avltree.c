@@ -77,8 +77,9 @@ typedef struct {
 struct avltree_iterator_s {
     avltree_visit_context_t *   context;
     rbuf_t *                    stack;
-    void *                      (*destack_fun)(rbuf_t *);
+    avltree_node_t *            next_node;
     avltree_visit_how_t         how;
+    avltree_visit_status_t      status;
     int                         allocated:1;
     int                         breadth_style:1;
     int                         push:1;
@@ -876,58 +877,75 @@ static int          avltree_visit_parallel(
     return ret;
 }
 
-static inline /*avltree_node_t * */void avltree_iterator_next_node(avltree_iterator_t * it, int ret, avltree_node_t * node, avltree_node_t * left, avltree_node_t * right) {
+static inline avltree_node_t * avltree_iterator_next_node(
+                                    avltree_iterator_t *        it, 
+                                    int ret, avltree_node_t *   node, 
+                                    avltree_node_t *            left, 
+                                    avltree_node_t *            right) {
+    avltree_node_t * tmp_node;
     /* prepare next visit */
-    if (it->breadth_style) {
-        /* push left/right child if required */
-        if (it->push) {
-            if ((node = avltree_visit_get_child(AGC_SECOND, ret, it, left,right)) != NULL) {
-                rbuf_push(it->stack, node);
-            }
-            if ((node = avltree_visit_get_child(AGC_FIRST, ret, it, left,right)) != NULL) {
-                rbuf_push(it->stack, node);
-            }
-            return ; //node;
-        }
-        return ; //it->destack(it->stack);
-    }
+    
     switch (it->context->state) {
         case AVH_PREFIX:
-            /* push current node, so that child can return to its parent */
-            if ((ret & AVS_SKIP) == 0) {
-                rbuf_push(it->stack, node);
-            }
-            /* push first child if required (taking care of AVH_RIGHT modifier) */
-            if (it->push
-            &&  (node = avltree_visit_get_child(AGC_FIRST, ret, it, left, right)) != NULL) {
-                /* visit first child in prefix mode */
-                rbuf_push(it->stack, node);
-            } else {
-                if (!it->push && (it->how & AVH_INFIX) == 0) {
-                    /* stay on node for suffix visit, as neither infix nor push is required */
-                    it->context->state = AVH_SUFFIX;
-                } else {
-                    /* stay on node for infix visit */
-                    it->context->state = AVH_INFIX;
+            if (it->breadth_style) { // Simplified PREFIX visit when no infix/suffix is required.
+                /* if left present, push right child, return left, 
+                 * otherwise return right (checking push & AVS_GO_*). */
+                if (it->push) {
+                    node = avltree_visit_get_child(AGC_FIRST, ret, it, left,right); // get the first child
+                    if ((tmp_node = avltree_visit_get_child(AGC_SECOND, ret, it, left,right)) != NULL) {
+                        // second child is present, stack it if there is a first child, otherwise return it;
+                        if (node) {
+                            rbuf_push(it->stack, tmp_node); // stack the second child,
+                            return node;                    // return the first child.
+                        }
+                        return tmp_node; // no first child, return the second child.
+                    }
+                    if (node)
+                        return node; // return the first child.
                 }
-            }
-            break ;
-        case AVH_INFIX:
+                return rbuf_pop(it->stack);
+            }     
+            /* push current node then first child so that first child is at TOP of stack */
+            tmp_node = it->push ? avltree_visit_get_child(AGC_FIRST, ret, it, left, right) : NULL;
             /* push current node, so that child can return to its parent */
-            if ((ret & AVS_SKIP) == 0) {
-                rbuf_push(it->stack, node);
+            if (tmp_node) {                     // do we have the first child ?
+                if ((ret & AVS_SKIP) == 0) {    //   do we want to push the current node ?
+                    rbuf_push(it->stack, node); //      yes, stack current,
+                }
+                return tmp_node;                //   and return first child.                 
             }
-            /* push left/right child if required (taking care of AVH_RIGHT modifier) */
-            if (it->push
-            &&  (node = avltree_visit_get_child(AGC_SECOND, ret, it, left, right)) != NULL) {
-                /* go to right, for prefix visit */
-                rbuf_push(it->stack, node);
-                it->context->state = AVH_PREFIX;
-            } else {
-                /* stays on node, for SUFFIX visit */
+            
+            if (!it->push && (it->how & AVH_INFIX) == 0) {
+                /* stay on node for suffix visit, as neither infix nor push is required */
                 it->context->state = AVH_SUFFIX;
+            } else {
+                /* stay on node for infix visit */
+                it->context->state = AVH_INFIX;
+            }
+            if ((ret & AVS_SKIP) == 0) {
+                return node;
             }
             break ;
+            
+        case AVH_INFIX:
+            // push current node then second child.
+            tmp_node = it->push ? avltree_visit_get_child(AGC_SECOND, ret, it, left, right) : NULL;
+            /* push current node, so that child can return to its parent */
+            if (tmp_node) {
+                if ((ret & AVS_SKIP) == 0) {    // Do we want to push the current node ?           
+                    rbuf_push(it->stack, node); // yes, stack it.
+                }            
+                /* go to right, for prefix visit */                
+                it->context->state = AVH_PREFIX;
+                return tmp_node; // there is a second child, return it;
+            }            
+            /* stays on node, for SUFFIX visit */
+            it->context->state = AVH_SUFFIX;
+            if ((ret & AVS_SKIP) == 0) {
+                return node;
+            }
+            break ;
+            
         case AVH_SUFFIX:
             if ((ret & AVS_NEXTVISIT) == AVS_NEXTVISIT) {
                 break ;
@@ -945,13 +963,26 @@ static inline /*avltree_node_t * */void avltree_iterator_next_node(avltree_itera
                 /* next visit is for parent */
             }
             break ;
+        
+        case AVH_BREADTH:
+            /* push left/right child if required */
+            if (it->push) {
+                if ((node = avltree_visit_get_child(AGC_SECOND, ret, it, left,right)) != NULL) {
+                    rbuf_push(it->stack, node);
+                }
+                if ((node = avltree_visit_get_child(AGC_FIRST, ret, it, left,right)) != NULL) {
+                    rbuf_push(it->stack, node);
+                }
+            }
+            return rbuf_dequeue(it->stack);
+ 
         default:
             LOG_ERROR(g_vlib_log, "avltree_visit: bad state %d", it->context->state);
             ret = AVS_ERROR;
             rbuf_reset(it->stack);
             break ;
     }
-    return ;//node;
+    return rbuf_pop(it->stack);
 }
 
 /*****************************************************************************/
@@ -961,6 +992,8 @@ int                 avltree_visit(
                         void *                      user_data,
                         avltree_visit_how_t         how) {
     avltree_iterator_t      it_fun, * it    = &it_fun;
+    avltree_node_t *        right;
+    avltree_node_t *        left;
     int                     ret             = AVS_CONTINUE;
 
     if (tree == NULL || visit == NULL) {
@@ -977,19 +1010,18 @@ int                 avltree_visit(
         return AVS_ERROR;
     }
 
-    while (rbuf_size(it->stack) != 0) {
-        it->context->node = (avltree_node_t *) it->destack_fun(it->stack);
+    while ((it->context->node = it->next_node) != NULL) {
 
-        //TODO: loop (stack mode) can be optimized by not pushing the next node
-        //      to be visited, just do node = node->left/right
+        //TODO: seems not possible to optimize loop (return node instead of push)
+        //      for AVH_BREADTH (as it is done for prefix/infix/suffix).
         //TODO: skip states which are not required by visitor (push child earlier)
         //TODO: AVS_NEXTVISIT and AVS_SKIP might not work correctly
 
         // It is ok to get left/right here, because visit_rebalance() is in suffix mode
         // and there is no left/right push in suffix mode. Moreover, getting left/right
         // now before visit is why the node free() operation works in prefix mode;
-        avltree_node_t *      right = AVL_RIGHT(it->context->node);
-        avltree_node_t *      left = AVL_LEFT(it->context->node);
+        right = AVL_RIGHT(it->context->node);
+        left  = AVL_LEFT(it->context->node);
 
         LOG_SCREAM(g_vlib_log, "altree_visit(): node:%ld(%ld,%ld) state:%d how:%d "
                                "do_visit:%d last_ret:%d how_orig:%d",
@@ -1016,10 +1048,9 @@ int                 avltree_visit(
             }
         }
 
-        //node =
-        avltree_iterator_next_node(it, ret, it->context->node, left, right);
-
+        it->next_node = avltree_iterator_next_node(it, ret, it->context->node, left, right);
     }
+
     /* free resources if needed, and restore shared resources */
     //avltree_visit_resources_free(tree, it->stack, it->context);
     avltree_iterator_clean(it);
@@ -1085,17 +1116,15 @@ static inline int   avltree_iterator_init(
     it->context->tree = tree;
 
     it->allocated = 0;
-    it->breadth_style = 0;
+    it->range = 0;
     it->push = -1;
     it->invert_childs = (((how & (AVH_BREADTH | AVH_RIGHT)) == AVH_BREADTH)
                       || ((how & (AVH_RIGHT | AVH_BREADTH)) == AVH_RIGHT));
     it->how = it->context->how = how;
-    it->destack_fun = (it->how & AVH_BREADTH) != 0 ? rbuf_dequeue : rbuf_pop;
+    it->status = AVS_CONTINUE;
 
     /* push the root node, if any */
-    if (tree->root != NULL) {
-        rbuf_push(it->stack, tree->root);
-    }
+    it->next_node = tree->root;
 
     it->context->level = 0;
     it->context->index = 0;
@@ -1104,9 +1133,21 @@ static inline int   avltree_iterator_init(
 
     it->how &= (AVH_MASK & ~(AVH_PARALLEL) & ~(AVH_MERGE));
     it->context->state = (it->how & AVH_BREADTH) != 0 ? (it->how & ~AVH_RIGHT & AVH_BREADTH) : AVH_PREFIX;
-    it->breadth_style = (it->context->state == AVH_BREADTH || (it->how & ~AVH_RIGHT) == AVH_PREFIX);
+    it->breadth_style = ((it->how & ~AVH_RIGHT) == AVH_PREFIX);
 
     return AVS_FINISHED;
+}
+
+// ***************************************************************************
+static int          avltree_iterator_init_range(
+                        avltree_iterator_t *        it,
+                        void *                      min,
+                        void *                      max) {
+    it->min = min;
+    it->max = max;
+    it->range = -1;
+
+    return AVS_FINISHED;  
 }
 
 // ***************************************************************************
@@ -1140,33 +1181,78 @@ avltree_iterator_t* avltree_iterator_create(
 }
 
 // ***************************************************************************
+avltree_iterator_t* avltree_iterator_create_inrange(
+                        avltree_t *                 tree,
+                        void *                      min,
+                        void *                      max,
+                        avltree_visit_how_t         how) {
+    avltree_iterator_t * iterator;
+    (void) how;
+    
+    if ((iterator = avltree_iterator_create(tree, AVH_PREFIX | AVH_INFIX)) == NULL) {
+        return NULL;
+    }
+    if (avltree_iterator_init_range(iterator, min, max) == AVS_ERROR) {
+        avltree_iterator_abort(iterator);
+        return NULL;
+    }
+    return iterator;
+}
+
+// ***************************************************************************
 void *              avltree_iterator_next(avltree_iterator_t * it) {
     avltree_node_t *    visit_node;
-    int                 ret = AVS_CONTINUE;
-
-    while (rbuf_size(it->stack) != 0) {
-        it->context->node = (avltree_node_t *) it->destack_fun(it->stack);
+    avltree_node_t *    right;
+    avltree_node_t *    left;
+    
+    while ((it->context->node = it->next_node) != NULL) {
         visit_node = NULL;
 
         // It is ok to get left/right here, because visit_rebalance() is in suffix mode
         // and there is no left/right push in suffix mode. Moreover, getting left/right
         // now before visit is why the node free() operation works in prefix mode;
-        avltree_node_t *      right = AVL_RIGHT(it->context->node);
-        avltree_node_t *      left = AVL_LEFT(it->context->node);
+        right = AVL_RIGHT(it->context->node);
+        left = AVL_LEFT(it->context->node);
 
         LOG_DEBUG(g_vlib_log, "altree_iterator_next(): node:%ld(%ld,%ld) state:%d how:%d "
                                "do_visit:%d last_ret:%d how_orig:%d",
                 (long) AVL_DATA(it->context->node),
                 left?  (long)AVL_DATA(left):  -1,
                 right? (long)AVL_DATA(right): -1,
-                it->context->state, it->how, (it->how &~AVH_RIGHT & it->context->state), ret, it->context->how);
+                it->context->state, it->how, (it->how &~AVH_RIGHT & it->context->state), it->status, it->context->how);
 
-        /* visit the current node if required, and update ret only if visitor is called */
         if ((it->how & ~AVH_RIGHT & it->context->state) == it->context->state) {
-            visit_node = it->context->node;
+            if (it->range) {            
+                /* special handling to find the right range */    
+                if (it->context->state == AVH_PREFIX) {
+                    if (it->context->tree->cmp(AVL_DATA(it->context->node), it->min) < 0) {
+                        it->status = AVS_GO_RIGHT;
+                    }
+                    it->status = AVS_GO_LEFT;
+                } else if (it->context->state == AVH_INFIX) {
+                    if (it->context->tree->cmp(AVL_DATA(it->context->node), it->min) < 0) {
+                        it->status = AVS_CONTINUE;
+                    } else if (it->context->tree->cmp(AVL_DATA(it->context->node), it->max) > 0) {
+                        break ;
+                    } else {                 
+                        visit_node = it->context->node;
+                        it->status = AVS_CONTINUE;
+                    }
+                } else {
+                    //return AVS_ERROR;
+                    break ;
+                }            
+            } else {
+                /* visit the current node if required, and update ret only if visitor is called */
+                visit_node = it->context->node;
+                // TODO: currently the state is updated to next state before returning
+                //       This means that user will have the next and not current state
+                //       if he checks avltree_iterator_context(it)->state.
+                //       Moreover, solving this issue could help the user controlling
+                //       visit with iterator->status.
+            }
         }
-        //it->context->node =
-        avltree_iterator_next_node(it, ret, it->context->node, left, right);
+        it->next_node = avltree_iterator_next_node(it, it->status, it->context->node, left, right);
 
         if (visit_node) {
             void * data = AVL_DATA(visit_node);
