@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Vincent Sallaberry
+ * Copyright (C) 2018-2020,2023 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -103,20 +103,21 @@ struct avltree_node_s {
 };
 
 # define AVL_NODEMASK(_node)             ( (_node) & ~1UL )
+# define AVL_BALMASK(_node)/*oh he ohhe*/( (_node) & 1UL  )
 # define AVL_LEFT(_node)                 ( (avltree_node_t *) AVL_NODEMASK((_node)->left_)  )
 # define AVL_RIGHT(_node)                ( (avltree_node_t *) AVL_NODEMASK((_node)->right_) )
 # define AVL_LEFT_PTR(_node)             ( (void *) &((_node)->left_) )
 # define AVL_RIGHT_PTR(_node)            ( (void *) &((_node)->right_) )
-# define AVL_BALANCE(_node)              ( (char) (((_node)->left_ & 1UL) << 1 | ((_node)->right_ & 1UL) ) - 2)
+# define AVL_BALANCE(_node)              ( (char) (AVL_BALMASK((_node)->left_) << 1 | AVL_BALMASK((_node)->right_) ) - 2)
 # define AVL_DATA(_node)                 ( (_node)->data_ )
 
-# define AVL_SET_LEFT(_node, _left)      ( (_node)->left_  = ((_node)->left_ & 1UL)  | AVL_NODEMASK((uintptr_t)_left) )
-# define AVL_SET_RIGHT(_node, _right)    ( (_node)->right_ = ((_node)->right_ & 1UL) | AVL_NODEMASK((uintptr_t)_right) )
+# define AVL_SET_LEFT(_node, _left)      ( (_node)->left_  = AVL_BALMASK((_node)->left_)  | AVL_NODEMASK((uintptr_t)_left) )
+# define AVL_SET_RIGHT(_node, _right)    ( (_node)->right_ = AVL_BALMASK((_node)->right_) | AVL_NODEMASK((uintptr_t)_right) )
 # define AVL_SET_BALANCE(_node,_balance) ( (_node)->right_ = AVL_NODEMASK((_node)->right_) | (((_balance)  + 2UL) & 0x01UL), \
                                            (_node)->left_  = AVL_NODEMASK((_node)->left_)  | ((((_balance) + 2UL) & 0x02UL) >> 1) )
 # define AVL_SET_DATA(_node, _data)      ( (_node)->data_  = (_data) )
 # define AVL_NODE(_nodeptr)              ( (avltree_node_t *)(AVL_NODEMASK((uintptr_t)*(_nodeptr))) )
-# define AVL_SET_NODE(_nodeptr, _new)    ( *(_nodeptr) = (avltree_node_t *)((((uintptr_t)*(_nodeptr)) & 1UL) | (uintptr_t)(_new)))
+# define AVL_SET_NODE(_nodeptr, _new)    ( *(_nodeptr) = (avltree_node_t *)(AVL_BALMASK(((uintptr_t)*(_nodeptr))) | (uintptr_t)(_new)))
 
 #else
 /*
@@ -633,8 +634,8 @@ static inline avltree_node_t *  avltree_visit_get_child(
                                     avltree_iterator_t *        it,
                                     avltree_node_t *            left,
                                     avltree_node_t *            right) {
-    /* invert [ret, left and right] if the visit is from right to left 
-     * and take care of return value (do you want to go left/right/both?) */    
+    /* invert [ret, left and right] if the visit is from right to left
+     * and take care of return value (do you want to go left/right/both?) */
     if (what == (it->invert_childs ? AGC_SECOND : AGC_FIRST)) {
         if ((ret & AVS_GO_LEFT) != 0) {
             return left;
@@ -878,17 +879,17 @@ static int          avltree_visit_parallel(
 }
 
 static inline avltree_node_t * avltree_iterator_next_node(
-                                    avltree_iterator_t *        it, 
-                                    int ret, avltree_node_t *   node, 
-                                    avltree_node_t *            left, 
+                                    avltree_iterator_t *        it,
+                                    int ret, avltree_node_t *   node,
+                                    avltree_node_t *            left,
                                     avltree_node_t *            right) {
     avltree_node_t * tmp_node;
     /* prepare next visit */
-    
+
     switch (it->context->state) {
         case AVH_PREFIX:
             if (it->breadth_style) { // Simplified PREFIX visit when no infix/suffix is required.
-                /* if left present, push right child, return left, 
+                /* if left present, push right child, return left,
                  * otherwise return right (checking push & AVS_GO_*). */
                 if (it->push) {
                     node = avltree_visit_get_child(AGC_FIRST, ret, it, left,right); // get the first child
@@ -904,7 +905,7 @@ static inline avltree_node_t * avltree_iterator_next_node(
                         return node; // return the first child.
                 }
                 return rbuf_pop(it->stack);
-            }     
+            }
             /* push current node then first child so that first child is at TOP of stack */
             tmp_node = it->push ? avltree_visit_get_child(AGC_FIRST, ret, it, left, right) : NULL;
             /* push current node, so that child can return to its parent */
@@ -912,9 +913,9 @@ static inline avltree_node_t * avltree_iterator_next_node(
                 if ((ret & AVS_SKIP) == 0) {    //   do we want to push the current node ?
                     rbuf_push(it->stack, node); //      yes, stack current,
                 }
-                return tmp_node;                //   and return first child.                 
+                return tmp_node;                //   and return first child.
             }
-            
+
             if (!it->push && (it->how & AVH_INFIX) == 0) {
                 /* stay on node for suffix visit, as neither infix nor push is required */
                 it->context->state = AVH_SUFFIX;
@@ -926,26 +927,26 @@ static inline avltree_node_t * avltree_iterator_next_node(
                 return node;
             }
             break ;
-            
+
         case AVH_INFIX:
             // push current node then second child.
             tmp_node = it->push ? avltree_visit_get_child(AGC_SECOND, ret, it, left, right) : NULL;
             /* push current node, so that child can return to its parent */
             if (tmp_node) {
-                if ((ret & AVS_SKIP) == 0) {    // Do we want to push the current node ?           
+                if ((ret & AVS_SKIP) == 0) {    // Do we want to push the current node ?
                     rbuf_push(it->stack, node); // yes, stack it.
-                }            
-                /* go to right, for prefix visit */                
+                }
+                /* go to right, for prefix visit */
                 it->context->state = AVH_PREFIX;
                 return tmp_node; // there is a second child, return it;
-            }            
+            }
             /* stays on node, for SUFFIX visit */
             it->context->state = AVH_SUFFIX;
             if ((ret & AVS_SKIP) == 0) {
                 return node;
             }
             break ;
-            
+
         case AVH_SUFFIX:
             if ((ret & AVS_NEXTVISIT) == AVS_NEXTVISIT) {
                 break ;
@@ -963,7 +964,7 @@ static inline avltree_node_t * avltree_iterator_next_node(
                 /* next visit is for parent */
             }
             break ;
-        
+
         case AVH_BREADTH:
             /* push left/right child if required */
             if (it->push) {
@@ -975,7 +976,7 @@ static inline avltree_node_t * avltree_iterator_next_node(
                 }
             }
             return rbuf_dequeue(it->stack);
- 
+
         default:
             LOG_ERROR(g_vlib_log, "avltree_visit: bad state %d", it->context->state);
             ret = AVS_ERROR;
@@ -1147,7 +1148,7 @@ static int          avltree_iterator_init_range(
     it->max = max;
     it->range = -1;
 
-    return AVS_FINISHED;  
+    return AVS_FINISHED;
 }
 
 // ***************************************************************************
@@ -1188,7 +1189,7 @@ avltree_iterator_t* avltree_iterator_create_inrange(
                         avltree_visit_how_t         how) {
     avltree_iterator_t * iterator;
     (void) how;
-    
+
     if ((iterator = avltree_iterator_create(tree, AVH_PREFIX | AVH_INFIX)) == NULL) {
         return NULL;
     }
@@ -1204,7 +1205,7 @@ void *              avltree_iterator_next(avltree_iterator_t * it) {
     avltree_node_t *    visit_node;
     avltree_node_t *    right;
     avltree_node_t *    left;
-    
+
     while ((it->context->node = it->next_node) != NULL) {
         visit_node = NULL;
 
@@ -1222,8 +1223,8 @@ void *              avltree_iterator_next(avltree_iterator_t * it) {
                 it->context->state, it->how, (it->how &~AVH_RIGHT & it->context->state), it->status, it->context->how);
 
         if ((it->how & ~AVH_RIGHT & it->context->state) == it->context->state) {
-            if (it->range) {            
-                /* special handling to find the right range */    
+            if (it->range) {
+                /* special handling to find the right range */
                 if (it->context->state == AVH_PREFIX) {
                     if (it->context->tree->cmp(AVL_DATA(it->context->node), it->min) < 0) {
                         it->status = AVS_GO_RIGHT;
@@ -1234,14 +1235,14 @@ void *              avltree_iterator_next(avltree_iterator_t * it) {
                         it->status = AVS_CONTINUE;
                     } else if (it->context->tree->cmp(AVL_DATA(it->context->node), it->max) > 0) {
                         break ;
-                    } else {                 
+                    } else {
                         visit_node = it->context->node;
                         it->status = AVS_CONTINUE;
                     }
                 } else {
                     //return AVS_ERROR;
                     break ;
-                }            
+                }
             } else {
                 /* visit the current node if required, and update ret only if visitor is called */
                 visit_node = it->context->node;
