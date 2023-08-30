@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Vincent Sallaberry
+ * Copyright (C) 2018-2020,2023 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -33,11 +33,16 @@
 #if BUILD_VLIB
 # include "vlib/util.h"
 # include "vlib/log.h"
+# include "vlib_private.h"
 #else
 # define VDECODEBUF_STRTAB_MAGIC    ((const char *) 0x0abcCafeUL)
 # define VDECODEBUF_RAW_MAGIC       "\x0c\x0a\x0f\x0e"
+# define LOG_ERROR(log,...)
+# define LOG_WARN(log,...)
 # define LOG_INFO(log,...)
 # define LOG_DEBUG(log,...)
+# define LOG_DEBUG_LVL(log,...)
+# define LOG_SCREAM(log,...)
 # define LOG_DEBUG_BUF(log,...)
 # define g_vlib_log NULL
 #endif
@@ -54,11 +59,17 @@
 #define ZLIB_VERSION    "1.2.5"
 #define Z_NULL          0
 #define Z_NO_FLUSH      0
+#define Z_SYNC_FLUSH    2
+#define Z_FINISH        4
 #define Z_OK            0
 #define Z_STREAM_END    1
 #define Z_NEED_DICT     2
 #define Z_STREAM_ERROR (-2)
 #define Z_DATA_ERROR   (-3)
+#define Z_BUF_ERROR    (-5)
+#define Z_BINARY       0
+#define Z_TEXT         1
+#define Z_UNKNOWN      2
 #define Bytef           unsigned char
 typedef struct {
     Bytef *             next_in;
@@ -82,6 +93,14 @@ int inflateInit2_(z_stream * z, int flags, const char * version, int struct_size
 int inflate(z_stream * z, int flags);
 int inflateEnd(z_stream * z);
 const char * zlibVersion();
+#define Z_DEFAULT_STRATEGY      0
+#define Z_DEFLATED              8
+int deflateInit2_(z_stream * z, int  level, int method, int windowBits, int memLevel, int strategy, const char * version, int struct_size);
+#define deflateInit2(strm, level, method, windowBits, memLevel, strategy) \
+        deflateInit2_((strm), (level), (method), (windowBits), (memLevel), (strategy), zlibVersion(), (int)sizeof(z_stream))
+int deflate(z_stream * z, int flags);
+int deflateEnd(z_stream * z);
+const char * zlibVersion();
 #endif
 
 /* ************************************************************************ */
@@ -93,7 +112,6 @@ typedef struct {
 
 typedef struct {
     z_stream            z;
-    size_t              off;
     void *              user_data;
     decode_wrapper_t *  lib;
 } decodebuf_t; /* ##ZSRC_BEGIN */
@@ -112,16 +130,20 @@ static int inflate_raw(z_stream * z, int flags) {
     size_t size = z->avail_in;
     (void) flags;
 
-    if (size == 0) {
+    if (size == 0)
         return Z_STREAM_END;
-    }
-    if (size > z->avail_out) {
-        size = z->avail_out;
+    if (z->avail_out <= 0)
+        return Z_BUF_ERROR;
+
+    if (size > z->avail_out || size> z->avail_in) {
+        size = z->avail_out < z->avail_in ? z->avail_out : z->avail_in;
     }
     memcpy(z->next_out, z->next_in, size);
     z->avail_out -= size;
     z->avail_in -= size;
-    return Z_OK;
+    z->next_in += size;
+    z->next_out += size;
+    return z->avail_in ? Z_OK : Z_STREAM_END;
 }
 static int inflate_strtab(z_stream * z, int flags) {
     size_t      n;
@@ -129,9 +151,11 @@ static int inflate_strtab(z_stream * z, int flags) {
     char *      end;
     (void) flags;
 
-    if (ptr == NULL || *ptr == NULL || z->next_in == NULL) {
+    if (ptr == NULL || *ptr == NULL || z->next_in == NULL || z->avail_in <= 0)
         return Z_STREAM_END;
-    }
+    if (z->avail_out <= 0)
+        return Z_BUF_ERROR;
+
     while (z->avail_out > 0) {
         end = stpncpy((char *) z->next_out, (const char *) z->next_in, z->avail_out);
         n = (end - (char *) z->next_out);
@@ -148,19 +172,30 @@ static int inflate_strtab(z_stream * z, int flags) {
             }
         }
     }
-    return Z_OK;
+    return z->avail_in ? Z_OK : Z_STREAM_END;
 }
 
 /* ************************************************************************ */
 #if CONFIG_ZLIB
 static int inflate_init_zlib(z_stream * z, int flags) {
     /* InflateInit2 can be macros, this wrapper is needed to use a function pointer */
-    return inflateInit2(z, flags);
+    (void) flags;
+    return inflateInit2(z, 15+16/*15(max_window)+16(gzip)*/);
+}
+static int deflate_init_zlib(z_stream * z, int flags) {
+    /* deflateInit2 can be macros, this wrapper is needed to use a function pointer */
+    (void) flags;
+    return deflateInit2(z, 6, Z_DEFLATED, 15+16/*15(max_window)+16(gzip)*/, 8, Z_DEFAULT_STRATEGY);
 }
 static decode_wrapper_t s_decode_zlib = {
     .inflate_init   = inflate_init_zlib,
     .inflate_end    = inflateEnd,
     .inflate_do     = inflate,
+};
+static decode_wrapper_t s_encode_zlib = {
+    .inflate_init   = deflate_init_zlib,
+    .inflate_end    = deflateEnd,
+    .inflate_do     = deflate,
 };
 #endif
 /* ************************************************************************ */
@@ -184,9 +219,10 @@ ssize_t             vdecode_buffer(
                         void **         ctx,
                         const char *    inbuf,
                         size_t inbufsz) {
-    int                internalbuf = 0, ret = Z_DATA_ERROR;
     ssize_t         n = 0;
     decodebuf_t *   pctx = ctx ? *ctx : NULL;
+    int             internalbuf = 0, ret = Z_DATA_ERROR;
+    int             inflate_flags = 0;
 
     if (outbuf == NULL) {
         if (out == NULL || (outbuf = malloc((internalbuf = outbufsz = 4096))) == NULL) {
@@ -208,6 +244,7 @@ ssize_t             vdecode_buffer(
         return -1; /* fail if giving a buf with size 0 or without ctx */
     }
     if (pctx == NULL) { /* init inflate stream */
+        LOG_SCREAM(g_vlib_log, "NEW DECODE");
         if ((pctx = malloc(sizeof(decodebuf_t))) == NULL) {
             if (internalbuf)
                 free(outbuf);
@@ -222,22 +259,38 @@ ssize_t             vdecode_buffer(
         pctx->z.zfree = Z_NULL;
         pctx->z.opaque = Z_NULL;
         pctx->z.avail_in = 0;
-        pctx->off = 0;
         pctx->user_data = NULL;
 
         if (inbufsz >= 3 && inbuf
         && inbuf[0] == 31 && (unsigned char)(inbuf[1]) == 139 && inbuf[2] == 8) {
             /* GZIP MAGIC */
+            LOG_SCREAM(g_vlib_log, "init inflate");
 #          if CONFIG_ZLIB
             pctx->lib = &s_decode_zlib;
 #          else
             pctx->lib = NULL;
 #          endif
+        } else if (inbuf && inbufsz >= PTR_COUNT(VDECODEBUF_ZLIBENC_MAGIC) - 1
+                && strncmp(inbuf, VDECODEBUF_ZLIBENC_MAGIC,
+                           PTR_COUNT(VDECODEBUF_ZLIBENC_MAGIC) - 1) == 0) {
+            /* vdecode GZ DEFLATE MAGIC */
+#          if CONFIG_ZLIB
+            pctx->lib = &s_encode_zlib;
+#          else
+            pctx->lib = NULL;
+#          endif
+            inbuf += PTR_COUNT(VDECODEBUF_ZLIBENC_MAGIC) - 1;
+            inbufsz -= PTR_COUNT(VDECODEBUF_ZLIBENC_MAGIC) - 1;
+            if (inbufsz == 0)
+                n = -1;
+            LOG_SCREAM(g_vlib_log, "init deflate");
+            pctx->z.data_type = Z_TEXT; // Z_TEXT, Z_BINARY / Z_UNKNOWN
         } else if (inbufsz >=4 && inbuf
         && inbuf[0] == 0x0c && inbuf[1] == 0x0a && inbuf[2] == 0x0f && inbuf[3] == 0x0e) {
             /* RAW (char array) MAGIC */
             pctx->lib = &s_decode_raw;
-            pctx->off = 4;
+            inbuf += 4;
+            inbufsz -= 4;
         } else if (inbufsz >= sizeof(void *) && inbuf
         && (const char *)(*((const char*const*)inbuf)) == VDECODEBUF_STRTAB_MAGIC) {
             /* STRTAB (string array) MAGIC */
@@ -252,7 +305,8 @@ ssize_t             vdecode_buffer(
             pctx->lib = &s_decode_raw;
         }
         if (pctx->lib == NULL || inbuf == NULL
-        ||  (ret = pctx->lib->inflate_init(&pctx->z, 31/*15(max_window)+16(gzip)*/)) != Z_OK) {
+        ||  (ret = pctx->lib->inflate_init(&pctx->z, inflate_flags)) != Z_OK) {
+            LOG_SCREAM(g_vlib_log, "vbufdecode init error");
             if(pctx)
                 free(pctx);
             if(internalbuf)
@@ -264,32 +318,60 @@ ssize_t             vdecode_buffer(
         if (ctx != NULL)
             *ctx = pctx;
     }
+
+    inflate_flags = inbufsz == 0 ? Z_SYNC_FLUSH : Z_NO_FLUSH;
     do { /* decompress buffer */
-        if (pctx->z.avail_in == 0 && pctx->off < inbufsz) {
-            pctx->z.avail_in = pctx->off + outbufsz > inbufsz ? inbufsz - pctx->off : outbufsz;
-            pctx->z.next_in = (Bytef*) inbuf + pctx->off;
-            pctx->off += outbufsz;
+        LOG_DEBUG_LVL(LOG_LVL_SCREAM+2, g_vlib_log, "AVAIL_IN %u N %zd inbufsz %zu outbufsz %zu out = %zu total_out=%lu total_in=%lu",
+                       pctx->z.avail_in, n, inbufsz, outbufsz, outbufsz - pctx->z.avail_out, pctx->z.total_out, pctx->z.total_in);
+
+        if (pctx->z.avail_in == 0) {
+            if (pctx->lib == &s_encode_zlib) {
+                pctx->z.next_in = (Bytef *) inbuf;
+                if (n == -1) {
+                    n = 0;
+                    break ;
+                }
+            }
+            if ((char *) pctx->z.next_in < inbuf + inbufsz) {
+                pctx->z.avail_in = inbufsz;
+                pctx->z.next_in = (Bytef*) inbuf;
+                inbufsz -= pctx->z.avail_in;
+            }
         }
-        pctx->z.avail_out = outbufsz;
-        pctx->z.next_out = (Bytef*) outbuf;
-        if ((ret = pctx->lib->inflate_do(&pctx->z, Z_NO_FLUSH)) != Z_OK && ret != Z_STREAM_END)
+        pctx->z.avail_out = outbufsz - n;
+        pctx->z.next_out = (Bytef*) outbuf + n;
+        ret = pctx->lib->inflate_do(&pctx->z, inflate_flags);
+        LOG_DEBUG_LVL(LOG_LVL_SCREAM + 1, g_vlib_log, "vbufdecode: lib avail_in %u avail_out %u ret %d",
+                      pctx->z.avail_in, pctx->z.avail_out, ret);
+        if (ret != Z_OK && ret != Z_STREAM_END && ret != Z_BUF_ERROR)
             break ;
-        n = outbufsz - pctx->z.avail_out;
-        if (n > 0 && out && (fwrite(outbuf, 1, n, out) != (size_t)n
+        n = internalbuf ? 0 : n + outbufsz - n - pctx->z.avail_out;
+        size_t n0 = outbufsz - n - pctx->z.avail_out;
+        if (pctx->z.avail_out < outbufsz && out && (fwrite(outbuf + n, 1, n0, out) != (size_t)n0
         ||  ferror(out)) && ((ret = Z_STREAM_ERROR) || 1))
             break ;
-    } while (ret != Z_STREAM_END && (internalbuf || (ret == Z_OK && n == 0)));
+    } while (ret != Z_STREAM_END && (internalbuf || (ret == Z_OK && pctx->z.avail_in > 0)));
+    if (ret == Z_STREAM_END || (ret != Z_OK && (ret != Z_BUF_ERROR || n <= 0))) { /* last call unless n > 0 */
+        pctx->z.avail_in = 0;
+        pctx->z.avail_out = outbufsz -n;
+        pctx->z.next_out = (Bytef *) (outbuf + n);
+        pctx->lib->inflate_do(&pctx->z, Z_FINISH);
+        n += outbufsz -n - pctx->z.avail_out;
+        if (n <= 0) {
+            pctx->lib->inflate_end(&pctx->z);
+            LOG_SCREAM(g_vlib_log, "vbufdecode END decode");
+            free(pctx);
+            pctx = NULL;
+            if (ctx)
+                *ctx = NULL;
+        }
+    }
     if (internalbuf) {
         free(outbuf);
         n = 0;
     }
-    if (n <= 0 || (ret != Z_OK && ret != Z_STREAM_END)) { /* last call */
-        pctx->lib->inflate_end(&pctx->z);
-        free(pctx);
-        if (ctx)
-            *ctx = NULL;
-    }
-    return ret == Z_OK || ret == Z_STREAM_END ? n : -1;
+    LOG_DEBUG_LVL(LOG_LVL_SCREAM, g_vlib_log, "vbufdecode: RETURN %zd (n:%zd, lib ret:%d)", n, n, ret);
+    return pctx && (ret == Z_OK || ret == Z_STREAM_END || n > 0) ? n : -1;
 }
 
 /* ************************************************************************ */

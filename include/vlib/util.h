@@ -179,8 +179,8 @@ unsigned long pgcd_rounded(long value1, long value2,
 int         vabspath(char * dst, size_t maxlen, const char * path, const char * cwd);
 
 /** vdecode_buffer : decode <inbuf> (zlib or raw (char[]), char * tab[])
- * This function must be called until it returns 0 or -1.
- * To release resources before it returns 0 or -1, call it with (NULL, 0, &ctx, NULL, 0).
+ * This function must be called until it returns < 0.
+ * To release resources before it returns -1, call it with (NULL, 0, &ctx, NULL, 0).
  * @param out if not NULL, the decoded data is writen to file out
  * @param outbuf if not NULL, the decoded data is added in outbuf
  * @param outbufsz the maximum size of outbuf
@@ -200,6 +200,7 @@ int         vabspath(char * dst, size_t maxlen, const char * path, const char * 
  * @return number of decoded bytes, 0 when finished, -1 on error */
 #define     VDECODEBUF_STRTAB_MAGIC ((const char *) 0x0abcCafeUL)
 #define     VDECODEBUF_RAW_MAGIC    "\x0c\x0a\x0f\x0e"
+#define     VDECODEBUF_ZLIBENC_MAGIC "\xCA\xFE\xFE\xCA"
 ssize_t     vdecode_buffer(
                 FILE *          out,
                 char *          outbuf,
