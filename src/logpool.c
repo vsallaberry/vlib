@@ -199,10 +199,10 @@ static void logpool_file_free(void * vfile) {
             && (pool_file->flags & LFF_NOCLOSE) == 0) {
                 struct stat stats;
                 sched_yield();
-                //flockfile(pool_file->file); // not necessary, we are about to close the file
+                //flockfile(pool_file->file); //FIX in progress
                 fflush(pool_file->file);
                 fsync(fileno(pool_file->file));
-                //funlockfile(pool_file->file); // not necessary, we are about to close the file
+                //funlockfile(pool_file->file); // FIX in PROGRESS
                 fclose(pool_file->file);
                 if (pool_file->path != NULL
                 && stat(pool_file->path, &stats) == 0 && stats.st_size == 0) {
