@@ -32,10 +32,13 @@
 #include "vlib_private.h"
 
 /** internal */
+typedef struct vjob_cleanup_s vjob_cleanup_t;
+
 struct vjob_s {
     void *                  retval;
     void *                  user_data;
     vjob_fun_t              user_fun;
+    vjob_cleanup_t *        cleanup;
     pthread_t               tid;
     pthread_mutex_t         mutex;
     pthread_cond_t          cond;
@@ -44,17 +47,19 @@ struct vjob_s {
 
 /* ************************************************************************ */
 
-typedef struct {
+struct vjob_cleanup_s {
     vjob_t *            job;
-} vjob_cleanup_t;
+};
 
 static void job_cleanup(void * vdata) {
     vjob_cleanup_t *    cleanup = (vjob_cleanup_t *) vdata;
 
     if (cleanup != NULL && cleanup->job != NULL) {
-        pthread_mutex_lock(&(cleanup->job->mutex));
-        cleanup->job->state |= VJS_INTERRUPTED;
-        pthread_mutex_unlock(&(cleanup->job->mutex));
+        vjob_t * job = cleanup->job;
+        pthread_mutex_lock(&(job->mutex));
+        job->state |= VJS_INTERRUPTED;
+        cleanup->job = NULL;
+        pthread_mutex_unlock(&(job->mutex));
     }
 }
 
@@ -72,6 +77,7 @@ static void * job_runner(void * vdata) {
     user_data = job->user_data;
     job->state |= VJS_STARTED;
     job->retval = retval;
+    job->cleanup = &cleanup;
     if ((job->state & VJS_DETACHED) != 0) {
         cleanup.job = NULL;
         pthread_detach(pthread_self());
@@ -103,11 +109,19 @@ static void * job_runner(void * vdata) {
         pthread_mutex_lock(&(job->mutex));
         job->state |= VJS_DONE;
         job->retval = retval;
+        job->cleanup = NULL;
         pthread_mutex_unlock(&(job->mutex));
     }
 
     /* exit */
     return retval;
+}
+
+/* ************************************************************************ */
+void vjob_free_ctx(vjob_t * job) {
+    pthread_mutex_destroy(&job->mutex);
+    pthread_cond_destroy(&job->cond);
+    free(job);
 }
 
 /* ************************************************************************ */
@@ -118,9 +132,7 @@ void * vjob_free(vjob_t * job) {
         return ret;
     vjob_kill(job);
     ret = vjob_wait(job);
-    pthread_mutex_destroy(&job->mutex);
-    pthread_cond_destroy(&job->cond);
-    free(job);
+    vjob_free_ctx(job);
     return ret;
 }
 
@@ -142,6 +154,7 @@ vjob_t * vjob_run(vjob_fun_t fun, void * user_data) {
     job->user_data = user_data;
     job->retval = VJOB_NO_RESULT;
     job->state = VJS_CREATED;
+    job->cleanup = NULL;
 
     pthread_mutex_lock(&(job->mutex));
     if (pthread_create(&(job->tid), NULL, job_runner, job) != 0) {
@@ -197,14 +210,16 @@ void * vjob_wait(vjob_t * job) {
     if ((state & (VJS_DETACHED)) != 0) {
         retval = job->retval;
         pthread_mutex_unlock(&(job->mutex));
-        LOG_DEBUG(g_vlib_log, "%s(): state %x", __func__, state);
+        LOG_DEBUG(g_vlib_log, "%s(): detached. state %x (job:%lx)",
+                  __func__, state, (unsigned long) job);
         return retval;
     }
 
     job->state |= VJS_DETACHED;
     pthread_mutex_unlock(&(job->mutex));
     /* ------------------------------------- */
-    LOG_DEBUG(g_vlib_log, "%s(): state %x", __func__, state);
+    LOG_DEBUG(g_vlib_log, "%s(): state %x (job:%lx)",
+              __func__, state, (unsigned long) job);
 
     #ifdef _DEBUG
     if (vthread_valgrind(0, NULL)) {
@@ -326,7 +341,38 @@ int vjob_killmode(int enable, int async, int *old_enable, int *old_async) {
     return 0;
 }
 
-#if 0
+/* ************************************************************************ */
+static inline int vjob_detach_internal(vjob_t * job, int is_self) {
+    if (job == NULL) {
+        errno = EFAULT;
+        return -1;
+    }
+    pthread_mutex_lock(&(job->mutex));
+    if ((!is_self || job->tid == pthread_self())
+    &&  job->cleanup != NULL
+    &&  (job->state & (VJS_DONE | VJS_INTERRUPTED | VJS_DETACHED)) == 0) {
+        job->state |= VJS_DETACHED;
+        job->cleanup->job = NULL;
+        pthread_detach(job->tid);
+        pthread_mutex_unlock(&(job->mutex));
+        vjob_free_ctx(job);
+        LOG_SCREAM(g_vlib_log, "job %lx detached.", (unsigned long) job);
+        return 0;
+    }
+    pthread_mutex_unlock(&(job->mutex));
+    return -1;
+}
+
+/* ************************************************************************ */
+int vjob_detachme(vjob_t * job) {
+    return vjob_detach_internal(job, 1);
+}
+
+/* ************************************************************************ */
+int vjob_detach(vjob_t * job) {
+    return vjob_detach_internal(job, 0);
+}
+
 /* ************************************************************************ */
 int vjob_runandfree(vjob_fun_t fun, void * data) {
     vjob_t * job;
@@ -334,11 +380,14 @@ int vjob_runandfree(vjob_fun_t fun, void * data) {
     if ((job = vjob_run(fun, data)) == NULL) {
         return -1;
     }
-    vjob_free(job);
+    if (vjob_detach(job) != 0) {
+        vjob_free(job);
+        return -1;
+    }
     return 0;
 }
-#endif
 
+/* ************************************************************************ */
 unsigned int vjob_cpu_nb() {
     static int ncpus = -1;
     if (ncpus > 0) {

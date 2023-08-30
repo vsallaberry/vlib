@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Vincent Sallaberry
+ * Copyright (C) 2020,2023 Vincent Sallaberry
  * vlib <https://github.com/vsallaberry/vlib>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -126,18 +126,23 @@ int             vjob_killmode(
                     int *           old_enable,
                     int *           old_async);
 
+/** detach job and free its data; job pointer is no valid anymore if successfull.
+ * only the job itself can use this function.
+ * @return 0 on success, < 0 on error */
+int             vjob_detachme(vjob_t * job);
+
+/** detach job and free its data; job pointer is no valid anymore if successfull.
+ * @return 0 on success, < 0 on error */
+int             vjob_detach(vjob_t * job);
+
 /** @return number of available CPUs */
 unsigned int    vjob_cpu_nb();
 
-/* ************************************************************************ */
-#if 0
-/** disabled features */
-
 /** run job and forget it (let it run)
+ * @param see vjob_run()
  * @return 0 on success */
 int             vjob_runandfree(vjob_fun_t fun, void * data);
 
-#endif /* ! disabled features */
 /* ************************************************************************ */
 
 #ifdef __cplusplus
