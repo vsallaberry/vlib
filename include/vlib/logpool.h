@@ -186,6 +186,21 @@ int                 logpool_replacefile(
                         const char *        newpath,
                         slist_t **          pbackup);
 
+/** change the logpool log rotation parameters
+ * complexity: O(1)
+ * @param pool the logpool
+ * @param log_max_size the maximum size of a log before being rotated
+ * @param log_max_rotate the maximum number of log rotations,
+ * @param p_log_max_size if not NULL, previous log_max_size is put inside
+ * @param p_log_max_rotate if not NULL, previous log_max_rotate is put inside,
+ * @return 0 on success, negative value on error */
+int                 logpool_set_rotation(
+                        logpool_t *         pool,
+                        size_t              log_max_size,
+                        unsigned char       log_max_rotate,
+                        size_t *            p_log_max_size,
+                        unsigned char *     p_log_max_rotate);
+
 /*****************************************************************************/
 
 #ifdef __cplusplus

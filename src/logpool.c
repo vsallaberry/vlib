@@ -32,6 +32,7 @@
 #include "vlib/logpool.h"
 #include "vlib/avltree.h"
 #include "vlib/util.h"
+#include "vlib/job.h"
 #include "vlib_private.h"
 
 /* ************************************************************************ */
@@ -40,6 +41,10 @@ logpool_t * g_vlib_logpool = NULL;
 /* format of file path when FILE* is given instead of a file path */
 #define LOGPOOL_FDPATH_FMT          ";%d;%08lx;"
 #define LOGPOOL_FDPATH_ARGS(file)   fileno((file)), (unsigned long)((file))
+
+/** maximum log file size and number of log file rotations */
+#define LOGPOOL_LOG_SIZE_MAX    (1UL * 1000UL * 1000UL) // 1MB
+#define LOGPOOL_LOG_ROTATE_MAX  (6)
 
 /** internal logpool flags */
 typedef enum {
@@ -60,8 +65,11 @@ typedef enum {
 struct logpool_s {
     avltree_t *         logs;
     avltree_t *         files;
+    slist_t *           jobs;
+    size_t              log_size_max;
     pthread_rwlock_t    rwlock;
     unsigned int        flags;
+    unsigned char       log_rotate_max;
 };
 
 /** internal file structure (data of logpool->files) */
@@ -157,7 +165,205 @@ int logpool_pathcasecmp(const void * vpool1_data, const void * vpool2_data) {
 }
 
 /* ************************************************************************ */
-static logpool_file_t * logpool_file_create(const char * path, FILE * file) {
+static vjob_t * logpool_job_launch_unlocked(
+                    logpool_t * pool,
+                    vjob_fun_t job_fun,
+                    void * fun_data) {
+    vjob_t * job;
+
+    if ((job = vjob_run(job_fun, fun_data)) != NULL) {
+        pool->jobs = slist_prepend(pool->jobs, job);
+    }
+    return job;
+}
+
+/* ************************************************************************ */
+static inline int logpool_job_forget_internal(
+                    logpool_t * pool,
+                    vjob_t * job,
+                    int (*jobdetach_fun)(vjob_t*)) {
+    int failed;
+
+    while ((failed = pthread_rwlock_trywrlock(&pool->rwlock)) != 0) {
+        if (pool->jobs == NULL)
+            break ; // job list is null, most probably logpool_free() on-going.
+        usleep(20000);
+    }
+    if (!failed) {
+        if (jobdetach_fun(job) == 0) {
+            LOG_SCREAM(g_vlib_log, "logpool: removing job '%lx' from list.",
+                       (unsigned long) job);
+            pool->jobs = slist_remove_ptr(pool->jobs, job);
+        } else {
+            failed = -1;
+        }
+        pthread_rwlock_unlock(&pool->rwlock);
+    }
+    return failed;
+}
+static int logpool_job_forgetme(
+                    logpool_t * pool,
+                    vjob_t * job) {
+    return logpool_job_forget_internal(pool, job, vjob_detachme);
+}
+
+/* ************************************************************************ */
+typedef struct {
+    logpool_t * pool;
+    vjob_t *    job;
+    char *      path;
+    char *      z_path;
+    FILE *      fin;
+    FILE *      fout;
+} logpool_compress_data_t;
+
+static void  logpool_compress_log_job_clean(void * vdata) {
+    logpool_compress_data_t *   data = vdata;
+    int                         failed;
+
+    LOG_SCREAM(g_vlib_log, "logpool: compress cleanup (%s)", data->path);
+    if (logpool_job_forgetme(data->pool, data->job) == 0) {
+        LOG_DEBUG(g_vlib_log, "logpool: removing compress job '%s' from job list.", data->path);
+    }
+
+    // check if all worked well.
+    if (data->fin) {
+        failed = !feof(data->fin);
+        fclose(data->fin);
+    } else {
+        failed = 1;
+    }
+    if (data->fout)
+        fclose(data->fout);
+    if (failed) {
+        LOG_WARN(g_vlib_log, "logpool: compression did not finish");
+        unlink(data->z_path);
+    } else {
+        LOG_INFO(g_vlib_log, "logpool: log compressed: '%s'.", data->z_path);
+        unlink(data->path);
+    }
+    if (data->path)
+        free(data->path);
+    free(data);
+    LOG_SCREAM(g_vlib_log, "%s(): exiting", __func__);
+}
+
+/* ************************************************************************ */
+static void * logpool_compress_log_job(void * vdata) {
+    logpool_compress_data_t *   data = vdata;
+    char                        buf[4096];
+    char                        outbuf[4096];
+    char                        z_path[PATH_MAX] = { 0, };
+    void *                      dec_ctx = NULL;
+    ssize_t                     in_sz, out_sz;
+
+    // first setup a pthread cleanup handler
+    vjob_killmode(0, 0, NULL, NULL);
+    data->fin = data->fout = NULL;
+    data->z_path = z_path;
+    pthread_cleanup_push(logpool_compress_log_job_clean, data);
+
+    // Init the compression, check if supported
+    in_sz = str0cpy(buf, VDECODEBUF_ZLIBENC_MAGIC, sizeof(buf)); // encode (deflate) zlib internal vlib magic / TODO
+    if ((out_sz = vdecode_buffer(NULL, buf, in_sz, &dec_ctx, buf, in_sz)) < 0) {
+        LOG_VERBOSE(g_vlib_log, "logpool: compression not supported");
+        return NULL;
+    }
+
+    // open input and output files.
+    snprintf(z_path, sizeof(z_path), "%s.gz", data->path);
+    if ((data->fin = fopen(data->path, "r")) == NULL
+    ||  (data->fout = fopen(z_path, "w")) == NULL) {
+        vdecode_buffer(NULL, NULL, 0, &dec_ctx, NULL, 0);
+        return NULL; // cleanup function will close files.
+    }
+
+    // read input file and compress it.
+    while ((in_sz = fread(buf, 1, sizeof(buf), data->fin)) > 0) {
+        vjob_testkill();
+        out_sz = vdecode_buffer(NULL, outbuf, sizeof(outbuf), &dec_ctx, buf, in_sz);
+        LOG_DEBUG_LVL(LOG_LVL_SCREAM + 1, g_vlib_log, "dec %zd", out_sz);
+        if (out_sz < 0)
+            break ;
+        if (fwrite(outbuf, 1, out_sz, data->fout) != (size_t) out_sz) {
+            LOG_VERBOSE(g_vlib_log, "logpool: cannot write to '%s': %s", z_path, strerror(errno));
+            break ;
+        }
+    }
+    if (out_sz >= 0) {
+        while ((out_sz = vdecode_buffer(NULL, outbuf, sizeof(outbuf), &dec_ctx, buf, 0)) > 0) {
+            if (fwrite(outbuf, 1, out_sz, data->fout) != (size_t) out_sz) {
+                LOG_VERBOSE(g_vlib_log, "logpool: cannot write to '%s': %s", z_path, strerror(errno));
+                vdecode_buffer(NULL, NULL, 0, &dec_ctx, NULL, 0);
+                rewind(data->fin); // feof(fin) will be false and an error will be raised.
+                break ;
+            }
+        }
+    }
+
+    // cleanup
+    pthread_cleanup_pop(1);
+    return NULL;
+}
+
+/* ************************************************************************ */
+static FILE * logpool_open_and_rotate_file(logpool_t * pool, const char * path) {
+    char            old_path[PATH_MAX];
+    struct stat     st;
+    unsigned int    i;
+
+    if (pool->log_size_max && pool->log_rotate_max
+    && stat(path, &st) == 0 && (size_t) st.st_size > pool->log_size_max) {
+        // ********************************************************************
+        // file exeeded the maximum size
+        // search a free rotation number, or replace the oldest one
+        time_t          oldest_mtime = LONG_MAX;
+        unsigned int    oldest_idx = 0;
+        for (i = 0; i < pool->log_rotate_max; ++i) {
+            snprintf(old_path, sizeof(old_path), "%s.%u.gz", path, i);
+            if (stat(old_path, &st) == 0
+            ||  (snprintf(old_path, sizeof(old_path), "%s.%u", path, i) > 0 && stat(old_path, &st) == 0)) {
+               if (st.st_ctime < oldest_mtime) {
+                   oldest_mtime = st.st_ctime;
+                   oldest_idx = i;
+               }
+            } else {
+               break ;
+            }
+        }
+        if (i >= pool->log_rotate_max) {
+            i = oldest_idx;
+        }
+        snprintf(old_path, sizeof(old_path), "%s.%u", path, i);
+        LOG_VERBOSE(g_vlib_log, "logpool: file '%s' has reached max size %zu, rotating to #%u.",
+                    path, pool->log_size_max, i);
+
+        // ********************************************************************
+        // rename the file to its 'rotated' name.
+        if (rename(path, old_path) != 0) {
+            LOG_WARN(g_vlib_log, "logpool: cannot rotate file '%s': %s", path, strerror(errno));
+        } else {
+            // ********************************************************************
+            // compress rotated file in background
+            logpool_compress_data_t * data = malloc(sizeof(*data));
+            if (data == NULL || (data->pool = pool) == NULL
+            || (data->path = strdup(old_path)) == NULL
+            || (data->job = logpool_job_launch_unlocked(pool, logpool_compress_log_job, data)) == NULL) {
+                LOG_ERROR(g_vlib_log, "logpool: cannot compress log '%s': %s", old_path, strerror(errno));
+                if (data->path)
+                    free(data->path);
+                if (data)
+                    free(data);
+            }
+        }
+    }
+    // ********************************************************************
+    // finally open and return the file.
+    return fopen(path, "a");
+}
+
+/* ************************************************************************ */
+static logpool_file_t * logpool_file_create(logpool_t * logpool, const char * path, FILE * file) {
     logpool_file_t * pool_file = malloc(sizeof(logpool_file_t));
 
     if (pool_file == NULL) {
@@ -167,7 +373,7 @@ static logpool_file_t * logpool_file_create(const char * path, FILE * file) {
     pool_file->flags = LFF_NONE;
 
     if (path != NULL && file == NULL) {
-        pool_file->file = fopen(path, "a");
+        pool_file->file = logpool_open_and_rotate_file(logpool, path);
         if (pool_file->file == NULL) {
             LOG_WARN(g_vlib_log, "logpool: cannot open file '%s': %s", path, strerror(errno));
             pool_file->flags |= LFF_OPENFAILED; /* rfu: could be used to retry open */
@@ -234,6 +440,32 @@ static void logpool_entry_free(void * ventry) {
 }
 
 /* ************************************************************************ */
+int                 logpool_set_rotation(
+                        logpool_t *         pool,
+                        size_t              log_max_size,
+                        unsigned char       log_max_rotate,
+                        size_t *            p_log_max_size,
+                        unsigned char *     p_log_max_rotate) {
+    if (pool == NULL) {
+        errno = EFAULT;
+        return -1;
+    }
+    pthread_rwlock_wrlock(&pool->rwlock);
+
+    if (p_log_max_rotate)
+        *p_log_max_rotate = pool->log_rotate_max;
+    if (p_log_max_size)
+        *p_log_max_size = pool->log_size_max;
+
+    pool->log_size_max = log_max_size;
+    pool->log_rotate_max = log_max_rotate;
+
+    pthread_rwlock_unlock(&pool->rwlock);
+
+    return 0;
+}
+
+/* ************************************************************************ */
 logpool_t *         logpool_create() {
     logpool_t * pool    = malloc(sizeof(logpool_t));
     log_t       log     = { LOG_LVL_INFO, LOG_FLAG_DEFAULT | LOGPOOL_FLAG_TEMPLATE,
@@ -248,6 +480,9 @@ logpool_t *         logpool_create() {
         free(pool);
         return NULL;
     }
+    pool->jobs = NULL;
+    pool->log_rotate_max = LOGPOOL_LOG_ROTATE_MAX;
+    pool->log_size_max = LOGPOOL_LOG_SIZE_MAX;
     pool->flags = LPP_DEFAULT;
     prefcmpfun = (pool->flags & LPP_PREFIX_CASEFOLD) != 0
                  ? logpool_prefixcasecmp : logpool_prefixcmp;
@@ -295,10 +530,18 @@ logpool_t *         logpool_create() {
 void                logpool_free(
                         logpool_t *         pool) {
     if (pool != NULL) {
+        slist_t * jobs;
         size_t nf;
         size_t nl;
 
         pthread_rwlock_wrlock(&pool->rwlock);
+        jobs = pool->jobs;
+        pool->jobs = NULL; // important to let know jobs-cleanup that free is on-going.
+        if (jobs != NULL) {
+            LOG_INFO(g_vlib_log, "logpool: waiting jobs...");
+            slist_free(jobs, (slist_free_fun_t) vjob_waitandfree);
+        }
+
         if (pool == g_vlib_logpool) {
             g_vlib_logpool = NULL;
         }
@@ -634,7 +877,7 @@ static logpool_entry_t *logpool_add_unlocked(
     tmpfile.file = log->out;
     if ((pfile = avltree_find(pool->files, &tmpfile)) == NULL) {
         /* a new file has to be created (not found in pool->files) */
-        pfile = logpool_file_create(tmpfile.path, tmpfile.file);
+        pfile = logpool_file_create(pool, tmpfile.path, tmpfile.file);
         if (pfile == NULL || avltree_insert(pool->files, pfile) == NULL) {
             LOG_DEBUG(g_vlib_log, "%s(): new file for new logentry creation error", __func__);
             if (preventry == logentry /* the new logentry must be deleted */
@@ -1233,7 +1476,7 @@ int logpool_replacefile(
         char *              tmppath = newpath != NULL ? abspath : logpath->path;
 
         if (tmppath != NULL) {
-            FILE * tmpfile = fopen(tmppath, "a");
+            FILE * tmpfile = logpool_open_and_rotate_file(pool, tmppath);
             if (tmpfile == NULL) {
                 ++nerrors;
             } else {
