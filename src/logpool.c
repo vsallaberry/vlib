@@ -198,11 +198,8 @@ static void logpool_file_free(void * vfile) {
             if (fd != STDERR_FILENO && fd != STDOUT_FILENO
             && (pool_file->flags & LFF_NOCLOSE) == 0) {
                 struct stat stats;
-                sched_yield();
-                //flockfile(pool_file->file); //FIX in progress
                 fflush(pool_file->file);
                 fsync(fileno(pool_file->file));
-                //funlockfile(pool_file->file); // FIX in PROGRESS
                 fclose(pool_file->file);
                 if (pool_file->path != NULL
                 && stat(pool_file->path, &stats) == 0 && stats.st_size == 0) {
@@ -657,7 +654,7 @@ static logpool_entry_t *logpool_add_unlocked(
     /* checks whether the logentry was already in the pool and update it with new data */
     if (preventry != logentry) {
         logpool_file_t *    file_to_free = NULL;
-        FILE *              logout;
+        FILE *              logout, * newout;
 
         LOG_DEBUG(g_vlib_log, "LOGENTRY <%s> REPLACED by <%s> (%s%s)",
                   STR_CHECKNULL(preventry->log.prefix), STR_CHECKNULL(logentry->log.prefix),
@@ -665,7 +662,7 @@ static logpool_entry_t *logpool_add_unlocked(
 
         /* lock log file before continuing, to not disturb threads owning this log entry */
         logout = preventry->log.out == NULL ? LOG_FILE_DEFAULT : preventry->log.out;
-        flockfile(logout);
+        newout = logentry->log.out == NULL ? LOG_FILE_DEFAULT : logentry->log.out;
 
         if (preventry->file != pfile) { /* pointer comparison OK as doubles are forbiden. */
             /* the new logentry has a different file */
@@ -687,25 +684,33 @@ static logpool_entry_t *logpool_add_unlocked(
             /* new log has the same file as previous: decrement because ++use_count below. */
             --preventry->file->use_count;
         }
-        /* prefix of prev entry is kept, new one (equal) is freed */
-        if (logentry->log.prefix != NULL) {
-            free(logentry->log.prefix);
-            logentry->log.prefix = preventry->log.prefix;
-        }
-        /* template flag of previous logentry is kept */
-        logentry->log.flags |= (preventry->log.flags & LOGPOOL_FLAG_TEMPLATE);
         /* copy new log entry data into previous entry (data changes, log pointer does not */
-        logentry->use_count = preventry->use_count;
-        *preventry = *logentry;
-        logentry->log.prefix = NULL; /* logentry->log.prefix already freed */
-        logentry->log.out = NULL;
-        logpool_entry_free(logentry);
-
-        /* we can now unlock the old file, and free it as updated log entry is ready to be used */
+        //keep preventry->use_count
+        preventry->file = logentry->file;
+        /* -----> BEGIN Critical Section -- NO LOGGING HERE -- */
+        preventry->log.flags |= LOG_FLAG_CLOSING;
+        flockfile(logout);
+        if (newout != logout)
+            flockfile(newout);
+        logentry->log.flags |= LOG_FLAG_CLOSING;
+        //keep preventry->log.prefix
+        preventry->log.level = logentry->log.level;
+        /* template flag of previous logentry is kept */
+        preventry->log.flags = logentry->log.flags
+                               | (preventry->log.flags & LOGPOOL_FLAG_TEMPLATE);
+        preventry->log.out = logentry->log.out;
+        /* we can now unlock old file, and free it as updated log entry is ready to be used */
         funlockfile(logout);
+        /* logentry can now be destroyed */
+        logentry->log.out = NULL; /* logentry->log.out is now used by preventry */
+        logpool_entry_free(logentry);
         if (file_to_free != NULL) {
             logpool_file_free(file_to_free);
         }
+        if (newout != logout)
+            funlockfile(newout);
+        preventry->log.flags &= ~LOG_FLAG_CLOSING;
+        /* <----- END Critical Section */
     }
 
     /* finish initialization and return log instance */
@@ -723,6 +728,7 @@ static inline int   logpool_remove_unlocked(
     if ((logentry = avltree_remove(pool->logs, search)) != NULL) {
         if (logentry->file != NULL && --logentry->file->use_count == 0
         && avltree_remove(pool->files, logentry->file) != NULL) {
+            logentry->log.out = NULL;
             logpool_file_free(logentry->file);
         }
         logpool_entry_free(logentry);

@@ -186,14 +186,22 @@ log_t * log_set_vlib_instance(log_t * log) {
     log_t * old_log = g_vlib_log;
     FILE * out;
 
+    LOG_DEBUG(g_vlib_log, "%s(): new %p, gvliblog %p gvliblog.out %p",
+              __func__, (void *)log, (void *)g_vlib_log, (void *)g_vlib_log->out);
+
     out = log_getfile_locked(g_vlib_log);
     fflush(out);
 
     if (log == NULL) {
         log = &s_vlib_log_default;
     }
+    if (log->out && log->out != out)
+        flockfile(log->out);
+
     g_vlib_log = log;
 
+    if (log->out && log->out != out)
+        funlockfile(log->out);
     funlockfile(out);
     return old_log;
 }
@@ -613,30 +621,26 @@ void log_destroy(void * vlog) {
 
 FILE * log_getfile_locked(log_t * log) {
     FILE * file;
+    int is_vliblog;
 
     if (log == NULL)
         log = &s_vlib_log_null;
-    if (log->out == NULL) {
-        file = LOG_FILE_DEFAULT;
-        flockfile(file);
-        return file;
-    }
     while (1) {
-        file = log->out;
-        flockfile(file);
-        /* lock acquired, other thread must wait before writing, closing, ... */
-        if (file != log->out) {
-            /* file was changed */
-            funlockfile(file); /* release old lock, will allow other thread to close it */
-
-            LOG_DEBUG(g_vlib_log, "%s(): file was changed, old:%p new:%p",
-                __func__, (void *) file, (void *) log->out);
-
-            /* try again */
-            continue ;
+        while((log->flags & LOG_FLAG_CLOSING) != 0) {
+            usleep(10);
         }
-        return file;
+        is_vliblog = (log == g_vlib_log);
+        file = log->out ? log->out : LOG_FILE_DEFAULT;
+        flockfile(file);
+        if (is_vliblog && log != g_vlib_log) {
+            log = g_vlib_log;
+        } else if (file == (log->out ? log->out : LOG_FILE_DEFAULT)
+        &&         (log->flags & LOG_FLAG_CLOSING) == 0) {
+            break ;
+        }
+        funlockfile(file);
     }
+    return file;
 }
 
 #ifndef LOG_USE_VA_ARGS

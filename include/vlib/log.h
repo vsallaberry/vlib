@@ -71,6 +71,7 @@ typedef enum {
     LOG_FLAG_FREEPREFIX = 1 << 15,  /* log_t.prefix is considered allocated and freed on destroy */
     LOG_FLAG_FREELOG    = 1 << 16,  /* the log will be freed on log_destroy() */
     LOG_FLAG_SILENT     = 1 << 17,  /* the log will be disabled() */
+    LOG_FLAG_CLOSING    = 1 << 19,  /* the log will be closed */
     LOG_FLAG_CUSTOM     = 1 << 20,  /* first bit available for log custom flags */
     LOG_FLAG_DEFAULT    = LOG_FLAG_DATETIME | LOG_FLAG_MODULE | LOG_FLAG_LEVEL
                         | LOG_FLAG_LOC_ERR | LOG_FLAG_LOC_TAIL | LOG_FLAG_COLOR
@@ -286,6 +287,7 @@ FILE *      log_getfile_locked(log_t * log);
  * @return the previous vlib log instance
  */
 log_t *     log_set_vlib_instance(log_t * log);
+
 
 #ifdef __cplusplus
 }
